@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  irrigation-service:
+    build: ./irrigation_service
+    ports:
+      - "5001:5001"
+    environment:
+      - SERVICE_NAME=irrigation-service
+      - SERVICE_PORT=5001
+    networks:
+      - smart-irrigation-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  sediment-mapping-service:
+    build: ./sediment_mapping_service
+    ports:
+      - "5002:5002"
+    environment:
+      - SERVICE_NAME=sediment-mapping-service
+      - SERVICE_PORT=5002
+    networks:
+      - smart-irrigation-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  forecasting-service:
+    build: ./forecasting_service
+    ports:
+      - "5003:5003"
+    environment:
+      - SERVICE_NAME=forecasting-service
+      - SERVICE_PORT=5003
+    networks:
+      - smart-irrigation-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5003/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  smart-irrigation-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  irrigation-data:
+  sediment-data:
+  forecasting-data:
