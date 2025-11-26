@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+  # F1 - Irrigation Service (Dineth)
   irrigation-service:
     build: ./irrigation_service
     ports:
@@ -12,12 +13,13 @@ services:
       - smart-irrigation-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5001/status"]
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
+  # F2 - Crop Health / Sediment Mapping Service (Dulari)
   sediment-mapping-service:
     build: ./sediment_mapping_service
     ports:
@@ -29,12 +31,13 @@ services:
       - smart-irrigation-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5002/status"]
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
+  # F3 - Forecasting Service (Yasiru)
   forecasting-service:
     build: ./forecasting_service
     ports:
@@ -46,11 +49,34 @@ services:
       - smart-irrigation-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5003/status"]
+      test: ["CMD", "curl", "-f", "http://localhost:5003/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  # F4 - ACA-O Service (Dilruksha)
+  aca-o-service:
+    build: ./aca_o_service
+    ports:
+      - "8000:8000"
+    environment:
+      - SERVICE_NAME=aca-o-service
+      - SERVICE_PORT=8000
+      - DATABASE_URL=sqlite:///./aca_o.db
+    networks:
+      - smart-irrigation-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      - irrigation-service
+      - sediment-mapping-service
+      - forecasting-service
 
 networks:
   smart-irrigation-network:
