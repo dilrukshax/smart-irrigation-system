@@ -155,7 +155,7 @@ class FeatureBuilder:
         """
         Get climate forecast for the field and season.
         
-        TODO: Replace with actual API call to forecasting service
+        REQUIRES: Integration with forecasting service or weather API.
         
         Args:
             field: Field data dictionary
@@ -163,33 +163,35 @@ class FeatureBuilder:
         
         Returns:
             Climate forecast data including ETo and rainfall predictions
+            Returns empty forecast if service unavailable.
         """
         logger.debug(f"Fetching climate forecast for season {season}")
         
-        # Stub: Return typical Sri Lankan Maha season climate
-        # In production, call the forecasting microservice here:
-        # response = requests.get(f"{settings.forecasting_service_url}/forecast", params={...})
+        # TODO: Integrate with forecasting microservice
+        # Example integration:
+        # from src.core.config import get_settings
+        # settings = get_settings()
+        # response = requests.get(
+        #     f"{settings.forecasting_service_url}/forecast",
+        #     params={"lat": field.get("latitude"), "lon": field.get("longitude"), "season": season}
+        # )
+        # return response.json()
         
-        if "maha" in season.lower():
-            # Maha season (Oct-Feb): More rainfall, cooler
-            return {
-                "season": season,
-                "avg_temp_c": 27.0,
-                "avg_humidity_pct": 78.0,
-                "total_rainfall_mm": 350.0,
-                "eto_mm_per_day": [4.0, 4.5, 5.0, 4.5, 4.0],  # Per growth stage
-                "rainfall_mm": [80, 100, 90, 50, 30],  # Per growth stage
-            }
-        else:
-            # Yala season (Apr-Aug): Less rainfall, hotter
-            return {
-                "season": season,
-                "avg_temp_c": 30.0,
-                "avg_humidity_pct": 70.0,
-                "total_rainfall_mm": 200.0,
-                "eto_mm_per_day": [5.0, 5.5, 6.0, 5.5, 5.0],
-                "rainfall_mm": [40, 50, 60, 30, 20],
-            }
+        logger.warning(
+            "Climate forecast service not configured. "
+            "Please integrate with forecasting_service or weather API."
+        )
+        
+        # Return empty/default forecast - indicates missing data
+        return {
+            "season": season,
+            "avg_temp_c": None,
+            "avg_humidity_pct": None,
+            "total_rainfall_mm": None,
+            "eto_mm_per_day": [],
+            "rainfall_mm": [],
+            "data_available": False,
+        }
     
     def _build_single_crop_features(
         self,

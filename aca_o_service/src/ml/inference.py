@@ -4,17 +4,17 @@ ML Inference Module
 This module provides high-level inference functions that combine
 multiple ML models to generate predictions for crop recommendations.
 
+IMPORTANT: This module requires trained ML models to be loaded.
+Without models, predictions will return None/empty values.
+
 Functions in this module:
 - predict_yield_for_candidates: Get yield predictions for all candidate crops
 - predict_price_for_candidates: Get price predictions for all candidate crops
 - compute_profitability: Calculate expected profit per hectare
-
-These functions are used by the recommendation service to orchestrate
-ML predictions.
 """
 
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from src.ml.yield_model import get_yield_model
 from src.ml.price_model import get_price_model
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 def predict_yield_for_candidates(
     field_id: str,
     features_per_crop: Dict[str, Dict[str, Any]],
-) -> Dict[str, float]:
+) -> Dict[str, Optional[float]]:
     """
     Predict yield for all candidate crops in a field.
     
@@ -35,19 +35,19 @@ def predict_yield_for_candidates(
     
     Returns:
         Dictionary mapping crop_id to predicted yield (t/ha)
-        {"CROP-001": 4.2, "CROP-002": 5.1, ...}
-    
-    Example:
-        features = {
-            "CROP-001": {"soil_suitability": 0.85, ...},
-            "CROP-002": {"soil_suitability": 0.75, ...},
-        }
-        yields = predict_yield_for_candidates("FIELD-001", features)
+        Returns None for crops where prediction failed.
     """
     logger.info(f"Predicting yields for {len(features_per_crop)} crops in {field_id}")
     
     model = get_yield_model()
-    predictions: Dict[str, float] = {}
+    predictions: Dict[str, Optional[float]] = {}
+    
+    if not model.model_loaded:
+        logger.error(
+            "Yield model not loaded. Cannot generate yield predictions. "
+            "Please configure and load a trained yield model."
+        )
+        return {crop_id: None for crop_id in features_per_crop.keys()}
     
     for crop_id, features in features_per_crop.items():
         try:
@@ -59,8 +59,7 @@ def predict_yield_for_candidates(
             predictions[crop_id] = yield_pred
         except Exception as e:
             logger.error(f"Yield prediction failed for {crop_id}: {e}")
-            # Use base yield as fallback
-            predictions[crop_id] = features.get("base_yield_t_ha", 3.0)
+            predictions[crop_id] = None
     
     return predictions
 
@@ -68,7 +67,7 @@ def predict_yield_for_candidates(
 def predict_price_for_candidates(
     crop_ids: List[str],
     season: str = None,
-) -> Dict[str, float]:
+) -> Dict[str, Optional[float]]:
     """
     Predict prices for all candidate crops.
     
@@ -78,12 +77,19 @@ def predict_price_for_candidates(
     
     Returns:
         Dictionary mapping crop_id to predicted price (per kg)
-        {"CROP-001": 85.0, "CROP-002": 70.0, ...}
+        Returns None for crops where prediction failed.
     """
     logger.info(f"Predicting prices for {len(crop_ids)} crops")
     
     model = get_price_model()
-    predictions: Dict[str, float] = {}
+    predictions: Dict[str, Optional[float]] = {}
+    
+    if not model.model_loaded:
+        logger.error(
+            "Price model not loaded. Cannot generate price predictions. "
+            "Please configure and load a trained price model."
+        )
+        return {crop_id: None for crop_id in crop_ids}
     
     for crop_id in crop_ids:
         try:
@@ -91,54 +97,51 @@ def predict_price_for_candidates(
             predictions[crop_id] = price
         except Exception as e:
             logger.error(f"Price prediction failed for {crop_id}: {e}")
-            predictions[crop_id] = 100.0  # Default fallback
+            predictions[crop_id] = None
     
     return predictions
 
 
 def compute_profitability(
     crop_id: str,
-    yield_t_per_ha: float,
-    price_per_kg: float,
+    yield_t_per_ha: Optional[float],
+    price_per_kg: Optional[float],
     cost_per_ha: float = None,
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """
     Compute profitability metrics for a crop.
     
     Args:
         crop_id: Crop identifier (for cost lookup)
-        yield_t_per_ha: Expected yield in tonnes/ha
-        price_per_kg: Expected price per kg
-        cost_per_ha: Optional production cost per ha (uses default if None)
+        yield_t_per_ha: Expected yield in tonnes/ha (None if unavailable)
+        price_per_kg: Expected price per kg (None if unavailable)
+        cost_per_ha: Optional production cost per ha
     
     Returns:
-        Dictionary with profitability metrics:
-        - gross_revenue_per_ha: Yield × Price
-        - cost_per_ha: Production costs
-        - profit_per_ha: Revenue - Costs
-        - profit_margin: Profit / Revenue
-    
-    Example:
-        profit = compute_profitability(
-            crop_id="CROP-001",
-            yield_t_per_ha=4.5,
-            price_per_kg=85.0
-        )
-        # Returns: {"profit_per_ha": 247500.0, ...}
+        Dictionary with profitability metrics.
+        Values will be None if yield or price data is missing.
     """
-    # Default production costs per hectare (LKR)
-    # Based on typical Sri Lankan farming costs
-    default_costs = {
-        "CROP-001": 135000,  # Rice - high input costs
-        "CROP-002": 95000,   # Maize
-        "CROP-003": 75000,   # Green Gram - lower input
-        "CROP-004": 180000,  # Chilli - labor intensive
-        "CROP-005": 150000,  # Onion
-    }
+    # If yield or price is missing, cannot calculate profitability
+    if yield_t_per_ha is None or price_per_kg is None:
+        logger.warning(
+            f"Cannot compute profitability for {crop_id}: "
+            f"yield={yield_t_per_ha}, price={price_per_kg}"
+        )
+        return {
+            "gross_revenue_per_ha": None,
+            "cost_per_ha": cost_per_ha,
+            "profit_per_ha": None,
+            "profit_margin": None,
+            "data_complete": False,
+        }
     
-    # Get cost
+    # Get cost - requires external data source in production
     if cost_per_ha is None:
-        cost_per_ha = default_costs.get(crop_id, 120000)
+        logger.warning(
+            f"Production cost not provided for {crop_id}. "
+            "Please configure cost data source."
+        )
+        cost_per_ha = 0  # Will show gross revenue only
     
     # Calculate revenue (yield in tonnes → kg, multiply by price)
     yield_kg = yield_t_per_ha * 1000
@@ -153,6 +156,7 @@ def compute_profitability(
         "cost_per_ha": cost_per_ha,
         "profit_per_ha": round(profit, 2),
         "profit_margin": round(margin, 3),
+        "data_complete": True,
     }
 
 
@@ -173,22 +177,20 @@ def get_risk_assessment(
         features: Feature dictionary
     
     Returns:
-        Risk assessment dictionary with:
-        - overall_risk: "low", "medium", or "high"
-        - price_risk: Price volatility classification
-        - water_risk: Risk from water shortage
-        - factors: List of specific risk factors
+        Risk assessment dictionary
     """
     price_model = get_price_model()
     
-    # Get price risk
+    # Get price risk (returns "unknown" if model not loaded)
     price_risk = price_model.get_risk_band(crop_id)
     
-    # Assess water risk
-    water_coverage = features.get("water_coverage_ratio", 0.8)
+    # Assess water risk from features
+    water_coverage = features.get("water_coverage_ratio")
     water_sensitivity = features.get("water_sensitivity", "medium")
     
-    if water_coverage < 0.7:
+    if water_coverage is None:
+        water_risk = "unknown"
+    elif water_coverage < 0.7:
         if water_sensitivity == "high":
             water_risk = "high"
         else:
@@ -199,8 +201,8 @@ def get_risk_assessment(
         water_risk = "low"
     
     # Combine risks
-    risk_scores = {"low": 1, "medium": 2, "high": 3}
-    avg_risk = (risk_scores[price_risk] + risk_scores[water_risk]) / 2
+    risk_scores = {"low": 1, "medium": 2, "high": 3, "unknown": 2}
+    avg_risk = (risk_scores.get(price_risk, 2) + risk_scores.get(water_risk, 2)) / 2
     
     if avg_risk <= 1.5:
         overall_risk = "low"
@@ -209,18 +211,32 @@ def get_risk_assessment(
     else:
         overall_risk = "high"
     
+    # If both risks are unknown, overall is unknown
+    if price_risk == "unknown" and water_risk == "unknown":
+        overall_risk = "unknown"
+    
     # Identify specific factors
     factors = []
-    if price_risk == "high":
+    if price_risk == "unknown":
+        factors.append("Price risk data not available - price model not loaded")
+    elif price_risk == "high":
         factors.append("High price volatility - market prices fluctuate significantly")
-    if water_risk != "low":
-        factors.append(f"Water availability concern - coverage at {water_coverage:.0%}")
+    
+    if water_risk == "unknown":
+        factors.append("Water risk data not available - climate data missing")
+    elif water_risk != "low":
+        factors.append(f"Water availability concern - coverage at {(water_coverage or 0):.0%}")
+    
     if water_sensitivity == "high":
         factors.append("Crop is sensitive to water stress")
+    
+    if not factors:
+        factors.append("Insufficient data to assess risk factors")
     
     return {
         "overall_risk": overall_risk,
         "price_risk": price_risk,
         "water_risk": water_risk,
-        "factors": factors if factors else ["No significant risk factors identified"],
+        "factors": factors,
+        "data_complete": price_risk != "unknown" and water_risk != "unknown",
     }

@@ -37,9 +37,12 @@ class YieldModel:
     Predicts expected yield in tonnes per hectare based on
     field conditions, crop characteristics, and environmental factors.
     
+    REQUIRES: Trained ML model file (.joblib) to be loaded.
+    Without a trained model, predictions cannot be made.
+    
     Usage:
         model = YieldModel()
-        model.load_model()
+        model.load_model("models/yield_model.joblib")
         
         yield_prediction = model.predict(
             field_id="FIELD-001",
@@ -55,17 +58,8 @@ class YieldModel:
     def __init__(self):
         """Initialize the yield model."""
         self.model_loaded = False
-        self.model_version = "stub-v0.1"
+        self.model_version = None
         self._model = None
-        
-        # Base yields by crop category (tonnes/ha)
-        # Used as fallback in stub implementation
-        self._base_yields = {
-            "cereal": 4.0,
-            "pulse": 1.5,
-            "vegetable": 10.0,
-            "fruit": 8.0,
-        }
     
     def load_model(self, model_path: Optional[str] = None) -> bool:
         """
@@ -73,134 +67,66 @@ class YieldModel:
         
         Args:
             model_path: Path to the saved model file (.joblib)
-                       If None, uses default path or stub mode
         
         Returns:
-            bool: True if model loaded successfully
+            bool: True if model loaded successfully, False otherwise
+        """
+        if model_path is None:
+            logger.warning(
+                "No yield model path provided. "
+                "Please train a model and provide the path to load it."
+            )
+            self.model_loaded = False
+            return False
         
-        TODO:
-            Implement actual model loading:
-            ```python
+        try:
             import joblib
             self._model = joblib.load(model_path)
             self.model_loaded = True
-            ```
-        """
-        logger.info(f"Loading yield model (version: {self.model_version})")
-        
-        # STUB: Mark as loaded without actual model
-        # In production, load the actual trained model here
-        # try:
-        #     import joblib
-        #     self._model = joblib.load(model_path or "models/yield_model.joblib")
-        #     self.model_loaded = True
-        #     logger.info("Yield model loaded successfully")
-        # except Exception as e:
-        #     logger.error(f"Failed to load yield model: {e}")
-        #     self.model_loaded = False
-        
-        self.model_loaded = True  # Stub always succeeds
-        logger.info("Yield model ready (stub mode)")
-        
-        return self.model_loaded
+            self.model_version = getattr(self._model, 'version', 'unknown')
+            logger.info(f"Yield model loaded successfully from {model_path}")
+            return True
+        except FileNotFoundError:
+            logger.error(f"Yield model file not found: {model_path}")
+            self.model_loaded = False
+            return False
+        except Exception as e:
+            logger.error(f"Failed to load yield model: {e}")
+            self.model_loaded = False
+            return False
     
     def predict(
         self,
         field_id: str,
         crop_id: str,
         features: Dict[str, Any],
-    ) -> float:
+    ) -> Optional[float]:
         """
         Predict yield for a specific field-crop combination.
         
         Args:
             field_id: Field identifier
             crop_id: Crop identifier
-            features: Feature dictionary containing:
-                - soil_suitability: 0-1 score
-                - water_coverage_ratio: 0-1 score
-                - crop_category: e.g., "cereal"
-                - base_yield_t_ha: Baseline yield
-                - historical_yield_t_ha: Past performance
-                - season_avg_temp: Average temperature
-                - season_rainfall_mm: Total rainfall
+            features: Feature dictionary containing model inputs
         
         Returns:
-            Predicted yield in tonnes per hectare
-        
-        Example:
-            yield_pred = model.predict(
-                field_id="FIELD-001",
-                crop_id="CROP-001", 
-                features={"soil_suitability": 0.85, "water_coverage_ratio": 0.9}
+            Predicted yield in tonnes per hectare, or None if model not loaded
+        """
+        if not self.model_loaded or self._model is None:
+            logger.error(
+                "Yield model not loaded. Cannot make predictions. "
+                "Please load a trained model using load_model()."
             )
-            # Returns: 4.2 (tonnes/ha)
-        """
-        if not self.model_loaded:
-            logger.warning("Model not loaded, loading now...")
-            self.load_model()
+            return None
         
-        # STUB: Use deterministic fake prediction based on features
-        # In production, use actual model:
-        # feature_vector = self._prepare_features(features)
-        # return float(self._model.predict([feature_vector])[0])
-        
-        yield_prediction = self._stub_predict(field_id, crop_id, features)
-        
-        logger.debug(f"Yield prediction for {crop_id} in {field_id}: {yield_prediction:.2f} t/ha")
-        
-        return yield_prediction
-    
-    def _stub_predict(
-        self,
-        field_id: str,
-        crop_id: str,
-        features: Dict[str, Any],
-    ) -> float:
-        """
-        Stub prediction using simple heuristics.
-        
-        Creates deterministic but reasonable-looking predictions
-        based on features without a real ML model.
-        """
-        # Get base yield
-        category = features.get("crop_category", "cereal")
-        base_yield = features.get(
-            "base_yield_t_ha",
-            self._base_yields.get(category, 3.0)
-        )
-        
-        # Adjust for historical performance
-        hist_yield = features.get("historical_yield_t_ha", base_yield)
-        
-        # Blend historical and base (70% historical if available)
-        if hist_yield > 0:
-            expected_base = 0.7 * hist_yield + 0.3 * base_yield
-        else:
-            expected_base = base_yield
-        
-        # Adjustment factors
-        soil_factor = features.get("soil_suitability", 0.7)
-        water_factor = features.get("water_coverage_ratio", 0.8)
-        
-        # Water stress penalty for sensitive crops
-        water_sensitivity = features.get("water_sensitivity", "medium")
-        if water_sensitivity == "high" and water_factor < 0.9:
-            water_factor *= 0.9  # Additional penalty
-        
-        # Create pseudo-random variation using field+crop hash
-        # This ensures same inputs give same output (deterministic)
-        hash_input = f"{field_id}_{crop_id}"
-        hash_val = int(hashlib.md5(hash_input.encode()).hexdigest()[:8], 16)
-        variation = 0.9 + (hash_val % 21) / 100  # 0.90 to 1.10
-        
-        # Final prediction
-        prediction = expected_base * soil_factor * water_factor * variation
-        
-        # Ensure reasonable bounds
-        prediction = max(0.5, min(prediction, base_yield * 1.5))
-        
-        return round(prediction, 2)
+        try:
+            feature_vector = self._prepare_features(features)
+            prediction = float(self._model.predict([feature_vector])[0])
+            logger.debug(f"Yield prediction for {crop_id} in {field_id}: {prediction:.2f} t/ha")
+            return round(prediction, 2)
+        except Exception as e:
+            logger.error(f"Yield prediction failed: {e}")
+            return None
     
     def _prepare_features(self, features: Dict[str, Any]) -> list:
         """
@@ -248,11 +174,18 @@ def get_yield_model() -> YieldModel:
     """
     Get the singleton yield model instance.
     
+    Note: Model must be explicitly loaded with a valid model path
+    before predictions can be made.
+    
     Returns:
-        YieldModel: The shared yield model instance
+        YieldModel: The shared yield model instance (may not be loaded)
     """
     global _yield_model
     if _yield_model is None:
         _yield_model = YieldModel()
-        _yield_model.load_model()
+        # Model is NOT auto-loaded - must be explicitly loaded with path
+        logger.warning(
+            "YieldModel instance created but not loaded. "
+            "Call load_model() with a valid model path to enable predictions."
+        )
     return _yield_model

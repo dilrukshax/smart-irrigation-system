@@ -7,12 +7,16 @@ This module implements the main recommendation pipeline that orchestrates:
 3. Optimization (crop area allocation)
 4. Response building (formatting recommendations)
 
-This is the core service that ties together all the components
-of the ACA-O system.
+IMPORTANT: This service requires:
+- Populated database with field and crop data
+- Trained ML models (yield, price)
+- Climate forecast service integration
+
+Without these data sources, the service will return empty recommendations.
 """
 
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from sqlalchemy.orm import Session
 
@@ -48,6 +52,8 @@ class RecommendationService:
     5. Optimize crop allocation
     6. Build and return recommendations
     
+    REQUIRES: Database with field/crop data, trained ML models.
+    
     Usage:
         service = RecommendationService()
         response = service.get_recommendations(
@@ -74,15 +80,8 @@ class RecommendationService:
             db_session: Database session for data access
         
         Returns:
-            RecommendationResponse with ranked crop recommendations
-        
-        Pipeline steps:
-            1. Build features for all candidate crops
-            2. Score crops using Fuzzy-TOPSIS
-            3. Predict yields and prices
-            4. Calculate profitability
-            5. Run optimization
-            6. Select top recommendations
+            RecommendationResponse with ranked crop recommendations.
+            Returns empty recommendations if required data is missing.
         """
         logger.info(f"Generating recommendations for field={request.field_id}")
         
@@ -99,7 +98,10 @@ class RecommendationService:
         )
         
         if not features_per_crop:
-            logger.warning("No candidate crops available")
+            logger.warning(
+                f"No candidate crops available for field={request.field_id}. "
+                "Please ensure crops are populated in the database."
+            )
             return RecommendationResponse(
                 field_id=request.field_id,
                 season=request.season,
@@ -109,11 +111,27 @@ class RecommendationService:
         # === Step 2: Compute Suitability Scores ===
         suitability_scores = compute_fuzzy_topsis_scores(features_per_crop)
         
+        if not suitability_scores:
+            logger.warning("Suitability scoring returned no results.")
+            return RecommendationResponse(
+                field_id=request.field_id,
+                season=request.season,
+                recommendations=[],
+            )
+        
         # === Step 3: Predict Yields ===
         yield_predictions = predict_yield_for_candidates(
             field_id=request.field_id,
             features_per_crop=features_per_crop,
         )
+        
+        # Check if yield predictions are available
+        has_yield_data = any(v is not None for v in yield_predictions.values())
+        if not has_yield_data:
+            logger.warning(
+                "Yield predictions unavailable. ML model not loaded. "
+                "Recommendations will be based on suitability only."
+            )
         
         # === Step 4: Predict Prices ===
         crop_ids = list(features_per_crop.keys())
@@ -122,7 +140,15 @@ class RecommendationService:
             season=request.season,
         )
         
-        # === Step 5: Calculate Profitability & Build Optimization Inputs ===
+        # Check if price predictions are available
+        has_price_data = any(v is not None for v in price_predictions.values())
+        if not has_price_data:
+            logger.warning(
+                "Price predictions unavailable. ML model not loaded. "
+                "Profitability calculations will be incomplete."
+            )
+        
+        # === Step 5: Build Optimization Inputs ===
         optimization_inputs = self._build_optimization_inputs(
             features_per_crop=features_per_crop,
             suitability_scores=suitability_scores,
@@ -132,7 +158,13 @@ class RecommendationService:
         
         # Get field area for optimization
         field_data = FieldRepository.get_field_by_id(db_session, request.field_id)
-        total_area_ha = field_data.get("area_ha", 2.0) if field_data else 2.0
+        total_area_ha = field_data.get("area_ha", 1.0) if field_data else 1.0
+        
+        if not field_data:
+            logger.warning(
+                f"Field {request.field_id} not found in database. "
+                "Using default area of 1.0 ha."
+            )
         
         # === Step 6: Run Optimization ===
         optimizer = Optimizer(
@@ -166,34 +198,38 @@ class RecommendationService:
         self,
         features_per_crop: Dict[str, Dict[str, Any]],
         suitability_scores: Dict[str, float],
-        yield_predictions: Dict[str, float],
-        price_predictions: Dict[str, float],
+        yield_predictions: Dict[str, Optional[float]],
+        price_predictions: Dict[str, Optional[float]],
     ) -> List[OptimizationCropInput]:
         """
         Build optimization input objects from predictions.
         
-        Combines suitability scores, yield predictions, and price predictions
-        into OptimizationCropInput objects for the optimizer.
+        Handles missing data gracefully by using suitability as fallback.
         """
         inputs = []
         
         for crop_id, features in features_per_crop.items():
-            yield_t_ha = yield_predictions.get(crop_id, 3.0)
-            price_per_kg = price_predictions.get(crop_id, 100.0)
+            yield_t_ha = yield_predictions.get(crop_id)
+            price_per_kg = price_predictions.get(crop_id)
             
-            # Calculate expected profit
-            profitability = compute_profitability(
-                crop_id=crop_id,
-                yield_t_per_ha=yield_t_ha,
-                price_per_kg=price_per_kg,
-            )
+            # Calculate expected profit if data available
+            if yield_t_ha is not None and price_per_kg is not None:
+                profitability = compute_profitability(
+                    crop_id=crop_id,
+                    yield_t_per_ha=yield_t_ha,
+                    price_per_kg=price_per_kg,
+                )
+                expected_profit = profitability.get("profit_per_ha", 0)
+            else:
+                # Use suitability score as proxy for profit ranking
+                expected_profit = suitability_scores.get(crop_id, 0.5) * 100000
             
             inputs.append(OptimizationCropInput(
                 crop_id=crop_id,
                 crop_name=features.get("crop_name", crop_id),
-                max_area_ha=10.0,  # No per-crop limit for now
+                max_area_ha=10.0,
                 min_area_ha=0.0,
-                expected_profit_per_ha=profitability["profit_per_ha"],
+                expected_profit_per_ha=expected_profit,
                 water_req_mm_per_ha=features.get("water_requirement_mm", 500),
                 suitability_score=suitability_scores.get(crop_id, 0.5),
             ))
@@ -204,16 +240,13 @@ class RecommendationService:
         self,
         features_per_crop: Dict[str, Dict[str, Any]],
         suitability_scores: Dict[str, float],
-        yield_predictions: Dict[str, float],
-        price_predictions: Dict[str, float],
+        yield_predictions: Dict[str, Optional[float]],
+        price_predictions: Dict[str, Optional[float]],
         optimization_result: Any,
         max_count: int,
     ) -> List[CropOption]:
         """
         Build CropOption recommendations from analysis results.
-        
-        Selects top crops based on suitability and optimization results,
-        and formats them as CropOption objects.
         """
         recommendations = []
         
@@ -222,15 +255,19 @@ class RecommendationService:
         
         for crop_id, score in ranked:
             features = features_per_crop.get(crop_id, {})
-            yield_t_ha = yield_predictions.get(crop_id, 3.0)
-            price_per_kg = price_predictions.get(crop_id, 100.0)
+            yield_t_ha = yield_predictions.get(crop_id)
+            price_per_kg = price_predictions.get(crop_id)
             
-            # Calculate profit
-            profitability = compute_profitability(
-                crop_id=crop_id,
-                yield_t_per_ha=yield_t_ha,
-                price_per_kg=price_per_kg,
-            )
+            # Calculate profit if data available
+            if yield_t_ha is not None and price_per_kg is not None:
+                profitability = compute_profitability(
+                    crop_id=crop_id,
+                    yield_t_per_ha=yield_t_ha,
+                    price_per_kg=price_per_kg,
+                )
+                profit = profitability.get("profit_per_ha")
+            else:
+                profit = None
             
             # Get risk assessment
             risk = get_risk_assessment(crop_id, features)
@@ -240,7 +277,8 @@ class RecommendationService:
                 features=features,
                 suitability_score=score,
                 risk=risk,
-                allocated_area=optimization_result.allocations.get(crop_id, 0),
+                has_yield_data=yield_t_ha is not None,
+                has_price_data=price_per_kg is not None,
             )
             
             recommendations.append(CropOption(
@@ -248,8 +286,8 @@ class RecommendationService:
                 crop_name=features.get("crop_name", crop_id),
                 suitability_score=score,
                 expected_yield_t_per_ha=yield_t_ha,
-                expected_profit_per_ha=profitability["profit_per_ha"],
-                risk_band=risk["overall_risk"],
+                expected_profit_per_ha=profit,
+                risk_band=risk.get("overall_risk", "unknown"),
                 rationale=rationale,
             ))
         
@@ -260,12 +298,11 @@ class RecommendationService:
         features: Dict[str, Any],
         suitability_score: float,
         risk: Dict[str, Any],
-        allocated_area: float,
+        has_yield_data: bool,
+        has_price_data: bool,
     ) -> str:
         """
         Build human-readable rationale for a recommendation.
-        
-        Creates a short explanation of why this crop was recommended.
         """
         parts = []
         
@@ -278,18 +315,28 @@ class RecommendationService:
             parts.append("Moderate suitability - consider alternatives")
         
         # Water
-        water_coverage = features.get("water_coverage_ratio", 0.8)
-        if water_coverage >= 0.95:
-            parts.append("adequate water supply expected")
-        elif water_coverage >= 0.8:
-            parts.append("water availability is sufficient")
+        water_coverage = features.get("water_coverage_ratio")
+        if water_coverage is not None:
+            if water_coverage >= 0.95:
+                parts.append("adequate water supply expected")
+            elif water_coverage >= 0.8:
+                parts.append("water availability is sufficient")
+            else:
+                parts.append(f"water coverage at {water_coverage:.0%}")
         else:
-            parts.append(f"water coverage at {water_coverage:.0%}")
+            parts.append("water data unavailable")
         
         # Risk
-        if risk["overall_risk"] == "low":
+        overall_risk = risk.get("overall_risk", "unknown")
+        if overall_risk == "low":
             parts.append("low risk profile")
-        elif risk["overall_risk"] == "high":
+        elif overall_risk == "high":
             parts.append("higher risk but potentially higher returns")
+        elif overall_risk == "unknown":
+            parts.append("risk assessment incomplete")
+        
+        # Data availability warnings
+        if not has_yield_data or not has_price_data:
+            parts.append("(Note: yield/price models not loaded - profit estimates unavailable)")
         
         return "; ".join(parts) + "."

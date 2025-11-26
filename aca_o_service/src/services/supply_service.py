@@ -4,21 +4,20 @@ Supply Service (National/Regional Aggregation)
 This service provides aggregate statistics about crop planting
 and expected production at national or regional levels.
 
+IMPORTANT: This service requires real data to be populated.
+Without data in the database, it will return empty results.
+
 Used by:
 - Agricultural ministry for food security planning
 - Regional scheme managers for resource allocation
 - Policy makers for price stabilization decisions
-
-Data aggregation levels:
-- National: All fields across the country
-- Scheme: Fields within a specific irrigation scheme
-- Season: Data for a specific growing season
 """
 
 import logging
 from typing import Optional, List, Dict, Any
 
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from src.core.schemas import SupplyResponse, SupplySummaryItem
 from src.data.repositories import FieldRepository, CropRepository
@@ -30,8 +29,7 @@ class SupplyService:
     """
     Service for aggregating national/regional supply data.
     
-    Queries recommendation and planting data to provide
-    aggregate statistics for planning purposes.
+    REQUIRES: Database with populated recommendation/planting data.
     
     Usage:
         service = SupplyService()
@@ -62,13 +60,18 @@ class SupplyService:
         
         Returns:
             SupplyResponse with aggregated statistics per crop
+            Returns empty items list if no data available.
         """
         logger.info(f"Getting supply summary for season={season}, scheme={scheme_id}")
         
-        # Get aggregate data
-        # In production, this would query actual recommendation/planting records
-        # For now, return realistic dummy data
+        # Get aggregate data from database
         items = self._get_aggregate_data(season, scheme_id, db_session)
+        
+        if not items:
+            logger.warning(
+                f"No supply data found for season={season}, scheme={scheme_id}. "
+                "Please ensure recommendation/planting data is populated in the database."
+            )
         
         return SupplyResponse(
             season=season,
@@ -83,88 +86,57 @@ class SupplyService:
         db_session: Session,
     ) -> List[SupplySummaryItem]:
         """
-        Fetch and aggregate supply data.
+        Fetch and aggregate supply data from database.
         
-        TODO: Replace with actual database queries when data is available.
-        
-        Query would be something like:
-            SELECT 
-                crop_id, 
-                crop_name,
-                SUM(allocated_area_ha) as total_area,
-                SUM(allocated_area_ha * expected_yield) as total_production
-            FROM recommendations
-            JOIN fields ON recommendations.field_id = fields.id
-            WHERE season = :season
-            AND (:scheme_id IS NULL OR fields.scheme_id = :scheme_id)
-            GROUP BY crop_id, crop_name
+        Queries the recommendations/planting records table to aggregate
+        by crop. Returns empty list if no data available.
         """
-        logger.debug("Fetching aggregate supply data (stub implementation)")
+        logger.debug("Fetching aggregate supply data from database")
         
-        # Dummy data representing national aggregate
-        # Scaled based on typical Sri Lankan agricultural statistics
-        
-        # Season factor - Maha typically has more planting
-        if "maha" in season.lower():
-            scale = 1.0
-        else:
-            scale = 0.7  # Yala is typically smaller
-        
-        # Scheme factor - if filtering by scheme, much smaller numbers
-        if scheme_id:
-            scheme_scale = 0.01  # About 1% of national
-        else:
-            scheme_scale = 1.0
-        
-        combined_scale = scale * scheme_scale
-        
-        # Dummy aggregate data
-        base_data = [
-            {
-                "crop_id": "CROP-001",
-                "crop_name": "Rice (BG 352)",
-                "total_area_ha": 850000,  # ~850,000 ha rice nationally
-                "avg_yield_t_ha": 4.2,
-            },
-            {
-                "crop_id": "CROP-002",
-                "crop_name": "Maize",
-                "total_area_ha": 45000,
-                "avg_yield_t_ha": 5.0,
-            },
-            {
-                "crop_id": "CROP-003",
-                "crop_name": "Green Gram",
-                "total_area_ha": 35000,
-                "avg_yield_t_ha": 1.2,
-            },
-            {
-                "crop_id": "CROP-004",
-                "crop_name": "Chilli",
-                "total_area_ha": 28000,
-                "avg_yield_t_ha": 8.0,
-            },
-            {
-                "crop_id": "CROP-005",
-                "crop_name": "Onion",
-                "total_area_ha": 12000,
-                "avg_yield_t_ha": 15.0,
-            },
-        ]
-        
-        items = []
-        for data in base_data:
-            area = data["total_area_ha"] * combined_scale
-            production = area * data["avg_yield_t_ha"]
+        try:
+            # TODO: Replace with actual query when recommendations table exists
+            # Example query structure:
+            #
+            # from src.data.models_orm import Recommendation, Field, Crop
+            # 
+            # query = db_session.query(
+            #     Recommendation.crop_id,
+            #     Crop.name.label('crop_name'),
+            #     func.sum(Recommendation.allocated_area_ha).label('total_area'),
+            #     func.sum(Recommendation.allocated_area_ha * Recommendation.expected_yield).label('total_production')
+            # ).join(
+            #     Field, Recommendation.field_id == Field.id
+            # ).join(
+            #     Crop, Recommendation.crop_id == Crop.id
+            # ).filter(
+            #     Recommendation.season == season
+            # )
+            # 
+            # if scheme_id:
+            #     query = query.filter(Field.scheme_id == scheme_id)
+            # 
+            # results = query.group_by(Recommendation.crop_id, Crop.name).all()
+            # 
+            # return [
+            #     SupplySummaryItem(
+            #         crop_id=r.crop_id,
+            #         crop_name=r.crop_name,
+            #         total_area_ha=float(r.total_area or 0),
+            #         total_expected_production_tonnes=float(r.total_production or 0),
+            #     )
+            #     for r in results
+            # ]
             
-            items.append(SupplySummaryItem(
-                crop_id=data["crop_id"],
-                crop_name=data["crop_name"],
-                total_area_ha=round(area, 2),
-                total_expected_production_tonnes=round(production, 2),
-            ))
-        
-        return items
+            # For now, return empty list indicating no data
+            logger.warning(
+                "Supply aggregation requires recommendations/planting data table. "
+                "Please implement the Recommendation model and populate data."
+            )
+            return []
+            
+        except Exception as e:
+            logger.error(f"Database error fetching supply data: {e}")
+            return []
     
     def get_crop_details(
         self,
@@ -175,40 +147,34 @@ class SupplyService:
         """
         Get detailed breakdown for a specific crop.
         
-        Provides more detailed statistics for a single crop including:
-        - Breakdown by scheme/region
-        - Comparison with previous seasons
-        - Price expectations
-        
         Args:
             crop_id: Crop identifier
             season: Growing season
             db_session: Database session
         
         Returns:
-            Detailed statistics dictionary
+            Detailed statistics dictionary.
+            Returns minimal data if database not populated.
         """
         logger.debug(f"Getting crop details for {crop_id}")
         
-        # Dummy detailed data
+        # Get crop name from database
+        crop = CropRepository.get_crop_by_id(db_session, crop_id)
+        crop_name = crop.get("name", "Unknown") if crop else "Unknown"
+        
+        # Return structure indicating no data available
         return {
             "crop_id": crop_id,
+            "crop_name": crop_name,
             "season": season,
-            "total_area_ha": 850000,
-            "total_expected_production_tonnes": 3570000,
-            "avg_yield_t_ha": 4.2,
-            "num_fields": 125000,
-            "by_region": [
-                {"region": "North Central", "area_ha": 320000},
-                {"region": "Eastern", "area_ha": 185000},
-                {"region": "North Western", "area_ha": 165000},
-                {"region": "Southern", "area_ha": 95000},
-                {"region": "Other", "area_ha": 85000},
-            ],
-            "comparison": {
-                "prev_season_area_ha": 810000,
-                "change_pct": 4.9,
-            },
+            "total_area_ha": None,
+            "total_expected_production_tonnes": None,
+            "avg_yield_t_ha": None,
+            "num_fields": None,
+            "by_region": [],
+            "comparison": None,
+            "data_available": False,
+            "message": "Detailed supply data requires populated recommendations/planting records.",
         }
 
 
@@ -216,10 +182,7 @@ class SupplyForecastService:
     """
     Service for forecasting future supply based on recommendations.
     
-    Uses recommendation data to project expected supply,
-    useful for early warning of shortages or surpluses.
-    
-    Future enhancement for supply forecasting.
+    REQUIRES: Historical recommendation data and trained forecasting model.
     """
     
     @staticmethod
@@ -235,19 +198,18 @@ class SupplyForecastService:
             confidence_level: Statistical confidence for bounds
         
         Returns:
-            Forecast with expected values and confidence bounds
+            Forecast data or error message if data unavailable.
         """
-        # Placeholder for supply forecasting logic
+        logger.warning(
+            "Supply forecasting requires historical data and trained model. "
+            "Please configure data sources."
+        )
+        
         return {
             "season": season,
-            "forecast_date": "2025-01-15",
+            "forecast_date": None,
             "confidence_level": confidence_level,
-            "crops": [
-                {
-                    "crop_id": "CROP-001",
-                    "expected_production_tonnes": 3500000,
-                    "lower_bound_tonnes": 3200000,
-                    "upper_bound_tonnes": 3800000,
-                },
-            ],
+            "crops": [],
+            "data_available": False,
+            "message": "Supply forecasting requires historical recommendation data.",
         }
