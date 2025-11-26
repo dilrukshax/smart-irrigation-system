@@ -16,6 +16,7 @@ import {
   Avatar,
   Menu,
   MenuItem,
+  Chip,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -27,6 +28,7 @@ import {
   Settings as SettingsIcon,
   Person as PersonIcon,
   Logout as LogoutIcon,
+  AdminPanelSettings as AdminIcon,
 } from '@mui/icons-material';
 import { DRAWER_WIDTH } from '@config/constants';
 import { ROUTES } from '@config/routes';
@@ -45,7 +47,7 @@ export default function MainLayout() {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -88,6 +90,27 @@ export default function MainLayout() {
         ))}
       </List>
       <Divider />
+      
+      {/* Admin Section - Only visible to admins */}
+      {isAdmin && (
+        <>
+          <List>
+            <ListItem disablePadding>
+              <ListItemButton
+                selected={location.pathname.startsWith('/admin')}
+                onClick={() => navigate(ROUTES.ADMIN.USERS)}
+              >
+                <ListItemIcon sx={{ color: location.pathname.startsWith('/admin') ? 'primary.main' : 'inherit' }}>
+                  <AdminIcon />
+                </ListItemIcon>
+                <ListItemText primary="User Management" />
+              </ListItemButton>
+            </ListItem>
+          </List>
+          <Divider />
+        </>
+      )}
+      
       <List>
         <ListItem disablePadding>
           <ListItemButton onClick={() => navigate(ROUTES.SETTINGS)}>
@@ -123,9 +146,20 @@ export default function MainLayout() {
             <MenuIcon />
           </IconButton>
           <Box sx={{ flexGrow: 1 }} />
+          
+          {/* User info display */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              {user?.username}
+            </Typography>
+            {isAdmin && (
+              <Chip label="Admin" size="small" color="error" variant="outlined" />
+            )}
+          </Box>
+          
           <IconButton onClick={handleMenuOpen}>
             <Avatar sx={{ bgcolor: 'primary.main' }}>
-              {user?.name?.charAt(0) || 'U'}
+              {user?.username?.charAt(0).toUpperCase() || 'U'}
             </Avatar>
           </IconButton>
           <Menu

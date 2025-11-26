@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation, Link as RouterLink } from 'react-router-dom';
 import {
   Box,
   Card,
@@ -8,36 +8,42 @@ import {
   Button,
   Typography,
   Alert,
+  Link,
+  CircularProgress,
 } from '@mui/material';
 import { useAuth } from '@contexts/AuthContext';
 import { ROUTES } from '@config/routes';
 
 export default function Login() {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const { login, isLoading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  
+  // Get the page user was trying to access
+  const from = (location.state as any)?.from?.pathname || ROUTES.HOME;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     
-    if (!email || !password) {
-      setError('Please enter email and password');
+    if (!username || !password) {
+      setError('Please enter username and password');
       return;
     }
 
     try {
-      await login(email, password);
-      navigate(ROUTES.HOME);
-    } catch {
-      setError('Invalid credentials');
+      await login(username, password);
+      navigate(from, { replace: true });
+    } catch (err: any) {
+      setError(err.message || 'Invalid credentials');
     }
   };
 
   return (
-    <Card sx={{ width: '100%' }}>
+    <Card sx={{ width: '100%', maxWidth: 400 }}>
       <CardContent sx={{ p: 4 }}>
         <Typography variant="h5" component="h1" gutterBottom fontWeight={600}>
           Sign In
@@ -55,12 +61,14 @@ export default function Login() {
         <Box component="form" onSubmit={handleSubmit}>
           <TextField
             fullWidth
-            label="Email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            label="Username"
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
             margin="normal"
-            autoComplete="email"
+            autoComplete="username"
+            autoFocus
+            disabled={isLoading}
           />
           <TextField
             fullWidth
@@ -70,6 +78,7 @@ export default function Login() {
             onChange={(e) => setPassword(e.target.value)}
             margin="normal"
             autoComplete="current-password"
+            disabled={isLoading}
           />
           <Button
             fullWidth
@@ -77,10 +86,26 @@ export default function Login() {
             variant="contained"
             size="large"
             disabled={isLoading}
-            sx={{ mt: 3 }}
+            sx={{ mt: 3, mb: 2 }}
           >
-            {isLoading ? 'Signing in...' : 'Sign In'}
+            {isLoading ? (
+              <>
+                <CircularProgress size={20} sx={{ mr: 1 }} color="inherit" />
+                Signing in...
+              </>
+            ) : (
+              'Sign In'
+            )}
           </Button>
+          
+          <Box sx={{ textAlign: 'center' }}>
+            <Typography variant="body2" color="text.secondary">
+              Don't have an account?{' '}
+              <Link component={RouterLink} to={ROUTES.REGISTER}>
+                Register here
+              </Link>
+            </Typography>
+          </Box>
         </Box>
       </CardContent>
     </Card>

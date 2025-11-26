@@ -5,6 +5,13 @@ export const ROUTES = {
 
   // Dashboard
   HOME: '/',
+  DASHBOARD: '/dashboard',
+
+  // Admin
+  ADMIN: {
+    ROOT: '/admin',
+    USERS: '/admin/users',
+  },
 
   // F1 - Irrigation
   IRRIGATION: {

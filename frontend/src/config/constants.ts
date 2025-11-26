@@ -1,13 +1,21 @@
 // API Endpoints
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
 
+// Auth Service URL
+export const AUTH_SERVICE_URL = import.meta.env.VITE_AUTH_SERVICE_URL || 'http://localhost:8001';
+
 // Service URLs
 export const SERVICE_URLS = {
-  F1_IRRIGATION: import.meta.env.VITE_F1_SERVICE_URL || 'http://localhost:8001',
-  F2_CROP_HEALTH: import.meta.env.VITE_F2_SERVICE_URL || 'http://localhost:8002',
-  F3_FORECASTING: import.meta.env.VITE_F3_SERVICE_URL || 'http://localhost:8003',
-  F4_ACAO: import.meta.env.VITE_F4_SERVICE_URL || 'http://localhost:8004',
+  AUTH: AUTH_SERVICE_URL,
+  F1_IRRIGATION: import.meta.env.VITE_F1_SERVICE_URL || 'http://localhost:5001',
+  F2_CROP_HEALTH: import.meta.env.VITE_F2_SERVICE_URL || 'http://localhost:5002',
+  F3_FORECASTING: import.meta.env.VITE_F3_SERVICE_URL || 'http://localhost:5003',
+  F4_ACAO: import.meta.env.VITE_F4_SERVICE_URL || 'http://localhost:8000',
 };
+
+// Auth Token Key
+export const AUTH_TOKEN_KEY = 'authToken';
+export const REFRESH_TOKEN_KEY = 'refreshToken';
 
 // Map Configuration
 export const MAP_CONFIG = {
