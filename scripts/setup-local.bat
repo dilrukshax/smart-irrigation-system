@@ -85,7 +85,7 @@ echo.
 echo To start individual services for development:
 echo   cd services\auth-service
 echo   venv\Scripts\activate
-echo   uvicorn src.main:app --reload --port 8001
+echo   uvicorn app.main:app --reload --port 8001
 echo.
 echo To start the frontend:
 echo   cd frontend ^&^& npm run dev

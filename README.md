@@ -384,21 +384,21 @@ cd services/irrigation_service
 python -m venv venv
 .\venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn src.main:app --reload --port 8002
+uvicorn app.main:app --reload --port 8002
 
 # Terminal 3 - Forecasting Service
 cd services/forecasting_service
 python -m venv venv
 .\venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn src.main:app --reload --port 8003
+uvicorn app.main:app --reload --port 8003
 
 # Terminal 4 - ACA-O Service
-cd services/aca_o_service
+cd services/optimize_service
 python -m venv venv
 .\venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn src.main:app --reload --port 8004
+uvicorn app.main:app --reload --port 8004
 ```
 
 **Step 4: Start API Gateway (local dev)**

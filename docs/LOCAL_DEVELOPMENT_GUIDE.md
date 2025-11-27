@@ -20,9 +20,9 @@ This guide explains how to run the Smart Irrigation System locally with each ser
 |----------|---------|------|-----------|-------------|
 | 1 | Databases | - | `infrastructure/docker` | `docker compose up -d mongo postgres redis influxdb mosquitto` |
 | 2 | Auth Service | 8001 | `services/auth_service` | `uvicorn app.main:app --reload --port 8001` |
-| 3 | Irrigation Service | 8002 | `services/irrigation_service` | `uvicorn src.main:app --reload --port 8002` |
-| 4 | Forecasting Service | 8003 | `services/forecasting_service` | `uvicorn src.main:app --reload --port 8003` |
-| 5 | ACA-O Service | 8004 | `services/optimize_service` | `uvicorn src.main:app --reload --port 8004` |
+| 3 | Irrigation Service | 8002 | `services/irrigation_service` | `uvicorn app.main:app --reload --port 8002` |
+| 4 | Forecasting Service | 8003 | `services/forecasting_service` | `uvicorn app.main:app --reload --port 8003` |
+| 5 | ACA-O Service | 8004 | `services/optimize_service` | `uvicorn app.main:app --reload --port 8004` |
 | 6 | API Gateway | 8000 | `gateway` | `python gateway.py` |
 | 7 | Web Frontend | 5173 | `web` | `npm run dev` |
 
