@@ -45,18 +45,25 @@ cd smart-irrigation-system
 git checkout aca-o-service
 ```
 
-### 8. Git Pull (Get Latest Changes)
+### 8. Switch to Your Branch
+```bash
+cd ~/projects/smart-irrigation-system
+git fetch origin
+git checkout aca-o-service
+```
+
+### 9. Git Pull (Get Latest Changes)
 ```bash
 cd ~/projects/smart-irrigation-system
 git pull origin aca-o-service
 ```
 
-### 9. Install Python
+### 10. Install Python
 ```bash
 sudo apt install python3.12 python3.12-venv python3-pip -y
 ```
 
-### 10. Create Virtual Environment
+### 11. Create Virtual Environment
 ```bash
 cd ~/projects/smart-irrigation-system
 python3.12 -m venv venv
@@ -64,7 +71,7 @@ source venv/bin/activate
 pip install --upgrade pip
 ```
 
-### 11. Install Dependencies
+### 12. Install Dependencies
 ```bash
 # Jupyter
 pip install jupyter jupyterlab
@@ -82,12 +89,12 @@ pip install requests beautifulsoup4 kaggle openpyxl tabula-py pdfplumber
 pip install -r services/optimize_service/requirements.txt
 ```
 
-### 12. Install Java (for PDF extraction)
+### 13. Install Java (for PDF extraction)
 ```bash
 sudo apt install default-jdk -y
 ```
 
-### 13. Setup Kaggle API
+### 14. Setup Kaggle API
 ```bash
 mkdir -p ~/.kaggle
 nano ~/.kaggle/kaggle.json
@@ -95,14 +102,14 @@ nano ~/.kaggle/kaggle.json
 chmod 600 ~/.kaggle/kaggle.json
 ```
 
-### 14. Start Jupyter Notebook
+### 15. Start Jupyter Notebook
 ```bash
 cd ~/projects/smart-irrigation-system/services/optimize_service/notebooks
 source ~/projects/smart-irrigation-system/venv/bin/activate
 jupyter notebook --no-browser --port=8888 --ip=0.0.0.0
 ```
 
-### 15. Access Jupyter (from local machine)
+### 16. Access Jupyter (from local machine)
 
 **Option A: SSH Tunnel (Recommended)**
 ```bash
