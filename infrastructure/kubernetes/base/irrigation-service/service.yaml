@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: irrigation-service
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8002
+      targetPort: 8002
+  selector:
+    app: irrigation-service

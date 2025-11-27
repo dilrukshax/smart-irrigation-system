@@ -1,0 +1,229 @@
+# Smart Irrigation System - Docker Compose
+# Local development environment
+
+version: '3.8'
+
+services:
+  # ===================
+  # API Gateway
+  # ===================
+  gateway:
+    build: ../../gateway
+    ports:
+      - "80:80"
+    depends_on:
+      - auth-service
+      - irrigation-service
+      - forecasting-service
+      - optimization-service
+      - web
+    networks:
+      - smart-irrigation
+    restart: unless-stopped
+
+  # ===================
+  # Web Frontend
+  # ===================
+  web:
+    build: ../../web
+    networks:
+      - smart-irrigation
+    restart: unless-stopped
+
+  # ===================
+  # Microservices
+  # ===================
+  auth-service:
+    build: ../../services/auth_service
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - MONGODB_URI=mongodb://mongo:27017
+      - MONGODB_DB_NAME=smart_irrigation_auth
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-secret-key-change-me}
+    depends_on:
+      - mongo
+      - redis
+    networks:
+      - smart-irrigation
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  irrigation-service:
+    build: ../../services/irrigation_service
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - INFLUXDB_URL=http://influxdb:8086
+      - MQTT_BROKER=mosquitto
+    depends_on:
+      - influxdb
+      - mosquitto
+    networks:
+      - smart-irrigation
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  forecasting-service:
+    build: ../../services/forecasting_service
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - INFLUXDB_URL=http://influxdb:8086
+    depends_on:
+      - influxdb
+    networks:
+      - smart-irrigation
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  optimization-service:
+    build: ../../services/aca_o_service
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/optimization
+      - REDIS_URL=redis://redis:6379
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - OTEL_SERVICE_NAME=aca-o-service
+    depends_on:
+      - postgres
+      - redis
+      - jaeger
+    networks:
+      - smart-irrigation
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===================
+  # Databases
+  # ===================
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - smart-irrigation
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=optimization
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - smart-irrigation
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    networks:
+      - smart-irrigation
+    restart: unless-stopped
+
+  influxdb:
+    image: influxdb:2.7-alpine
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=adminpassword
+      - DOCKER_INFLUXDB_INIT_ORG=smart-irrigation
+      - DOCKER_INFLUXDB_INIT_BUCKET=sensors
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    networks:
+      - smart-irrigation
+    restart: unless-stopped
+
+  # ===================
+  # Message Queue
+  # ===================
+  mosquitto:
+    image: eclipse-mosquitto:2
+    volumes:
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    networks:
+      - smart-irrigation
+    restart: unless-stopped
+
+  # ===================
+  # Observability
+  # ===================
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ../../platform/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "9090:9090"
+    networks:
+      - smart-irrigation
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../../platform/observability/grafana/dashboards:/etc/grafana/provisioning/dashboards
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - smart-irrigation
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.53
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP
+    networks:
+      - smart-irrigation
+    restart: unless-stopped
+
+networks:
+  smart-irrigation:
+    driver: bridge
+
+volumes:
+  mongo_data:
+  postgres_data:
+  redis_data:
+  influxdb_data:
+  mosquitto_data:
+  mosquitto_log:
+  prometheus_data:
+  grafana_data:

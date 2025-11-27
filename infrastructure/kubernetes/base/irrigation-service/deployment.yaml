@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: irrigation-service
+  labels:
+    app: irrigation-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: irrigation-service
+  template:
+    metadata:
+      labels:
+        app: irrigation-service
+    spec:
+      containers:
+        - name: irrigation-service
+          image: smart-irrigation/irrigation-service:latest
+          ports:
+            - containerPort: 8002
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8002
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8002
+            initialDelaySeconds: 5
+            periodSeconds: 10

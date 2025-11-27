@@ -1,0 +1,165 @@
+# Istio Virtual Services for Smart Irrigation System
+#
+# VirtualServices define how requests are routed to services.
+# Features configured:
+# - Path-based routing
+# - Header-based routing
+# - Traffic splitting (canary/blue-green)
+# - Retries and timeouts
+# - Fault injection for testing
+
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: smart-irrigation-routes
+  namespace: smart-irrigation
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - smart-irrigation-gateway
+    - smart-irrigation-gateway-dev
+  http:
+    # Frontend Web Application
+    - match:
+        - uri:
+            prefix: "/"
+          headers:
+            accept:
+              regex: "text/html.*"
+      route:
+        - destination:
+            host: web
+            port:
+              number: 80
+      headers:
+        response:
+          add:
+            x-served-by: "web-frontend"
+
+    # Auth Service Routes
+    - match:
+        - uri:
+            prefix: "/api/v1/auth"
+        - uri:
+            prefix: "/api/v1/users"
+        - uri:
+            prefix: "/api/v1/admin"
+      route:
+        - destination:
+            host: auth-service
+            port:
+              number: 8001
+      timeout: 30s
+      retries:
+        attempts: 3
+        perTryTimeout: 10s
+        retryOn: "connect-failure,refused-stream,unavailable,cancelled,retriable-status-codes"
+        retryRemoteLocalities: true
+
+    # Irrigation Service Routes
+    - match:
+        - uri:
+            prefix: "/api/v1/irrigation"
+        - uri:
+            prefix: "/api/v1/sensors"
+        - uri:
+            prefix: "/api/v1/schedules"
+      route:
+        - destination:
+            host: irrigation-service
+            port:
+              number: 8002
+      timeout: 30s
+      retries:
+        attempts: 3
+        perTryTimeout: 10s
+
+    # Forecasting Service Routes
+    - match:
+        - uri:
+            prefix: "/api/v1/forecast"
+        - uri:
+            prefix: "/api/v1/weather"
+      route:
+        - destination:
+            host: forecasting-service
+            port:
+              number: 8003
+      timeout: 60s  # Longer timeout for ML predictions
+      retries:
+        attempts: 2
+        perTryTimeout: 30s
+
+    # Optimization Service (ACA-O) Routes
+    - match:
+        - uri:
+            prefix: "/api/v1/optimization"
+        - uri:
+            prefix: "/api/v1/recommendations"
+        - uri:
+            prefix: "/api/v1/fields"
+        - uri:
+            prefix: "/api/v1/crops"
+      route:
+        - destination:
+            host: optimization-service
+            port:
+              number: 8004
+      timeout: 120s  # Longer timeout for optimization calculations
+      retries:
+        attempts: 2
+        perTryTimeout: 60s
+
+    # Health Check Routes (no retries needed)
+    - match:
+        - uri:
+            exact: "/health"
+        - uri:
+            exact: "/ready"
+        - uri:
+            prefix: "/api/v1/health"
+      route:
+        - destination:
+            host: gateway
+            port:
+              number: 80
+      timeout: 5s
+
+    # Default: Route to API Gateway
+    - route:
+        - destination:
+            host: gateway
+            port:
+              number: 80
+      timeout: 30s
+
+---
+# Canary Deployment VirtualService for Optimization Service
+# Use this for gradual rollouts
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: optimization-service-canary
+  namespace: smart-irrigation
+spec:
+  hosts:
+    - optimization-service
+  http:
+    - match:
+        - headers:
+            x-canary:
+              exact: "true"
+      route:
+        - destination:
+            host: optimization-service
+            subset: canary
+    - route:
+        - destination:
+            host: optimization-service
+            subset: stable
+          weight: 90
+        - destination:
+            host: optimization-service
+            subset: canary
+          weight: 10

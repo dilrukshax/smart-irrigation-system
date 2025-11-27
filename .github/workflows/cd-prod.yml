@@ -1,0 +1,115 @@
+name: Deploy to Production
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to deploy'
+        required: true
+
+env:
+  AZURE_RESOURCE_GROUP: rg-smart-irrigation-prod
+  AKS_CLUSTER_NAME: aks-smart-irrigation-prod
+  ACR_NAME: acrsmartirrigationprod
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [auth-service, irrigation-service, forecasting-service, optimization-service, gateway, web]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS_PROD }}
+          
+      - name: Login to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+        
+      - name: Set image path
+        id: image
+        run: |
+          SERVICE=${{ matrix.service }}
+          if [ "$SERVICE" = "web" ]; then
+            DOCKERFILE="web/Dockerfile"
+          elif [ "$SERVICE" = "gateway" ]; then
+            DOCKERFILE="gateway/Dockerfile"
+          else
+            DOCKERFILE="services/${SERVICE}/Dockerfile"
+          fi
+          echo "dockerfile=${DOCKERFILE}" >> $GITHUB_OUTPUT
+          
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ steps.image.outputs.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:${{ steps.version.outputs.tag }}
+            ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS_PROD }}
+          
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.AKS_CLUSTER_NAME }}
+            
+      - name: Update image tags in kustomization
+        run: |
+          cd infrastructure/kubernetes/overlays/production
+          kustomize edit set image \
+            auth-service=${{ env.ACR_NAME }}.azurecr.io/auth-service:${{ steps.version.outputs.tag }} \
+            irrigation-service=${{ env.ACR_NAME }}.azurecr.io/irrigation-service:${{ steps.version.outputs.tag }} \
+            forecasting-service=${{ env.ACR_NAME }}.azurecr.io/forecasting-service:${{ steps.version.outputs.tag }} \
+            optimization-service=${{ env.ACR_NAME }}.azurecr.io/optimization-service:${{ steps.version.outputs.tag }}
+            
+      - name: Deploy to AKS
+        run: |
+          kubectl apply -k infrastructure/kubernetes/overlays/production
+          
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/prod-auth-service -n smart-irrigation-prod --timeout=600s
+          kubectl rollout status deployment/prod-irrigation-service -n smart-irrigation-prod --timeout=600s
+          kubectl rollout status deployment/prod-forecasting-service -n smart-irrigation-prod --timeout=600s
+          kubectl rollout status deployment/prod-optimization-service -n smart-irrigation-prod --timeout=600s
+          
+      - name: Notify deployment
+        run: |
+          echo "Production deployment complete: ${{ steps.version.outputs.tag }}"

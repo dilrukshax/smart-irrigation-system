@@ -1,0 +1,117 @@
+# Istio Rate Limiting Configuration
+#
+# Protects APIs from abuse and ensures fair resource usage.
+# Uses Envoy's local rate limiting for simplicity.
+# For distributed rate limiting, use Redis-based solutions.
+
+# EnvoyFilter for local rate limiting on the gateway
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: rate-limit-filter
+  namespace: smart-irrigation
+spec:
+  workloadSelector:
+    labels:
+      app: gateway
+  configPatches:
+    # Add rate limit filter to HTTP filter chain
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_INBOUND
+        listener:
+          filterChain:
+            filter:
+              name: "envoy.filters.network.http_connection_manager"
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.local_ratelimit
+          typed_config:
+            "@type": type.googleapis.com/udpa.type.v1.TypedStruct
+            type_url: type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+            value:
+              stat_prefix: http_local_rate_limiter
+              token_bucket:
+                max_tokens: 100
+                tokens_per_fill: 100
+                fill_interval: 60s
+              filter_enabled:
+                runtime_key: local_rate_limit_enabled
+                default_value:
+                  numerator: 100
+                  denominator: HUNDRED
+              filter_enforced:
+                runtime_key: local_rate_limit_enforced
+                default_value:
+                  numerator: 100
+                  denominator: HUNDRED
+              response_headers_to_add:
+                - append: false
+                  header:
+                    key: x-local-rate-limit
+                    value: "true"
+
+---
+# Rate limit by path for different API endpoints
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: rate-limit-by-path
+  namespace: smart-irrigation
+spec:
+  workloadSelector:
+    labels:
+      app: gateway
+  configPatches:
+    - applyTo: HTTP_ROUTE
+      match:
+        context: SIDECAR_INBOUND
+        routeConfiguration:
+          vhost:
+            route:
+              action: ANY
+      patch:
+        operation: MERGE
+        value:
+          route:
+            rate_limits:
+              - actions:
+                  - request_headers:
+                      header_name: ":path"
+                      descriptor_key: path
+              - actions:
+                  - remote_address: {}
+
+---
+# Circuit breaker configuration via EnvoyFilter
+# More granular than DestinationRule outlier detection
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: circuit-breaker-config
+  namespace: smart-irrigation
+spec:
+  workloadSelector:
+    labels:
+      app: optimization-service
+  configPatches:
+    - applyTo: CLUSTER
+      match:
+        context: SIDECAR_OUTBOUND
+      patch:
+        operation: MERGE
+        value:
+          circuit_breakers:
+            thresholds:
+              - priority: DEFAULT
+                max_connections: 100
+                max_pending_requests: 100
+                max_requests: 1000
+                max_retries: 3
+                track_remaining: true
+              - priority: HIGH
+                max_connections: 200
+                max_pending_requests: 200
+                max_requests: 2000
+                max_retries: 5
