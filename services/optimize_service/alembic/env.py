@@ -18,11 +18,11 @@ from alembic import context
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 # Import our models and settings
-from src.core.config import get_settings
-from src.data.db import Base
+from app.core.config import get_settings
+from app.data.db import Base
 
 # Import all models to ensure they're registered with Base.metadata
-from src.data import models_orm  # noqa: F401
+from app.data import models_orm  # noqa: F401
 
 # This is the Alembic Config object
 config = context.config

@@ -56,7 +56,7 @@ pip install -r requirements.txt
 cp .env.example .env
 
 # Run the service
-uvicorn src.main:app --reload --port 8002
+uvicorn app.main:app --reload --port 8002
 ```
 
 ### Docker

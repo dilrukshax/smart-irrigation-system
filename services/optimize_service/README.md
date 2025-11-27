@@ -86,13 +86,13 @@ Key environment variables:
 
 ```bash
 # From the aca_o_service directory
-uvicorn src.main:app --reload --port 8004
+uvicorn app.main:app --reload --port 8004
 ```
 
 Or with custom host/port:
 
 ```bash
-uvicorn src.main:app --host 0.0.0.0 --port 8004 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8004 --reload
 ```
 
 ### 5. Access the API
@@ -126,7 +126,8 @@ aca_o_service/
 ├── .gitignore
 ├── .env.example
 ├── Dockerfile
-└── src/
+├── notebooks/              # Jupyter notebooks for ML exploration
+└── app/
     ├── main.py                 # FastAPI app entry point
     ├── api/                    # API routes
     │   ├── routes_health.py
