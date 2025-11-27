@@ -1,0 +1,78 @@
+apiVersion: skaffold/v4beta6
+kind: Config
+metadata:
+  name: smart-irrigation-system
+
+build:
+  artifacts:
+    - image: auth-service
+      context: .
+      docker:
+        dockerfile: services/auth-service/Dockerfile
+    - image: irrigation-service
+      context: .
+      docker:
+        dockerfile: services/irrigation-service/Dockerfile
+    - image: forecasting-service
+      context: .
+      docker:
+        dockerfile: services/forecasting-service/Dockerfile
+    - image: optimization-service
+      context: .
+      docker:
+        dockerfile: services/optimization-service/Dockerfile
+    - image: gateway
+      context: .
+      docker:
+        dockerfile: gateway/Dockerfile
+    - image: web
+      context: .
+      docker:
+        dockerfile: web/Dockerfile
+
+  local:
+    push: false
+
+manifests:
+  kustomize:
+    paths:
+      - infrastructure/kubernetes/overlays/dev
+
+profiles:
+  - name: dev
+    activation:
+      - kubeContext: minikube
+    manifests:
+      kustomize:
+        paths:
+          - infrastructure/kubernetes/overlays/dev
+
+  - name: staging
+    manifests:
+      kustomize:
+        paths:
+          - infrastructure/kubernetes/overlays/staging
+
+  - name: production
+    manifests:
+      kustomize:
+        paths:
+          - infrastructure/kubernetes/overlays/production
+
+portForward:
+  - resourceType: service
+    resourceName: dev-auth-service
+    port: 8001
+    localPort: 8001
+  - resourceType: service
+    resourceName: dev-irrigation-service
+    port: 8002
+    localPort: 8002
+  - resourceType: service
+    resourceName: dev-forecasting-service
+    port: 8003
+    localPort: 8003
+  - resourceType: service
+    resourceName: dev-optimization-service
+    port: 8004
+    localPort: 8004

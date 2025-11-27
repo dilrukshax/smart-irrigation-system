@@ -1,0 +1,57 @@
+# Production Docker Compose
+# Use with: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
+
+version: '3.8'
+
+services:
+  gateway:
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  auth-service:
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  irrigation-service:
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  forecasting-service:
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  optimization-service:
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G

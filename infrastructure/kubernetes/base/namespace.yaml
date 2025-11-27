@@ -1,0 +1,8 @@
+# Kubernetes Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: smart-irrigation
+  labels:
+    app.kubernetes.io/name: smart-irrigation
+    app.kubernetes.io/part-of: smart-irrigation-system

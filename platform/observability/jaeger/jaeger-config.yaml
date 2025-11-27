@@ -1,0 +1,44 @@
+# Jaeger All-in-One Configuration for Development
+# This configuration is suitable for local development and testing.
+# For production, use the Jaeger Operator or distributed components.
+
+# Collector Configuration
+collector:
+  # gRPC endpoint for OTLP
+  otlp:
+    grpc:
+      host_port: "0.0.0.0:4317"
+    http:
+      host_port: "0.0.0.0:4318"
+
+# Query Service Configuration
+query:
+  base-path: /jaeger
+
+# Storage Configuration (using in-memory for development)
+# For production, use Elasticsearch or Cassandra
+memory:
+  max-traces: 100000
+
+# Sampling Configuration
+sampling:
+  strategies:
+    default_strategy:
+      type: probabilistic
+      param: 1.0  # Sample 100% of traces in development
+    service_strategies:
+      - service: aca-o-service
+        type: probabilistic
+        param: 1.0
+      - service: irrigation-service
+        type: probabilistic
+        param: 1.0
+      - service: forecasting-service
+        type: probabilistic
+        param: 1.0
+      - service: auth-service
+        type: probabilistic
+        param: 1.0
+
+# Logging
+log-level: info

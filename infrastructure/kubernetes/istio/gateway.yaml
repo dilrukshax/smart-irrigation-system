@@ -1,0 +1,62 @@
+# Istio Gateway Configuration for Smart Irrigation System
+#
+# This gateway serves as the entry point for external traffic
+# and provides:
+# - TLS termination
+# - Traffic routing
+# - Load balancing
+# - Rate limiting
+#
+# Prerequisites:
+# 1. Istio installed (istioctl install --set profile=production)
+# 2. Namespace labeled: kubectl label namespace smart-irrigation istio-injection=enabled
+
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: smart-irrigation-gateway
+  namespace: smart-irrigation
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    # HTTPS (production)
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      tls:
+        mode: SIMPLE
+        credentialName: smart-irrigation-tls  # K8s secret with TLS cert
+      hosts:
+        - "irrigation.example.com"
+        - "api.irrigation.example.com"
+    
+    # HTTP (redirect to HTTPS in production)
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "irrigation.example.com"
+        - "api.irrigation.example.com"
+      tls:
+        httpsRedirect: true
+
+---
+# Development Gateway (HTTP only)
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: smart-irrigation-gateway-dev
+  namespace: smart-irrigation
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "*"

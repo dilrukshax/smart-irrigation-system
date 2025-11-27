@@ -1,0 +1,98 @@
+# Alert Rules for Smart Irrigation System
+
+groups:
+  - name: service-alerts
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "{{ $labels.job }} has been down for more than 1 minute."
+
+      - alert: HighErrorRate
+        expr: |
+          rate(http_requests_total{status=~"5.."}[5m]) 
+          / rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate on {{ $labels.service }}"
+          description: "{{ $labels.service }} has error rate above 5%"
+
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High latency on {{ $labels.service }}"
+          description: "95th percentile latency is above 2 seconds"
+
+      - alert: HighMemoryUsage
+        expr: |
+          container_memory_usage_bytes / container_spec_memory_limit_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.pod }}"
+          description: "Memory usage is above 90% of limit"
+
+      - alert: PodRestarting
+        expr: |
+          increase(kube_pod_container_status_restarts_total[1h]) > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pod {{ $labels.pod }} is restarting frequently"
+          description: "Pod has restarted more than 3 times in the last hour"
+
+  - name: irrigation-alerts
+    rules:
+      - alert: SensorDataStale
+        expr: |
+          time() - irrigation_sensor_last_reading_timestamp > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sensor data is stale"
+          description: "No sensor readings received in the last 5 minutes"
+
+      - alert: IrrigationSystemFault
+        expr: |
+          irrigation_actuator_fault_total > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Irrigation system fault detected"
+          description: "Actuator fault detected on {{ $labels.zone }}"
+
+  - name: database-alerts
+    rules:
+      - alert: DatabaseConnectionPoolExhausted
+        expr: |
+          database_connection_pool_available == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection pool exhausted"
+          description: "No available database connections for {{ $labels.service }}"
+
+      - alert: SlowDatabaseQueries
+        expr: |
+          histogram_quantile(0.95, rate(database_query_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow database queries detected"
+          description: "95th percentile query time is above 1 second"

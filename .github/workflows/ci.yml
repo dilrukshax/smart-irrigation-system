@@ -1,0 +1,193 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '20'
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      auth: ${{ steps.changes.outputs.auth }}
+      irrigation: ${{ steps.changes.outputs.irrigation }}
+      forecasting: ${{ steps.changes.outputs.forecasting }}
+      optimization: ${{ steps.changes.outputs.optimization }}
+      web: ${{ steps.changes.outputs.web }}
+      gateway: ${{ steps.changes.outputs.gateway }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            auth:
+              - 'services/auth-service/**'
+            irrigation:
+              - 'services/irrigation-service/**'
+            forecasting:
+              - 'services/forecasting-service/**'
+            optimization:
+              - 'services/optimization-service/**'
+            web:
+              - 'web/**'
+              - 'frontend/**'
+            gateway:
+              - 'gateway/**'
+
+  lint-and-test:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - name: auth-service
+            path: services/auth-service
+            changed: ${{ needs.detect-changes.outputs.auth }}
+          - name: irrigation-service
+            path: services/irrigation-service
+            changed: ${{ needs.detect-changes.outputs.irrigation }}
+          - name: forecasting-service
+            path: services/forecasting-service
+            changed: ${{ needs.detect-changes.outputs.forecasting }}
+          - name: optimization-service
+            path: services/optimization-service
+            changed: ${{ needs.detect-changes.outputs.optimization }}
+    steps:
+      - uses: actions/checkout@v4
+        if: matrix.service.changed == 'true'
+        
+      - name: Set up Python
+        if: matrix.service.changed == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Install dependencies
+        if: matrix.service.changed == 'true'
+        run: |
+          cd ${{ matrix.service.path }}
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio ruff mypy
+          
+      - name: Lint with Ruff
+        if: matrix.service.changed == 'true'
+        run: |
+          cd ${{ matrix.service.path }}
+          ruff check src/
+          
+      - name: Type check with mypy
+        if: matrix.service.changed == 'true'
+        run: |
+          cd ${{ matrix.service.path }}
+          mypy src/ --ignore-missing-imports
+          
+      - name: Run tests
+        if: matrix.service.changed == 'true'
+        run: |
+          cd ${{ matrix.service.path }}
+          pytest tests/ -v --cov=src --cov-report=xml
+          
+      - name: Upload coverage
+        if: matrix.service.changed == 'true'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ${{ matrix.service.path }}/coverage.xml
+          flags: ${{ matrix.service.name }}
+
+  test-frontend:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+          
+      - name: Lint
+        run: |
+          cd frontend
+          npm run lint
+          
+      - name: Type check
+        run: |
+          cd frontend
+          npm run type-check || true
+          
+      - name: Build
+        run: |
+          cd frontend
+          npm run build
+
+  build-images:
+    needs: [lint-and-test, test-frontend]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - name: auth-service
+            path: services/auth-service
+            dockerfile: services/auth-service/Dockerfile
+          - name: irrigation-service
+            path: services/irrigation-service
+            dockerfile: services/irrigation-service/Dockerfile
+          - name: forecasting-service
+            path: services/forecasting-service
+            dockerfile: services/forecasting-service/Dockerfile
+          - name: optimization-service
+            path: services/optimization-service
+            dockerfile: services/optimization-service/Dockerfile
+          - name: gateway
+            path: gateway
+            dockerfile: gateway/Dockerfile
+          - name: web
+            path: web
+            dockerfile: web/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Build image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.service.dockerfile }}
+          push: false
+          tags: ${{ matrix.service.name }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  security-scan:
+    needs: build-images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'

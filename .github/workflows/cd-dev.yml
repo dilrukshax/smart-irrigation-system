@@ -1,0 +1,88 @@
+name: Deploy to Development
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+env:
+  AZURE_RESOURCE_GROUP: rg-smart-irrigation-dev
+  AKS_CLUSTER_NAME: aks-smart-irrigation-dev
+  ACR_NAME: acrsmartirrigation dev
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [auth-service, irrigation-service, forecasting-service, optimization-service, gateway, web]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          
+      - name: Login to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+        
+      - name: Set image path
+        id: image
+        run: |
+          SERVICE=${{ matrix.service }}
+          if [ "$SERVICE" = "web" ]; then
+            DOCKERFILE="web/Dockerfile"
+          elif [ "$SERVICE" = "gateway" ]; then
+            DOCKERFILE="gateway/Dockerfile"
+          else
+            DOCKERFILE="services/${SERVICE}/Dockerfile"
+          fi
+          echo "dockerfile=${DOCKERFILE}" >> $GITHUB_OUTPUT
+          
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ steps.image.outputs.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:${{ github.sha }}
+            ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:dev-latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.AKS_CLUSTER_NAME }}
+            
+      - name: Update image tags in kustomization
+        run: |
+          cd infrastructure/kubernetes/overlays/dev
+          kustomize edit set image \
+            auth-service=${{ env.ACR_NAME }}.azurecr.io/auth-service:${{ github.sha }} \
+            irrigation-service=${{ env.ACR_NAME }}.azurecr.io/irrigation-service:${{ github.sha }} \
+            forecasting-service=${{ env.ACR_NAME }}.azurecr.io/forecasting-service:${{ github.sha }} \
+            optimization-service=${{ env.ACR_NAME }}.azurecr.io/optimization-service:${{ github.sha }}
+            
+      - name: Deploy to AKS
+        run: |
+          kubectl apply -k infrastructure/kubernetes/overlays/dev
+          
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/dev-auth-service -n smart-irrigation-dev --timeout=300s
+          kubectl rollout status deployment/dev-irrigation-service -n smart-irrigation-dev --timeout=300s
+          kubectl rollout status deployment/dev-forecasting-service -n smart-irrigation-dev --timeout=300s
+          kubectl rollout status deployment/dev-optimization-service -n smart-irrigation-dev --timeout=300s
