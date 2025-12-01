@@ -104,7 +104,7 @@ chmod 600 ~/.kaggle/kaggle.json
 
 ### 15. Start Jupyter Notebook
 ```bash
-cd ~/projects/smart-irrigation-system/services/optimize_service/notebooks
+cd ~/projects/smart-irrigation-system
 source ~/projects/smart-irrigation-system/venv/bin/activate
 jupyter notebook --no-browser --port=8888 --ip=0.0.0.0
 ```
