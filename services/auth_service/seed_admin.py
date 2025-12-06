@@ -9,7 +9,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
 
 # Configuration - update these values as needed
-MONGODB_URI = "mongodb+srv://dilandilruksha0_db_user:admin1234@cluster0.jh6hixn.mongodb.net/?appName=Cluster0"
+MONGODB_URI = "mongodb+srv://dilandilruksha0_db_user:admin123@cluster0.jh6hixn.mongodb.net/?appName=Cluster0"
 MONGODB_DB_NAME = "smart_irrigation_auth"
 
 # Admin user details
