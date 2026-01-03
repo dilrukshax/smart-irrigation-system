@@ -1,0 +1,32 @@
+# Udawalawe Reservoir Forecasting - Dependencies
+# Install: pip install -r requirements.txt
+
+# Core Data Science
+pandas>=2.0.0
+numpy>=1.24.0
+openpyxl>=3.1.0
+
+# Machine Learning
+scikit-learn>=1.3.0
+statsmodels>=0.14.0
+
+# Deep Learning
+tensorflow>=2.13.0
+
+# Optional: Prophet for time series
+# prophet>=1.1.4
+
+# Data Acquisition & Geospatial
+requests>=2.31.0
+xarray>=2023.10.0  # For NetCDF data (optional: CHIRPS via IRI)
+netCDF4>=1.6.0  # For NetCDF data (optional: CHIRPS via IRI)
+rasterio>=1.3.0  # Geospatial raster data I/O
+geopandas>=0.14.0  # Geospatial vector operations
+shapely>=2.0.0  # Geometric operations
+pyproj>=3.6.0  # Coordinate system transformations
+
+# Utilities
+joblib>=1.3.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
