@@ -133,3 +133,104 @@ export interface ModelInfo {
   };
   is_loaded: boolean;
 }
+
+// ============ Crop Field Management Types ============
+
+export interface CropDefaults {
+  name: string;
+  description: string;
+  water_level_min_pct: number;
+  water_level_max_pct: number;
+  water_level_optimal_pct: number;
+  water_level_critical_pct: number;
+  soil_moisture_min_pct: number;
+  soil_moisture_max_pct: number;
+  soil_moisture_optimal_pct: number;
+  soil_moisture_critical_pct: number;
+  irrigation_duration_minutes: number;
+  check_interval_seconds: number;
+  valve_response_delay_seconds: number;
+}
+
+export interface CropFieldConfig {
+  field_id: string;
+  field_name: string;
+  crop_type: string;
+  area_hectares: number;
+  device_id: string | null;
+  water_level_min_pct: number;
+  water_level_max_pct: number;
+  water_level_optimal_pct: number;
+  water_level_critical_pct: number;
+  soil_moisture_min_pct: number;
+  soil_moisture_max_pct: number;
+  soil_moisture_optimal_pct: number;
+  soil_moisture_critical_pct: number;
+  irrigation_duration_minutes: number;
+  auto_control_enabled: boolean;
+}
+
+export interface CropFieldStatus {
+  field_id: string;
+  field_name: string;
+  crop_type: string;
+  device_id: string | null;
+  // Sensor connection status
+  sensor_connected: boolean;
+  is_simulated: boolean;
+  last_real_data_time: string | null;
+  // Sensor readings
+  current_water_level_pct: number;
+  current_soil_moisture_pct: number;
+  valve_status: 'OPEN' | 'CLOSED' | 'OPENING' | 'CLOSING';
+  valve_position_pct: number;
+  water_status: 'CRITICAL' | 'LOW' | 'OPTIMAL' | 'HIGH' | 'EXCESS' | 'UNKNOWN';
+  soil_status: 'CRITICAL' | 'DRY' | 'OPTIMAL' | 'WET' | 'SATURATED' | 'UNKNOWN';
+  overall_status: 'OK' | 'WARNING' | 'CRITICAL' | 'IRRIGATING' | 'NO_SENSOR';
+  last_sensor_reading: string;
+  last_valve_action: string | null;
+  auto_control_enabled: boolean;
+  next_action: string | null;
+}
+
+export interface IoTSensorData {
+  device_id: string;
+  timestamp: string;
+  soil_moisture_pct: number;
+  water_level_pct: number;
+  soil_ao?: number;
+  water_ao?: number;
+  rssi?: number;
+  battery_v?: number;
+}
+
+export interface ValveControlRequest {
+  action: 'OPEN' | 'CLOSE' | 'AUTO';
+  position_pct: number;
+  reason: string;
+}
+
+export interface ValveControlResponse {
+  field_id: string;
+  action_taken: string;
+  valve_position_pct: number;
+  timestamp: string;
+  status: string;
+  message: string;
+}
+
+export interface AutoControlDecision {
+  field_id: string;
+  timestamp: string;
+  water_level_pct: number;
+  soil_moisture_pct: number;
+  water_level_min: number;
+  water_level_max: number;
+  soil_moisture_min: number;
+  soil_moisture_max: number;
+  action: 'OPEN' | 'CLOSE' | 'HOLD';
+  valve_position_pct: number;
+  reason: string;
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  ml_prediction?: Record<string, unknown>;
+}

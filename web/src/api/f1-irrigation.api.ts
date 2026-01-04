@@ -10,6 +10,13 @@ import type {
   ManualOverrideStatus,
   WaterManagementStatus,
   ModelInfo,
+  CropDefaults,
+  CropFieldConfig,
+  CropFieldStatus,
+  ValveControlRequest,
+  ValveControlResponse,
+  AutoControlDecision,
+  IoTSensorData,
 } from '../features/f1-irrigation/types';
 
 // Irrigation API endpoints - via Gateway
@@ -35,6 +42,19 @@ const ENDPOINTS = {
     MANUAL_OVERRIDE_STATUS: '/irrigation/water-management/manual-override/status',
     THRESHOLDS: '/irrigation/water-management/thresholds/defaults',
     MODEL_INFO: '/irrigation/water-management/model/info',
+  },
+  // Crop Field Management endpoints
+  CROP_FIELDS: {
+    BASE: '/irrigation/crop-fields',
+    CROPS_DEFAULTS: '/irrigation/crop-fields/crops/defaults',
+    CROP_DEFAULT: (cropType: string) => `/irrigation/crop-fields/crops/defaults/${cropType}`,
+    FIELDS: '/irrigation/crop-fields/fields',
+    FIELD: (fieldId: string) => `/irrigation/crop-fields/fields/${fieldId}`,
+    FIELD_STATUS: (fieldId: string) => `/irrigation/crop-fields/fields/${fieldId}/status`,
+    FIELD_VALVE: (fieldId: string) => `/irrigation/crop-fields/fields/${fieldId}/valve`,
+    FIELD_AUTO_DECISION: (fieldId: string) => `/irrigation/crop-fields/fields/${fieldId}/auto-decision`,
+    FIELD_SENSOR_DATA: (fieldId: string) => `/irrigation/crop-fields/fields/${fieldId}/sensor-data`,
+    FIELD_SENSOR_HISTORY: (fieldId: string) => `/irrigation/crop-fields/fields/${fieldId}/sensor-history`,
   },
 };
 
@@ -128,4 +148,73 @@ export const waterManagementApi = {
 
   // Get model information
   getModelInfo: () => apiClient.get<ModelInfo>(ENDPOINTS.WATER_MGMT.MODEL_INFO),
+};
+
+// Crop Field Management API
+export const cropFieldsApi = {
+  // Get all crop type defaults
+  getCropDefaults: () =>
+    apiClient.get<{ crops: Record<string, CropDefaults>; supported_crops: string[] }>(
+      ENDPOINTS.CROP_FIELDS.CROPS_DEFAULTS
+    ),
+
+  // Get defaults for a specific crop type
+  getCropDefault: (cropType: string) =>
+    apiClient.get<CropDefaults>(ENDPOINTS.CROP_FIELDS.CROP_DEFAULT(cropType)),
+
+  // List all configured fields
+  getFields: () =>
+    apiClient.get<CropFieldConfig[]>(ENDPOINTS.CROP_FIELDS.FIELDS),
+
+  // Create a new field
+  createField: (config: CropFieldConfig) =>
+    apiClient.post<CropFieldConfig>(ENDPOINTS.CROP_FIELDS.FIELDS, config),
+
+  // Get field configuration
+  getField: (fieldId: string) =>
+    apiClient.get<CropFieldConfig>(ENDPOINTS.CROP_FIELDS.FIELD(fieldId)),
+
+  // Update field configuration
+  updateField: (fieldId: string, config: CropFieldConfig) =>
+    apiClient.put<CropFieldConfig>(ENDPOINTS.CROP_FIELDS.FIELD(fieldId), config),
+
+  // Delete field
+  deleteField: (fieldId: string) =>
+    apiClient.delete<{ status: string; field_id: string }>(
+      ENDPOINTS.CROP_FIELDS.FIELD(fieldId)
+    ),
+
+  // Get field status (current sensor data + valve state)
+  getFieldStatus: (fieldId: string, useSimulated: boolean = true) =>
+    apiClient.get<CropFieldStatus>(ENDPOINTS.CROP_FIELDS.FIELD_STATUS(fieldId), {
+      params: { use_simulated: useSimulated },
+    }),
+
+  // Control valve manually
+  controlValve: (fieldId: string, request: ValveControlRequest) =>
+    apiClient.post<ValveControlResponse>(
+      ENDPOINTS.CROP_FIELDS.FIELD_VALVE(fieldId),
+      request
+    ),
+
+  // Get auto control decision
+  getAutoDecision: (fieldId: string, useSimulated: boolean = true) =>
+    apiClient.get<AutoControlDecision>(
+      ENDPOINTS.CROP_FIELDS.FIELD_AUTO_DECISION(fieldId),
+      { params: { use_simulated: useSimulated } }
+    ),
+
+  // Send sensor data (from IoT device)
+  sendSensorData: (fieldId: string, data: IoTSensorData) =>
+    apiClient.post<{ data_received: boolean; auto_control_triggered: boolean; decision?: AutoControlDecision }>(
+      ENDPOINTS.CROP_FIELDS.FIELD_SENSOR_DATA(fieldId),
+      data
+    ),
+
+  // Get sensor history
+  getSensorHistory: (fieldId: string, limit: number = 50) =>
+    apiClient.get<{ field_id: string; count: number; readings: IoTSensorData[] }>(
+      ENDPOINTS.CROP_FIELDS.FIELD_SENSOR_HISTORY(fieldId),
+      { params: { limit } }
+    ),
 };

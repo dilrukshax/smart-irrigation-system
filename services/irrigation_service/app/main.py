@@ -21,6 +21,7 @@ from app.core.logging_config import setup_logging
 from app.api.health import router as health_router
 from app.api.sensors import router as sensors_router
 from app.api.water_management import router as water_management_router
+from app.api.crop_fields import router as crop_fields_router
 from app.ml.irrigation_model import irrigation_model
 from app.ml.water_management_model import water_management_model
 
@@ -81,6 +82,7 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(sensors_router)
 app.include_router(water_management_router)
+app.include_router(crop_fields_router)
 
 
 @app.get("/", tags=["Root"])

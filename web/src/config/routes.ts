@@ -18,6 +18,8 @@ export const ROUTES = {
     ROOT: '/irrigation',
     MONITORING: '/irrigation/monitoring',
     HISTORY: '/irrigation/history',
+    WATER_MANAGEMENT: '/irrigation/water-management',
+    CROP_FIELDS: '/irrigation/crop-fields',
   },
 
   // F2 - Crop Health

@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { Box, Typography, Grid, Card, CardContent, Chip, Button } from '@mui/material';
-import { WaterDrop, Thermostat, Opacity, Water, ArrowForward } from '@mui/icons-material';
+import { WaterDrop, Thermostat, Opacity, Water, ArrowForward, Agriculture } from '@mui/icons-material';
 import { ROUTES } from '../../../config/routes';
 
 const mockSensors = [
@@ -55,6 +55,32 @@ export default function IrrigationDashboard() {
               onClick={() => navigate(ROUTES.IRRIGATION.WATER_MANAGEMENT)}
             >
               Open Dashboard
+            </Button>
+          </Box>
+        </CardContent>
+      </Card>
+
+      {/* Quick Access Card for Crop Field Management */}
+      <Card sx={{ mb: 3, bgcolor: 'success.50', border: '1px solid', borderColor: 'success.200' }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Agriculture sx={{ fontSize: 40, color: 'success.main' }} />
+              <Box>
+                <Typography variant="h6" fontWeight={600}>
+                  IoT Crop Field Management
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Automatic valve control for rice fields based on real-time water level and soil moisture sensors
+                </Typography>
+              </Box>
+            </Box>
+            <Button
+              variant="outlined"
+              color="success"
+              onClick={() => navigate(ROUTES.IRRIGATION.CROP_FIELDS)}
+            >
+              Manage Fields
             </Button>
           </Box>
         </CardContent>
