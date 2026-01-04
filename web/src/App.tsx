@@ -21,7 +21,7 @@ import IrrigationDashboard from '@features/f1-irrigation/pages/IrrigationDashboa
 import CropHealthDashboard from '@features/f2-crop-health/pages/CropHealthDashboard';
 
 // Feature Pages - F3 Forecasting
-import ForecastDashboard from '@features/f3-forecasting/pages/ForecastDashboard';
+import EnhancedForecastDashboard from '@features/f3-forecasting/pages/EnhancedForecastDashboard';
 
 // Feature Pages - F4 ACA-O
 import ACAODashboard from '@features/f4-acao/pages/ACAODashboard';
@@ -51,7 +51,7 @@ function App() {
           <Route path="/crop-health" element={<CropHealthDashboard />} />
 
           {/* F3 - Forecasting Routes */}
-          <Route path="/forecasting" element={<ForecastDashboard />} />
+          <Route path="/forecasting" element={<EnhancedForecastDashboard />} />
 
           {/* F4 - ACA-O Routes */}
           <Route path="/optimization" element={<ACAODashboard />} />
