@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # Service URLs - Local Development
 SERVICES = {
     "auth": "http://127.0.0.1:8001",
-    "irrigation": "http://127.0.0.1:8002",
+    "crop_health": "http://127.0.0.1:8002",
     "forecasting": "http://127.0.0.1:8003",
     "optimization": "http://127.0.0.1:8004",
 }
@@ -46,6 +46,10 @@ tags_metadata = [
     {
         "name": "Irrigation Service (F1)",
         "description": "Smart irrigation management - Sensors, Schedules, Events, Control",
+    },
+    {
+        "name": "Crop Health Service (F2)",
+        "description": "Crop health monitoring - Satellite analysis, Image prediction, Health zones, Stress detection",
     },
     {
         "name": "Forecasting Service (F3)",
@@ -70,7 +74,7 @@ This API Gateway routes requests to the appropriate microservices.
 | Service | Port | Description |
 |---------|------|-------------|
 | **Auth** | 8001 | Authentication & Authorization |
-| **Irrigation (F1)** | 8002 | Sensor data & Irrigation control |
+| **Crop Health (F2)** | 8002 | Satellite analysis & Image prediction |
 | **Forecasting (F3)** | 8003 | Weather & Resource predictions |
 | **Optimization (F4)** | 8004 | AI recommendations & Planning |
 
@@ -78,9 +82,10 @@ This API Gateway routes requests to the appropriate microservices.
 
 - `/api/v1/auth/*` → Auth Service
 - `/api/v1/admin/*` → Admin endpoints (Auth Service)
-- `/api/v1/irrigation/*` → Irrigation Service
-- `/api/v1/forecast/*` → Forecasting Service
-- `/api/v1/optimization/*` → Optimization Service (ACA-O)
+- `/api/v1/irrigation/*` → Irrigation Service (F1)
+- `/api/v1/crop-health/*` → Crop Health Service (F2)
+- `/api/v1/forecast/*` → Forecasting Service (F3)
+- `/api/v1/optimization/*` → Optimization Service (F4/ACA-O)
     """,
     version="1.0.0",
     openapi_tags=tags_metadata,
@@ -92,6 +97,10 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:8005",
         "http://127.0.0.1:8005",
+        "http://localhost:8006",
+        "http://127.0.0.1:8006",
+        "http://localhost:8007",
+        "http://127.0.0.1:8007",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ],
@@ -286,6 +295,69 @@ async def irrigation_predict(request: Request):
 async def irrigation_proxy(path: str, request: Request):
     """Proxy to Irrigation Service - maps /api/v1/irrigation/* -> /api/v1/*"""
     return await proxy_request(SERVICES["irrigation"], f"/api/v1/{path}", request)
+
+
+# =================== Crop Health Service Routes (F2) ===================
+
+@app.get("/api/v1/crop-health/health", tags=["Crop Health Service (F2)"], summary="Crop Health Service Health")
+async def crop_health_service_health(request: Request):
+    """Check Crop Health Service health status."""
+    return await proxy_request(SERVICES["crop_health"], "/health", request)
+
+
+@app.post("/api/v1/crop-health/analyze", tags=["Crop Health Service (F2)"], summary="Analyze Satellite Data")
+async def crop_health_analyze(request: Request):
+    """Analyze satellite imagery for crop health assessment."""
+    return await proxy_request(SERVICES["crop_health"], "/api/v1/crop-health/analyze", request)
+
+
+@app.get("/api/v1/crop-health/zones", tags=["Crop Health Service (F2)"], summary="Get Health Zones")
+async def crop_health_get_zones(request: Request):
+    """Get crop health zones for a location."""
+    return await proxy_request(SERVICES["crop_health"], "/api/v1/crop-health/zones", request)
+
+
+@app.get("/api/v1/crop-health/zones/geojson", tags=["Crop Health Service (F2)"], summary="Get Zones as GeoJSON")
+async def crop_health_get_zones_geojson(request: Request):
+    """Get crop health zones as GeoJSON format."""
+    return await proxy_request(SERVICES["crop_health"], "/api/v1/crop-health/zones/geojson", request)
+
+
+@app.get("/api/v1/crop-health/zones/summary", tags=["Crop Health Service (F2)"], summary="Get Zones Summary")
+async def crop_health_get_zones_summary(request: Request):
+    """Get summary statistics for health zones."""
+    return await proxy_request(SERVICES["crop_health"], "/api/v1/crop-health/zones/summary", request)
+
+
+@app.post("/api/v1/crop-health/predict", tags=["Crop Health Service (F2)"], summary="Predict Crop Health from Image")
+async def crop_health_predict(request: Request):
+    """Predict crop health from uploaded image using ML model."""
+    return await proxy_request(SERVICES["crop_health"], "/api/v1/crop-health/predict", request)
+
+
+@app.post("/api/v1/crop-health/predict/url", tags=["Crop Health Service (F2)"], summary="Predict from Image URL")
+async def crop_health_predict_url(request: Request):
+    """Predict crop health from image URL."""
+    return await proxy_request(SERVICES["crop_health"], "/api/v1/crop-health/predict/url", request)
+
+
+@app.get("/api/v1/crop-health/model/status", tags=["Crop Health Service (F2)"], summary="Get Model Status")
+async def crop_health_model_status(request: Request):
+    """Get ML model status and information."""
+    return await proxy_request(SERVICES["crop_health"], "/api/v1/crop-health/model/status", request)
+
+
+@app.get("/api/v1/crop-health/model/classes", tags=["Crop Health Service (F2)"], summary="Get Model Classes")
+async def crop_health_model_classes(request: Request):
+    """Get list of classes the model can predict."""
+    return await proxy_request(SERVICES["crop_health"], "/api/v1/crop-health/model/classes", request)
+
+
+@app.api_route("/api/v1/crop-health/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"], 
+               tags=["Crop Health Service (F2)"], summary="Crop Health Service Proxy", include_in_schema=False)
+async def crop_health_proxy(path: str, request: Request):
+    """Proxy to Crop Health Service - maps /api/v1/crop-health/* -> /api/v1/crop-health/*"""
+    return await proxy_request(SERVICES["crop_health"], f"/api/v1/crop-health/{path}", request)
 
 
 # =================== Forecasting Service Routes ===================
