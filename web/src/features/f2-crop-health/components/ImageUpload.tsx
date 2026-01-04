@@ -267,7 +267,7 @@ export default function ImageUpload({ onPredictionComplete }: ImageUploadProps) 
 
               {/* Model Info */}
               <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'right' }}>
-                Model: {prediction.model_used ? 'MobileNetV2 (Trained)' : 'Fallback Analysis'}
+                Model: {prediction.model_used ? 'Fine-tuned CNN (MobileNetV2-based)' : 'Fallback Analysis'}
               </Typography>
             </Box>
           </CardContent>

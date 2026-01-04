@@ -397,8 +397,13 @@ export default function CropHealthDashboard() {
                 How It Works
               </Typography>
               <Typography variant="body2" color="text.secondary" paragraph>
-                Our AI model uses MobileNetV2 deep learning architecture trained on agricultural
-                imagery to detect crop health issues and diseases.
+                This system uses a custom-trained Convolutional Neural Network (CNN) developed 
+                using a MobileNetV2 backbone and fine-tuned on agricultural crop disease imagery.
+              </Typography>
+              <Typography variant="body2" color="text.secondary" paragraph>
+                The model was trained and validated by the project author using a labeled crop 
+                disease dataset, enabling accurate detection of plant health issues from 
+                ground-level images.
               </Typography>
               <Divider sx={{ my: 2 }} />
               <Typography variant="subtitle2" gutterBottom>
