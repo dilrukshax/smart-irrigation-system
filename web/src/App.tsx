@@ -16,6 +16,7 @@ import { ProtectedRoute, AdminRoute, PublicRoute } from '@components/auth/Protec
 
 // Feature Pages - F1 Irrigation
 import IrrigationDashboard from '@features/f1-irrigation/pages/IrrigationDashboard';
+import SensorTelemetry from '@features/f1-irrigation/pages/SensorTelemetry';
 
 // Feature Pages - F2 Crop Health
 import CropHealthDashboard from '@features/f2-crop-health/pages/CropHealthDashboard';
@@ -27,6 +28,8 @@ import ForecastDashboard from '@features/f3-forecasting/pages/ForecastDashboard'
 import ACAODashboard from '@features/f4-acao/pages/ACAODashboard';
 import FieldRecommendations from '@features/f4-acao/pages/FieldRecommendations';
 import OptimizationPlanner from '@features/f4-acao/pages/OptimizationPlanner';
+import Scenarios from '@features/f4-acao/pages/Scenarios';
+import AdaptiveRecommendations from '@features/f4-acao/pages/AdaptiveRecommendations';
 
 function App() {
   return (
@@ -46,6 +49,7 @@ function App() {
 
           {/* F1 - Irrigation Routes */}
           <Route path="/irrigation" element={<IrrigationDashboard />} />
+          <Route path="/irrigation/telemetry" element={<SensorTelemetry />} />
 
           {/* F2 - Crop Health Routes */}
           <Route path="/crop-health" element={<CropHealthDashboard />} />
@@ -57,6 +61,8 @@ function App() {
           <Route path="/optimization" element={<ACAODashboard />} />
           <Route path="/optimization/recommendations" element={<FieldRecommendations />} />
           <Route path="/optimization/planner" element={<OptimizationPlanner />} />
+          <Route path="/optimization/scenarios" element={<Scenarios />} />
+          <Route path="/optimization/adaptive" element={<AdaptiveRecommendations />} />
 
           {/* Admin Routes - Requires admin role */}
           <Route element={<AdminRoute />}>

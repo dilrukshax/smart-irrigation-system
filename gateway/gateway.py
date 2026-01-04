@@ -27,6 +27,7 @@ SERVICES = {
     "irrigation": "http://127.0.0.1:8002",
     "forecasting": "http://127.0.0.1:8003",
     "optimization": "http://127.0.0.1:8004",
+    "iot": "http://127.0.0.1:8006",
 }
 
 # API Tags for categorization in docs
@@ -54,6 +55,10 @@ tags_metadata = [
     {
         "name": "Optimization Service (F4/ACA-O)",
         "description": "AI-driven optimization - Recommendations, Plan B, Water budget, Supply management",
+    },
+    {
+        "name": "IoT Service",
+        "description": "ESP32 sensor telemetry - Device data, Commands, Real-time ingestion",
     },
 ]
 
@@ -281,6 +286,46 @@ async def irrigation_predict(request: Request):
     return await proxy_request(SERVICES["irrigation"], "/api/v1/sensors/predict", request)
 
 
+# =================== IoT via Irrigation Path (Legacy/Frontend Compatibility) ===================
+# These routes handle /irrigation/iot/* paths that the frontend uses
+
+@app.get("/api/v1/irrigation/iot/devices", tags=["IoT Service"], summary="List All Devices (via irrigation path)")
+async def irrigation_iot_list_devices(request: Request):
+    """Get list of all known IoT devices - routed from /irrigation/iot/* to IoT service."""
+    return await proxy_request(SERVICES["iot"], "/api/v1/iot/devices", request)
+
+
+@app.get("/api/v1/irrigation/iot/devices/{device_id}/latest", tags=["IoT Service"], summary="Get Latest Reading (via irrigation path)")
+async def irrigation_iot_get_latest(device_id: str, request: Request):
+    """Get the latest telemetry reading for a device."""
+    return await proxy_request(SERVICES["iot"], f"/api/v1/iot/devices/{device_id}/latest", request)
+
+
+@app.get("/api/v1/irrigation/iot/devices/{device_id}/range", tags=["IoT Service"], summary="Get Readings Range (via irrigation path)")
+async def irrigation_iot_get_range(device_id: str, request: Request):
+    """Get telemetry readings within a time range."""
+    return await proxy_request(SERVICES["iot"], f"/api/v1/iot/devices/{device_id}/range", request)
+
+
+@app.post("/api/v1/irrigation/iot/devices/{device_id}/cmd", tags=["IoT Service"], summary="Send Device Command (via irrigation path)")
+async def irrigation_iot_send_command(device_id: str, request: Request):
+    """Send a command to an IoT device via MQTT."""
+    return await proxy_request(SERVICES["iot"], f"/api/v1/iot/devices/{device_id}/cmd", request)
+
+
+@app.post("/api/v1/irrigation/iot/telemetry", tags=["IoT Service"], summary="Ingest Telemetry (via irrigation path)")
+async def irrigation_iot_ingest_telemetry(request: Request):
+    """Manually ingest telemetry data (for testing without MQTT)."""
+    return await proxy_request(SERVICES["iot"], "/api/v1/iot/telemetry", request)
+
+
+@app.api_route("/api/v1/irrigation/iot/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"], 
+               tags=["IoT Service"], summary="IoT Service Proxy (via irrigation path)", include_in_schema=False)
+async def irrigation_iot_proxy(path: str, request: Request):
+    """Proxy IoT requests from /irrigation/iot/* to IoT service."""
+    return await proxy_request(SERVICES["iot"], f"/api/v1/iot/{path}", request)
+
+
 @app.api_route("/api/v1/irrigation/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"], 
                tags=["Irrigation Service (F1)"], summary="Irrigation Service Proxy", include_in_schema=False)
 async def irrigation_proxy(path: str, request: Request):
@@ -360,6 +405,51 @@ async def optimization_proxy(path: str, request: Request):
     return await proxy_request(SERVICES["optimization"], f"/f4/{path}", request)
 
 
+# =================== IoT Service Routes ===================
+
+@app.get("/api/v1/iot/health", tags=["IoT Service"], summary="IoT Service Health")
+async def iot_health(request: Request):
+    """Check IoT Telemetry Service health status."""
+    return await proxy_request(SERVICES["iot"], "/health", request)
+
+
+@app.get("/api/v1/iot/devices", tags=["IoT Service"], summary="List All Devices")
+async def iot_list_devices(request: Request):
+    """Get list of all known IoT devices with their status."""
+    return await proxy_request(SERVICES["iot"], "/api/v1/iot/devices", request)
+
+
+@app.get("/api/v1/iot/devices/{device_id}/latest", tags=["IoT Service"], summary="Get Latest Reading")
+async def iot_get_latest(device_id: str, request: Request):
+    """Get the latest telemetry reading for a device."""
+    return await proxy_request(SERVICES["iot"], f"/api/v1/iot/devices/{device_id}/latest", request)
+
+
+@app.get("/api/v1/iot/devices/{device_id}/range", tags=["IoT Service"], summary="Get Readings Range")
+async def iot_get_range(device_id: str, request: Request):
+    """Get telemetry readings within a time range."""
+    return await proxy_request(SERVICES["iot"], f"/api/v1/iot/devices/{device_id}/range", request)
+
+
+@app.post("/api/v1/iot/devices/{device_id}/cmd", tags=["IoT Service"], summary="Send Device Command")
+async def iot_send_command(device_id: str, request: Request):
+    """Send a command to an IoT device via MQTT."""
+    return await proxy_request(SERVICES["iot"], f"/api/v1/iot/devices/{device_id}/cmd", request)
+
+
+@app.post("/api/v1/iot/telemetry", tags=["IoT Service"], summary="Ingest Telemetry")
+async def iot_ingest_telemetry(request: Request):
+    """Manually ingest telemetry data (for testing without MQTT)."""
+    return await proxy_request(SERVICES["iot"], "/api/v1/iot/telemetry", request)
+
+
+@app.api_route("/api/v1/iot/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"], 
+               tags=["IoT Service"], summary="IoT Service Proxy", include_in_schema=False)
+async def iot_proxy(path: str, request: Request):
+    """Proxy to IoT Service - maps /api/v1/iot/* -> /api/v1/iot/*"""
+    return await proxy_request(SERVICES["iot"], f"/api/v1/iot/{path}", request)
+
+
 # =================== Startup/Shutdown ===================
 
 @app.on_event("shutdown")
@@ -383,6 +473,7 @@ if __name__ == "__main__":
     print("  /api/v1/irrigation/*   -> Irrigation Service /api/v1/*")
     print("  /api/v1/forecast/*     -> Forecasting Service /api/v1/*")
     print("  /api/v1/optimization/* -> ACA-O Service /f4/*")
+    print("  /api/v1/iot/*          -> IoT Service /api/v1/iot/*")
     print("-" * 60)
     print("Backend Services:")
     for name, url in SERVICES.items():
