@@ -16,6 +16,7 @@ services:
       - irrigation-service
       - forecasting-service
       - optimization-service
+      - iot-service
       - web
     networks:
       - smart-irrigation
@@ -90,6 +91,32 @@ services:
       timeout: 10s
       retries: 3
 
+  iot-service:
+    build: ../../services/iot_service
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:-}
+      - INFLUXDB_ORG=smart-irrigation
+      - INFLUXDB_BUCKET=sensors
+      - MQTT_BROKER=mosquitto
+      - MQTT_PORT=1883
+      - MQTT_USERNAME=${MQTT_USERNAME:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      - DEVICE_API_KEYS=${DEVICE_API_KEYS:-}
+    depends_on:
+      - influxdb
+      - mosquitto
+    networks:
+      - smart-irrigation
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   optimization-service:
     build: ../../services/aca_o_service
     environment:
@@ -145,12 +172,15 @@ services:
 
   influxdb:
     image: influxdb:2.7-alpine
+    ports:
+      - "8086:8086"
     environment:
       - DOCKER_INFLUXDB_INIT_MODE=setup
       - DOCKER_INFLUXDB_INIT_USERNAME=admin
       - DOCKER_INFLUXDB_INIT_PASSWORD=adminpassword
       - DOCKER_INFLUXDB_INIT_ORG=smart-irrigation
       - DOCKER_INFLUXDB_INIT_BUCKET=sensors
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=dev-token-smart-irrigation
     volumes:
       - influxdb_data:/var/lib/influxdb2
     networks:
@@ -162,7 +192,10 @@ services:
   # ===================
   mosquitto:
     image: eclipse-mosquitto:2
+    ports:
+      - "0.0.0.0:1883:1883"
     volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
     networks:

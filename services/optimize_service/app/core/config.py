@@ -13,6 +13,7 @@ Usage:
 
 from functools import lru_cache
 from typing import Optional
+from urllib.parse import quote_plus
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -79,15 +80,17 @@ class Settings(BaseSettings):
     def database_url(self) -> str:
         """
         Construct the database URL from individual settings.
-        
+
         Returns:
             str: PostgreSQL connection URL in SQLAlchemy format
-        
+
         Example:
             postgresql://user:password@localhost:5432/dbname
         """
+        # URL encode the password to handle special characters like @, %, etc.
+        encoded_password = quote_plus(self.db_password)
         return (
-            f"postgresql://{self.db_user}:{self.db_password}"
+            f"postgresql://{self.db_user}:{encoded_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
         )
     
@@ -95,12 +98,14 @@ class Settings(BaseSettings):
     def database_url_async(self) -> str:
         """
         Construct async database URL for use with asyncpg.
-        
+
         Returns:
             str: Async PostgreSQL connection URL
         """
+        # URL encode the password to handle special characters
+        encoded_password = quote_plus(self.db_password)
         return (
-            f"postgresql+asyncpg://{self.db_user}:{self.db_password}"
+            f"postgresql+asyncpg://{self.db_user}:{encoded_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
         )
 

@@ -16,6 +16,12 @@ export const ENDPOINTS = {
     SCHEDULES: '/irrigation/schedules',
     EVENTS: '/irrigation/events',
     CONTROL: '/irrigation/control',
+    // IoT Telemetry endpoints
+    IOT_DEVICES: '/irrigation/iot/devices',
+    IOT_LATEST: (id: string) => `/irrigation/iot/devices/${id}/latest`,
+    IOT_RANGE: (id: string) => `/irrigation/iot/devices/${id}/range`,
+    IOT_CMD: (id: string) => `/irrigation/iot/devices/${id}/cmd`,
+    IOT_TELEMETRY: '/irrigation/iot/telemetry',
   },
 
   // F2 - Crop Health
