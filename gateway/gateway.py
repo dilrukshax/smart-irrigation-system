@@ -281,6 +281,68 @@ async def irrigation_predict(request: Request):
     return await proxy_request(SERVICES["irrigation"], "/api/v1/sensors/predict", request)
 
 
+# =================== Smart Water Management Routes ===================
+
+@app.get("/api/v1/irrigation/water-management/status", tags=["Irrigation Service (F1)"], summary="Water Management Status")
+async def water_management_status(request: Request):
+    """Get Smart Water Management service status."""
+    return await proxy_request(SERVICES["irrigation"], "/api/v1/water-management/status", request)
+
+
+@app.get("/api/v1/irrigation/water-management/reservoir/current", tags=["Irrigation Service (F1)"], summary="Current Reservoir Data")
+async def water_management_reservoir(request: Request):
+    """Get current reservoir sensor readings."""
+    return await proxy_request(SERVICES["irrigation"], "/api/v1/water-management/reservoir/current", request)
+
+
+@app.post("/api/v1/irrigation/water-management/predict", tags=["Irrigation Service (F1)"], summary="Predict Water Release")
+async def water_management_predict(request: Request):
+    """Predict next-day irrigation water release using ML model."""
+    return await proxy_request(SERVICES["irrigation"], "/api/v1/water-management/predict", request)
+
+
+@app.post("/api/v1/irrigation/water-management/decide", tags=["Irrigation Service (F1)"], summary="Get Control Decision")
+async def water_management_decide(request: Request):
+    """Get actuator control decision based on ML prediction."""
+    return await proxy_request(SERVICES["irrigation"], "/api/v1/water-management/decide", request)
+
+
+@app.get("/api/v1/irrigation/water-management/recommend/auto", tags=["Irrigation Service (F1)"], summary="Auto Recommendation")
+async def water_management_recommend_auto(request: Request):
+    """Get automatic recommendation using current sensor data."""
+    return await proxy_request(SERVICES["irrigation"], "/api/v1/water-management/recommend/auto", request)
+
+
+@app.post("/api/v1/irrigation/water-management/recommend", tags=["Irrigation Service (F1)"], summary="Get Recommendation")
+async def water_management_recommend(request: Request):
+    """Get complete water management recommendation."""
+    return await proxy_request(SERVICES["irrigation"], "/api/v1/water-management/recommend", request)
+
+
+@app.post("/api/v1/irrigation/water-management/manual-override", tags=["Irrigation Service (F1)"], summary="Set Manual Override")
+async def water_management_override(request: Request):
+    """Set manual control override for irrigation system."""
+    return await proxy_request(SERVICES["irrigation"], "/api/v1/water-management/manual-override", request)
+
+
+@app.post("/api/v1/irrigation/water-management/manual-override/cancel", tags=["Irrigation Service (F1)"], summary="Cancel Manual Override")
+async def water_management_override_cancel(request: Request):
+    """Cancel manual override and return to automatic control."""
+    return await proxy_request(SERVICES["irrigation"], "/api/v1/water-management/manual-override/cancel", request)
+
+
+@app.get("/api/v1/irrigation/water-management/manual-override/status", tags=["Irrigation Service (F1)"], summary="Get Manual Override Status")
+async def water_management_override_status(request: Request):
+    """Get current manual override status."""
+    return await proxy_request(SERVICES["irrigation"], "/api/v1/water-management/manual-override/status", request)
+
+
+@app.get("/api/v1/irrigation/water-management/model/info", tags=["Irrigation Service (F1)"], summary="ML Model Info")
+async def water_management_model_info(request: Request):
+    """Get information about the ML model."""
+    return await proxy_request(SERVICES["irrigation"], "/api/v1/water-management/model/info", request)
+
+
 @app.api_route("/api/v1/irrigation/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"], 
                tags=["Irrigation Service (F1)"], summary="Irrigation Service Proxy", include_in_schema=False)
 async def irrigation_proxy(path: str, request: Request):

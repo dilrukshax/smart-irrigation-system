@@ -20,7 +20,9 @@ from app.core.config import settings
 from app.core.logging_config import setup_logging
 from app.api.health import router as health_router
 from app.api.sensors import router as sensors_router
+from app.api.water_management import router as water_management_router
 from app.ml.irrigation_model import irrigation_model
+from app.ml.water_management_model import water_management_model
 
 # Setup logging
 setup_logging()
@@ -42,6 +44,10 @@ async def lifespan(app: FastAPI):
     # Initialize and train ML model
     irrigation_model.train_model()
     logger.info("Irrigation ML model initialized and ready")
+    
+    # Load Smart Water Management ML model
+    water_management_model.load_model()
+    logger.info("Water Management ML model loaded and ready")
     
     yield
     
@@ -74,6 +80,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health_router)
 app.include_router(sensors_router)
+app.include_router(water_management_router)
 
 
 @app.get("/", tags=["Root"])
