@@ -24,12 +24,12 @@
 // ============================================
 
 // WiFi credentials
-const char* WIFI_SSID = "SLT-Fiber-.4G";
-const char* WIFI_PASS = "SLTCharuka@0";
+const char* WIFI_SSID = "Galaxy M14 5G";
+const char* WIFI_PASS = "abcd@1234";
 
 // MQTT Broker - Your laptop's IPv4 address (run 'ipconfig' to find it)
 // IMPORTANT: No spaces before or after the IP address!
-const char* MQTT_HOST = "192.168.1.5";  // <-- Your PC's local IP
+const char* MQTT_HOST = "192.168.106.2";  // <-- Your PC's local IP
 const int   MQTT_PORT = 1883;
 
 // Unique device identifier (change for each ESP32 device)

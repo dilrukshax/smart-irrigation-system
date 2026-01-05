@@ -2,6 +2,100 @@
 
 ESP32 sensor telemetry ingestion microservice for the Smart Irrigation System.
 
+## Quick Start - Run IoT Functions
+
+### Step 1: Start Docker Containers (InfluxDB & Mosquitto)
+
+```powershell
+cd c:\Users\dilan\Projact\smart-irrigation-system\infrastructure\docker
+docker-compose up -d mosquitto influxdb
+```
+
+Verify they're running:
+```powershell
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+```
+
+Expected output:
+```
+NAMES                STATUS          PORTS
+docker-influxdb-1    Up X minutes    0.0.0.0:8086->8086/tcp
+docker-mosquitto-1   Up X minutes    0.0.0.0:1883->1883/tcp
+```
+
+### Step 2: Create Environment File
+
+Create `.env` in `services/iot_service/`:
+
+```env
+ENVIRONMENT=development
+DEBUG=true
+
+# MQTT
+MQTT_BROKER=localhost
+MQTT_PORT=1883
+
+# InfluxDB
+INFLUXDB_URL=http://localhost:8086
+INFLUXDB_TOKEN=dev-token-smart-irrigation
+INFLUXDB_ORG=smart-irrigation
+INFLUXDB_BUCKET=sensors
+```
+
+### Step 3: Start IoT Service
+
+```powershell
+cd c:\Users\dilan\Projact\smart-irrigation-system\services\iot_service
+pip install -r requirements.txt
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8006
+```
+
+### Step 4: Configure ESP32
+
+1. Find your PC's IP address:
+   ```powershell
+   ipconfig | Select-String "IPv4"
+   ```
+
+2. Update `hardware/esp32/main.ino`:
+   ```cpp
+   const char* WIFI_SSID = "YourWiFiName";
+   const char* WIFI_PASS = "YourPassword";
+   const char* MQTT_HOST = "192.168.x.x";  // Your PC's IP
+   ```
+
+3. Upload to ESP32 using Arduino IDE
+
+### Step 5: Verify Data Flow
+
+```powershell
+# Check Mosquitto is receiving data
+docker logs docker-mosquitto-1 --tail 10
+
+# Test API endpoint
+curl http://localhost:8006/api/v1/iot/devices
+```
+
+### Troubleshooting MQTT Connection
+
+If ESP32 shows error `-4` (timeout):
+
+1. **Check Windows Firewall** - Add rule for port 1883:
+   ```powershell
+   # Run as Administrator
+   netsh advfirewall firewall add rule name="MQTT" dir=in action=allow protocol=TCP localport=1883
+   ```
+
+2. **Verify Mosquitto port binding:**
+   ```powershell
+   netstat -ano | Select-String ":1883"
+   # Should show: 0.0.0.0:1883 LISTENING
+   ```
+
+3. **Ensure ESP32 and PC are on same network**
+
+---
+
 ## Overview
 
 This service provides:
