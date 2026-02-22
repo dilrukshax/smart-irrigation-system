@@ -29,6 +29,7 @@ import {
   Person as PersonIcon,
   Logout as LogoutIcon,
   AdminPanelSettings as AdminIcon,
+  Sensors as SensorsIcon,
 } from '@mui/icons-material';
 import { DRAWER_WIDTH } from '@config/constants';
 import { ROUTES } from '@config/routes';
@@ -37,6 +38,7 @@ import { useAuth } from '@contexts/AuthContext';
 const menuItems = [
   { text: 'Dashboard', icon: <DashboardIcon />, path: ROUTES.HOME },
   { text: 'Irrigation', icon: <WaterIcon />, path: ROUTES.IRRIGATION.ROOT },
+  { text: 'Sensor Telemetry', icon: <SensorsIcon />, path: ROUTES.IRRIGATION.TELEMETRY },
   { text: 'Crop Health', icon: <CropIcon />, path: ROUTES.CROP_HEALTH.ROOT },
   { text: 'Forecasting', icon: <ForecastIcon />, path: ROUTES.FORECASTING.ROOT },
   { text: 'Optimization', icon: <OptimizeIcon />, path: ROUTES.OPTIMIZATION.ROOT },

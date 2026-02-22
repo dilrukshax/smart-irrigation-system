@@ -1,0 +1,22 @@
+# FastAPI and Server
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# Image Processing
+pillow>=10.2.0
+numpy>=1.24.0
+
+# ML/Deep Learning
+tensorflow>=2.15.0
+# tensorflow-macos>=2.15.0  # Uncomment for Mac M1/M2
+
+# Data Validation
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# HTTP Client (for URL predictions)
+httpx>=0.26.0
+
+# Utilities
+python-dotenv>=1.0.0

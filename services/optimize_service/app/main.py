@@ -39,31 +39,76 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """
     Lifespan context manager for startup and shutdown events.
-    
+
     This replaces the deprecated @app.on_event decorators.
-    
+
     On startup:
-        - Log that the service has started
-        - Optionally verify database connection
-    
+        - Load all ML models
+        - Verify database connection
+        - Log service information
+
     On shutdown:
-        - Log that the service is stopping
-        - Clean up any resources
+        - Clean up resources
     """
     # Startup
     logger.info(f"Starting {settings.app_name} in {settings.app_env} mode...")
     logger.info(f"API documentation available at /docs")
-    
-    # You could add DB connection check here:
-    # from app.data.db import engine
-    # try:
-    #     with engine.connect() as conn:
-    #         logger.info("Database connection verified")
-    # except Exception as e:
-    #     logger.warning(f"Database connection failed: {e}")
-    
+
+    # Load ML Models
+    logger.info("=" * 60)
+    logger.info("Loading ML Models...")
+    logger.info("=" * 60)
+
+    try:
+        # Import and initialize all ML models
+        from app.ml.price_model import get_price_model
+        from app.ml.yield_model import get_yield_model
+        from app.ml.crop_recommendation_model import get_crop_recommendation_model
+
+        # Load Price Prediction Model (LightGBM + 24 features)
+        logger.info("Loading Price Prediction Model...")
+        price_model = get_price_model()
+        if price_model.model_loaded:
+            logger.info("✓ Price Prediction Model loaded successfully")
+        else:
+            logger.warning("⚠ Price Prediction Model failed to load - using fallback")
+
+        # Load Yield Prediction Model (Rule-based heuristic)
+        logger.info("Loading Yield Prediction Model...")
+        yield_model = get_yield_model()
+        if yield_model.model_loaded:
+            logger.info("✓ Yield Prediction Model loaded successfully")
+        else:
+            logger.warning("⚠ Yield Prediction Model not available")
+
+        # Load Crop Recommendation Model (Random Forest)
+        logger.info("Loading Crop Recommendation Model...")
+        crop_model = get_crop_recommendation_model()
+        if crop_model.model_loaded:
+            logger.info("✓ Crop Recommendation Model loaded successfully")
+        else:
+            logger.warning("⚠ Crop Recommendation Model failed to load")
+
+        logger.info("=" * 60)
+        logger.info("ML Models initialization complete")
+        logger.info("=" * 60)
+
+    except Exception as e:
+        logger.error(f"Error loading ML models: {e}")
+        logger.warning("Service will continue with fallback predictions")
+
+    # Database connection check
+    try:
+        from app.data.db import engine
+        with engine.connect() as conn:
+            logger.info("✓ Database connection verified")
+    except Exception as e:
+        logger.warning(f"⚠ Database connection failed: {e}")
+
+    logger.info(f"✓ {settings.app_name} is ready to accept requests")
+
     yield  # Application runs here
-    
+
     # Shutdown
     logger.info(f"Shutting down {settings.app_name}...")
     logger.info("Cleanup complete. Goodbye!")
@@ -106,6 +151,14 @@ app.include_router(health_router)
 app.include_router(recommendations_router)
 app.include_router(planb_router)
 app.include_router(supply_router)
+
+# Import and include demo router (for testing without database)
+from app.api.routes_demo import router as demo_router
+app.include_router(demo_router)
+
+# Import and include adaptive recommendations router
+from app.api.routes_adaptive import router as adaptive_router
+app.include_router(adaptive_router)
 
 
 @app.get("/", tags=["root"])

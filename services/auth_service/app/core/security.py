@@ -3,6 +3,7 @@ Security utilities for password hashing and JWT token management.
 """
 
 from datetime import datetime, timedelta, timezone
+import logging
 from typing import Any, Dict, Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -11,8 +12,9 @@ from fastapi import HTTPException, status
 from app.core.config import settings
 
 
-# Password hashing context using bcrypt
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Password hashing context: prefer bcrypt_sha256 (handles long passwords)
+# Keep plain bcrypt as a fallback to verify existing hashes.
+pwd_context = CryptContext(schemes=["bcrypt_sha256", "bcrypt"], deprecated="auto")
 
 
 def hash_password(password: str) -> str:
@@ -39,7 +41,26 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Returns:
         True if password matches, False otherwise.
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except ValueError as exc:
+        # Workaround for bcrypt's 72-byte limit when a plain bcrypt hash is stored.
+        # If the password is too long, attempt a safe truncation check and log a warning.
+        msg = str(exc)
+        logging.warning("Password verification raised ValueError: %s", msg)
+
+        if "longer than 72 bytes" in msg or "cannot be longer than 72 bytes" in msg:
+            try:
+                truncated = plain_password[:72]
+                if pwd_context.verify(truncated, hashed_password):
+                    logging.warning(
+                        "Password matched after truncation to 72 bytes — consider rehashing user with bcrypt_sha256."
+                    )
+                    return True
+            except Exception:
+                logging.exception("Fallback truncation verification failed.")
+
+        return False
 
 
 def create_access_token(

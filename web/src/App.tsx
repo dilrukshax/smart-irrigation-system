@@ -16,17 +16,21 @@ import { ProtectedRoute, AdminRoute, PublicRoute } from '@components/auth/Protec
 
 // Feature Pages - F1 Irrigation
 import IrrigationDashboard from '@features/f1-irrigation/pages/IrrigationDashboard';
+import WaterManagementDashboard from '@features/f1-irrigation/pages/WaterManagementDashboard';
+import CropFieldDashboard from '@features/f1-irrigation/pages/CropFieldDashboard';
 
 // Feature Pages - F2 Crop Health
 import CropHealthDashboard from '@features/f2-crop-health/pages/CropHealthDashboard';
 
 // Feature Pages - F3 Forecasting
-import ForecastDashboard from '@features/f3-forecasting/pages/ForecastDashboard';
+import EnhancedForecastDashboard from '@features/f3-forecasting/pages/EnhancedForecastDashboard';
 
 // Feature Pages - F4 ACA-O
 import ACAODashboard from '@features/f4-acao/pages/ACAODashboard';
 import FieldRecommendations from '@features/f4-acao/pages/FieldRecommendations';
 import OptimizationPlanner from '@features/f4-acao/pages/OptimizationPlanner';
+import Scenarios from '@features/f4-acao/pages/Scenarios';
+import AdaptiveRecommendations from '@features/f4-acao/pages/AdaptiveRecommendations';
 
 function App() {
   return (
@@ -46,17 +50,21 @@ function App() {
 
           {/* F1 - Irrigation Routes */}
           <Route path="/irrigation" element={<IrrigationDashboard />} />
+          <Route path="/irrigation/water-management" element={<WaterManagementDashboard />} />
+          <Route path="/irrigation/crop-fields" element={<CropFieldDashboard />} />
 
           {/* F2 - Crop Health Routes */}
           <Route path="/crop-health" element={<CropHealthDashboard />} />
 
           {/* F3 - Forecasting Routes */}
-          <Route path="/forecasting" element={<ForecastDashboard />} />
+          <Route path="/forecasting" element={<EnhancedForecastDashboard />} />
 
           {/* F4 - ACA-O Routes */}
           <Route path="/optimization" element={<ACAODashboard />} />
           <Route path="/optimization/recommendations" element={<FieldRecommendations />} />
           <Route path="/optimization/planner" element={<OptimizationPlanner />} />
+          <Route path="/optimization/scenarios" element={<Scenarios />} />
+          <Route path="/optimization/adaptive" element={<AdaptiveRecommendations />} />
 
           {/* Admin Routes - Requires admin role */}
           <Route element={<AdminRoute />}>

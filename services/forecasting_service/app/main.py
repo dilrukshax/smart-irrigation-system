@@ -19,7 +19,15 @@ from app.core.config import settings
 from app.core.logging_config import setup_logging
 from app.api.health import router as health_router
 from app.api.forecast import router as forecast_router
-from app.ml.forecasting_system import forecasting_system
+from app.ml import forecasting_system, ADVANCED_ML_AVAILABLE
+
+# Only import advanced features if TensorFlow is available
+if ADVANCED_ML_AVAILABLE:
+    from app.api.advanced_forecast import router as advanced_forecast_router
+
+# Import new routers
+from app.api.weather import router as weather_router
+from app.api.analytics import router as analytics_router
 
 # Setup logging
 setup_logging()
@@ -73,6 +81,20 @@ app.add_middleware(
 # Include routers
 app.include_router(health_router)
 app.include_router(forecast_router)
+
+# Always include advanced router (it handles availability internally)
+from app.api.advanced_forecast import router as advanced_forecast_router
+app.include_router(advanced_forecast_router)
+
+# Include new routers
+app.include_router(weather_router)
+app.include_router(analytics_router)
+
+# Log ML feature status
+if ADVANCED_ML_AVAILABLE:
+    logger.info("Advanced ML features enabled")
+else:
+    logger.warning("Advanced ML features disabled (TensorFlow not available)")
 
 
 @app.get("/", tags=["Root"])

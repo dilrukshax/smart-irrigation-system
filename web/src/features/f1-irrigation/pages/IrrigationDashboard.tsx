@@ -1,5 +1,7 @@
-import { Box, Typography, Grid, Card, CardContent, Chip } from '@mui/material';
-import { WaterDrop, Thermostat, Opacity } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
+import { Box, Typography, Grid, Card, CardContent, Chip, Button } from '@mui/material';
+import { WaterDrop, Thermostat, Opacity, Water, ArrowForward, Agriculture } from '@mui/icons-material';
+import { ROUTES } from '../../../config/routes';
 
 const mockSensors = [
   { id: 1, field: 'Field A1', moisture: 45, temp: 28, humidity: 65, status: 'OK' },
@@ -9,14 +11,80 @@ const mockSensors = [
 ];
 
 export default function IrrigationDashboard() {
+  const navigate = useNavigate();
+
   return (
     <Box>
-      <Typography variant="h4" gutterBottom fontWeight={600}>
-        Irrigation Dashboard
-      </Typography>
-      <Typography variant="body1" color="text.secondary" paragraph>
-        Real-time monitoring of field irrigation and sensor data
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Box>
+          <Typography variant="h4" gutterBottom fontWeight={600}>
+            Irrigation Dashboard
+          </Typography>
+          <Typography variant="body1" color="text.secondary">
+            Real-time monitoring of field irrigation and sensor data
+          </Typography>
+        </Box>
+        <Button
+          variant="contained"
+          color="primary"
+          startIcon={<Water />}
+          endIcon={<ArrowForward />}
+          onClick={() => navigate(ROUTES.IRRIGATION.WATER_MANAGEMENT)}
+        >
+          Smart Water Management
+        </Button>
+      </Box>
+
+      {/* Quick Access Card for Water Management */}
+      <Card sx={{ mb: 3, bgcolor: 'primary.50', border: '1px solid', borderColor: 'primary.200' }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Water sx={{ fontSize: 40, color: 'primary.main' }} />
+              <Box>
+                <Typography variant="h6" fontWeight={600}>
+                  ML-Powered Water Management
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Predict irrigation water releases using machine learning trained on Udawalawe reservoir data (1994-2025)
+                </Typography>
+              </Box>
+            </Box>
+            <Button
+              variant="outlined"
+              onClick={() => navigate(ROUTES.IRRIGATION.WATER_MANAGEMENT)}
+            >
+              Open Dashboard
+            </Button>
+          </Box>
+        </CardContent>
+      </Card>
+
+      {/* Quick Access Card for Crop Field Management */}
+      <Card sx={{ mb: 3, bgcolor: 'success.50', border: '1px solid', borderColor: 'success.200' }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Agriculture sx={{ fontSize: 40, color: 'success.main' }} />
+              <Box>
+                <Typography variant="h6" fontWeight={600}>
+                  IoT Crop Field Management
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Automatic valve control for rice fields based on real-time water level and soil moisture sensors
+                </Typography>
+              </Box>
+            </Box>
+            <Button
+              variant="outlined"
+              color="success"
+              onClick={() => navigate(ROUTES.IRRIGATION.CROP_FIELDS)}
+            >
+              Manage Fields
+            </Button>
+          </Box>
+        </CardContent>
+      </Card>
 
       <Grid container spacing={3}>
         {mockSensors.map((sensor) => (

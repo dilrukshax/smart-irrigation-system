@@ -18,6 +18,7 @@
 - [Technology Stack](#-technology-stack)
 - [Project Structure](#-project-structure)
 - [Getting Started](#-getting-started)
+- [IoT Telemetry System](#-iot-telemetry-system)
 - [Service Documentation](#-service-documentation)
 - [API Reference](#-api-reference)
 - [Development Guide](#-development-guide)
@@ -448,7 +449,46 @@ make clean
 
 ---
 
-## 📖 Service Documentation
+## � IoT Telemetry System
+
+The platform includes a dedicated IoT service for ESP32 sensor data ingestion via MQTT and REST APIs.
+
+### Quick Start (IoT Only)
+
+```powershell
+cd infrastructure/docker
+
+# Start only IoT services (InfluxDB, Mosquitto, IoT Service)
+docker-compose up -d --build iot-service influxdb mosquitto
+```
+
+### IoT Service (Port 8006)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/iot/devices` | GET | List all connected devices |
+| `/api/v1/iot/devices/{id}/latest` | GET | Get latest telemetry reading |
+| `/api/v1/iot/devices/{id}/range` | GET | Get historical readings |
+| `/api/v1/iot/devices/{id}/cmd` | POST | Send command to device |
+| `/api/v1/iot/telemetry` | POST | Ingest telemetry via REST |
+| `/health` | GET | Health check |
+
+**Features:**
+- MQTT subscriber for ESP32 devices (`devices/+/telemetry`)
+- InfluxDB time-series storage
+- ADC to percentage calibration
+- Device command publishing
+- REST API for frontend integration
+
+**MQTT Topics:**
+- Subscribe: `devices/{device_id}/telemetry`
+- Publish: `devices/{device_id}/cmd`
+
+📘 **Full Setup Guide:** [IOT_SETUP_GUIDE.md](IOT_SETUP_GUIDE.md)
+
+---
+
+## �📖 Service Documentation
 
 ### Auth Service (Port 8001)
 
