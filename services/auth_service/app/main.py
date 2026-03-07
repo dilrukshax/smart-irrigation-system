@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.db.mongo import connect_to_mongo, close_mongo_connection
+from app.db.postgres import connect_to_db, close_db
 from app.api.routes import auth, admin
 
 
@@ -20,12 +20,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Suppress verbose pymongo debug logs
-logging.getLogger("pymongo").setLevel(logging.WARNING)
-logging.getLogger("pymongo.topology").setLevel(logging.WARNING)
-logging.getLogger("pymongo.connection").setLevel(logging.WARNING)
-logging.getLogger("pymongo.command").setLevel(logging.WARNING)
-logging.getLogger("pymongo.serverSelection").setLevel(logging.WARNING)
+
 
 
 @asynccontextmanager
@@ -36,14 +31,14 @@ async def lifespan(app: FastAPI):
     """
     # Startup
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
-    await connect_to_mongo()
+    await connect_to_db()
     logger.info("Application startup complete")
-    
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down application...")
-    await close_mongo_connection()
+    await close_db()
     logger.info("Application shutdown complete")
 
 
@@ -101,13 +96,13 @@ async def health_check():
     Health check endpoint.
     Returns service status and basic info.
     """
-    from app.db.mongo import db
-    
+    from app.db.postgres import is_connected
+
     return {
-        "status": "healthy" if db.is_connected else "degraded",
+        "status": "healthy" if is_connected else "degraded",
         "service": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "database": "connected" if db.is_connected else "disconnected",
+        "database": "connected" if is_connected else "disconnected",
     }
 
 
