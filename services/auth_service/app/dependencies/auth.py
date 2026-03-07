@@ -62,13 +62,13 @@ async def get_current_active_user(
 ) -> User:
     """
     Get current user ensuring they are active.
-    
+
     Args:
         current_user: Current user from get_current_user dependency.
-        
+
     Returns:
         Active user document.
-        
+
     Raises:
         HTTPException: If user is inactive.
     """
