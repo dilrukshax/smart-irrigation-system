@@ -80,6 +80,7 @@ export interface WaterManagementRecommendation {
     main_canals_mcm: number | null;
     evap_mm: number | null;
   };
+  data_source?: 'simulated' | 'iot_sensors';
 }
 
 export interface ThresholdConfig {

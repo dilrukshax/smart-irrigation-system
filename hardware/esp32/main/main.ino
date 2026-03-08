@@ -1,338 +1,392 @@
 /**
- * Smart Irrigation System - ESP32 Telemetry Sensor
+ * Smart Irrigation System - ESP32-S3 Telemetry Node
  *
- * Reads soil moisture and water level sensors, publishes to MQTT broker.
- * Supports dynamic interval configuration via MQTT commands.
- *
- * Hardware:
- * - ESP32-S3 DevKit
- * - Capacitive Soil Moisture Sensor (Analog)
- * - Water Level Sensor (Analog)
- * - Optional: Digital soil moisture threshold output
- *
- * Wiring:
- * - SOIL_AO (GPIO 1): Soil moisture analog output
- * - WATER_AO (GPIO 2): Water level analog output
- * - SOIL_DO (GPIO 7): Soil moisture digital output (threshold alert)
+ * Features:
+ * - Reads soil moisture sensor + water level sensor
+ * - Converts raw ADC values into calibrated percentages
+ * - Converts water level % into cm using sensor height
+ * - Publishes telemetry to MQTT
+ * - Supports dynamic sampling interval via MQTT command
+ * - Suitable for backend + frontend real-time dashboards
  */
 
 #include <WiFi.h>
 #include <PubSubClient.h>
 
-// ============================================
-// CONFIGURATION - CHANGE THESE VALUES
-// ============================================
+// =====================================================
+// WIFI + MQTT CONFIG
+// =====================================================
+const char *WIFI_SSID = "M14";
+const char *WIFI_PASS = "12345678";
 
-// WiFi credentials - CHANGE THESE TO YOUR NETWORK
-const char *WIFI_SSID = "DON Ray";      // <-- WiFi network name
-const char *WIFI_PASS = "Ganga@021983"; // <-- WiFi password
-
-// MQTT Broker - Your laptop's IPv4 address (run 'ipconfig' in cmd to find it)
-// IMPORTANT: No spaces before or after the IP address!
-const char *MQTT_HOST = "192.168.8.137"; // PC IP on DON Ray network
+// IMPORTANT: Use your LAPTOP IPv4 address on the SAME WiFi
+const char *MQTT_HOST = "192.168.205.112";
 const int MQTT_PORT = 1883;
 
-// Unique device identifier (change for each ESP32 device)
 const char *DEVICE_ID = "esp32-01";
 
-// ============================================
-// SENSOR PIN CONFIGURATION
-// ============================================
-const int SOIL_AO = 1;  // Soil moisture analog pin (ADC1_CH0)
-const int WATER_AO = 2; // Water level analog pin (ADC1_CH1)
-const int SOIL_DO = 7;  // Soil moisture digital pin (threshold)
+// =====================================================
+// SENSOR PINS
+// =====================================================
+const int SOIL_AO = 1;    // GPIO1
+const int WATER_AO = 2;   // GPIO2
+const int SOIL_DO = 7;    // GPIO7 (optional comparator output)
+const int LED_PIN = 21;   // onboard / external status LED
 
-// ============================================
-// GLOBALS
-// ============================================
+// =====================================================
+// SENSOR META
+// =====================================================
+const float SOIL_PROBE_DEPTH_CM = 5.0;     // soil sensing depth zone
+const float WATER_SENSOR_HEIGHT_CM = 4.0;  // actual active water strip height
+
+// =====================================================
+// CALIBRATION VALUES
+// CHANGE THESE AFTER YOU TAKE REAL READINGS
+// =====================================================
+
+// Soil sensor calibration
+// Example meaning:
+// - DRY = sensor inserted in dry soil sample
+// - WET = sensor inserted in fully watered soil sample
+const int SOIL_DRY_RAW = 3200;
+const int SOIL_WET_RAW = 1400;
+
+// Water level sensor calibration
+// Example meaning:
+// - EMPTY = dry sensor
+// - FULL = fully wet sensor over full 4 cm active strip
+const int WATER_EMPTY_RAW = 3800;
+const int WATER_FULL_RAW = 600;
+
+// =====================================================
+// TIMING
+// =====================================================
+unsigned long intervalMs = 5000;
+unsigned long lastSendMs = 0;
+unsigned long lastWifiCheckMs = 0;
+unsigned long lastMqttRetryMs = 0;
+
+const unsigned long WIFI_CHECK_INTERVAL_MS = 30000;
+const unsigned long MQTT_RETRY_INTERVAL_MS = 5000;
+
+// =====================================================
+// GLOBAL CLIENTS
+// =====================================================
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
 
-unsigned long intervalMs = 5000; // Telemetry interval (default 5 seconds)
-unsigned long lastSendMs = 0;
-unsigned long lastWifiCheck = 0;
-const unsigned long WIFI_CHECK_INTERVAL = 30000; // Check WiFi every 30s
-
-// LED for status indication
-// NOTE: GPIO 2 is used by WATER_AO sensor, so LED is on GPIO 21
-// ESP32-S3 DevKit built-in LED is typically GPIO 21 (check your board's pinout)
-const int LED_PIN = 21;
-
-// ============================================
-// SENSOR READING FUNCTIONS
-// ============================================
-
-/**
- * Read analog value with averaging for noise reduction
- * Takes 20 samples over ~60ms for stable reading
- */
-int readAvg(int pin)
+// =====================================================
+// UTILITY: AVERAGE ADC READING
+// =====================================================
+int readAvg(int pin, int samples = 20, int delayMs = 3)
 {
   long sum = 0;
-  for (int i = 0; i < 20; i++)
+  for (int i = 0; i < samples; i++)
   {
     sum += analogRead(pin);
-    delay(3);
+    delay(delayMs);
   }
-  return (int)(sum / 20);
+  return (int)(sum / samples);
 }
 
+// =====================================================
+// CALCULATION FUNCTIONS
+// =====================================================
+
 /**
- * Convert raw ADC to soil moisture percentage
- * Calibrate these values for your specific sensor
+ * Convert soil raw ADC value to moisture percentage.
+ * Higher raw often means drier soil for many analog sensors.
  */
 int soilToPercent(int rawValue)
 {
-  // Typical capacitive sensor: ~4095 when dry, ~1000-2000 when wet
-  const int DRY_VALUE = 4095;
-  const int WET_VALUE = 1500;
+  if (SOIL_DRY_RAW == SOIL_WET_RAW)
+    return 0;
 
-  int percent = map(rawValue, DRY_VALUE, WET_VALUE, 0, 100);
-  return constrain(percent, 0, 100);
+  float pct = 100.0f * ((float)SOIL_DRY_RAW - (float)rawValue) /
+              ((float)SOIL_DRY_RAW - (float)SOIL_WET_RAW);
+
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+
+  return (int)(pct + 0.5f);
 }
 
 /**
- * Convert raw ADC to water level percentage
+ * Convert water raw ADC value to water level percentage.
  */
 int waterToPercent(int rawValue)
 {
-  const int EMPTY_VALUE = 4095;
-  const int FULL_VALUE = 500;
+  if (WATER_EMPTY_RAW == WATER_FULL_RAW)
+    return 0;
 
-  int percent = map(rawValue, EMPTY_VALUE, FULL_VALUE, 0, 100);
-  return constrain(percent, 0, 100);
+  float pct = 100.0f * ((float)WATER_EMPTY_RAW - (float)rawValue) /
+              ((float)WATER_EMPTY_RAW - (float)WATER_FULL_RAW);
+
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+
+  return (int)(pct + 0.5f);
 }
-
-// ============================================
-// MQTT CALLBACK
-// ============================================
 
 /**
- * Handle incoming MQTT commands
- * Supported commands:
- * - set_interval_ms: Change telemetry interval
- *   Example: {"type":"set_interval_ms","value":60000}
+ * Convert water level percentage to centimeters based on actual sensor height.
  */
-void onMqttMessage(char *topic, byte *payload, unsigned int length)
+float waterPercentToCm(int waterPercent)
 {
-  Serial.print("MQTT received on ");
-  Serial.print(topic);
-  Serial.print(": ");
-
-  String msg;
-  msg.reserve(length);
-  for (unsigned int i = 0; i < length; i++)
-  {
-    msg += (char)payload[i];
-  }
-  Serial.println(msg);
-
-  // Parse set_interval_ms command
-  if (msg.indexOf("set_interval_ms") >= 0)
-  {
-    int vPos = msg.indexOf("\"value\":");
-    if (vPos >= 0)
-    {
-      unsigned long v = msg.substring(vPos + 8).toInt();
-      if (v >= 500 && v <= 3600000)
-      { // 0.5s to 1 hour guard
-        intervalMs = v;
-        Serial.print("Interval updated to: ");
-        Serial.print(intervalMs);
-        Serial.println(" ms");
-      }
-      else
-      {
-        Serial.println("Invalid interval value (must be 500-3600000 ms)");
-      }
-    }
-  }
+  return ((float)waterPercent / 100.0f) * WATER_SENSOR_HEIGHT_CM;
 }
 
-// ============================================
-// WIFI FUNCTIONS
-// ============================================
+/**
+ * Convert soil moisture percent into a human-readable status.
+ */
+const char *soilConditionLabel(int soilPercent)
+{
+  if (soilPercent < 30) return "dry";
+  if (soilPercent < 60) return "moderate";
+  if (soilPercent <= 80) return "optimal";
+  return "wet";
+}
 
+/**
+ * Convert water level percent into a human-readable status.
+ */
+const char *waterConditionLabel(int waterPercent)
+{
+  if (waterPercent < 20) return "low";
+  if (waterPercent < 70) return "medium";
+  return "high";
+}
+
+// =====================================================
+// WIFI FUNCTIONS
+// =====================================================
 void connectWifi()
 {
   if (WiFi.status() == WL_CONNECTED)
     return;
 
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  Serial.println("==================================");
+  Serial.println("Connecting to WiFi...");
+  Serial.print("SSID: ");
+  Serial.println(WIFI_SSID);
 
-  Serial.print("WiFi connecting to ");
-  Serial.print(WIFI_SSID);
+  WiFi.disconnect(true, true);
+  delay(1000);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
 
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 30)
   {
     delay(500);
     Serial.print(".");
-    attempts++;
-
-    // Blink LED during connection
     digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+    attempts++;
   }
+  Serial.println();
 
   if (WiFi.status() == WL_CONNECTED)
   {
-    Serial.println("\nWiFi connected!");
-    Serial.print("IP Address: ");
+    Serial.println("WiFi connected successfully.");
+    Serial.print("IP: ");
     Serial.println(WiFi.localIP());
-    Serial.print("Signal strength (RSSI): ");
+    Serial.print("Gateway: ");
+    Serial.println(WiFi.gatewayIP());
+    Serial.print("RSSI: ");
     Serial.print(WiFi.RSSI());
     Serial.println(" dBm");
-
-    digitalWrite(LED_PIN, HIGH); // LED on when connected
+    digitalWrite(LED_PIN, HIGH);
   }
   else
   {
-    Serial.println("\nWiFi connection FAILED!");
-    Serial.println("Check SSID and password, then reset device.");
+    Serial.println("WiFi connection failed.");
     digitalWrite(LED_PIN, LOW);
   }
 }
 
-// ============================================
-// MQTT FUNCTIONS
-// ============================================
-
-void connectMqtt()
+// =====================================================
+// MQTT COMMAND HANDLER
+// =====================================================
+void onMqttMessage(char *topic, byte *payload, unsigned int length)
 {
-  mqtt.setServer(MQTT_HOST, MQTT_PORT);
-  mqtt.setCallback(onMqttMessage);
-  mqtt.setBufferSize(512); // Increase buffer for larger messages
+  String msg;
+  msg.reserve(length);
 
-  int attempts = 0;
-  while (!mqtt.connected() && attempts < 5)
+  for (unsigned int i = 0; i < length; i++)
   {
-    Serial.print("MQTT connecting to ");
-    Serial.print(MQTT_HOST);
-    Serial.print(":");
-    Serial.print(MQTT_PORT);
-    Serial.print("...");
+    msg += (char)payload[i];
+  }
 
-    String clientId = String("esp32-") + DEVICE_ID + "-" + String(random(1000));
+  Serial.print("MQTT message on ");
+  Serial.print(topic);
+  Serial.print(": ");
+  Serial.println(msg);
 
-    if (mqtt.connect(clientId.c_str()))
+  // Example command:
+  // {"type":"set_interval_ms","value":10000}
+  if (msg.indexOf("set_interval_ms") >= 0)
+  {
+    int vPos = msg.indexOf("\"value\":");
+    if (vPos >= 0)
     {
-      Serial.println(" Connected!");
+      String valuePart = msg.substring(vPos + 8);
+      unsigned long newInterval = valuePart.toInt();
 
-      // Subscribe to command topic for this device
-      String cmdTopic = String("devices/") + DEVICE_ID + "/cmd";
-      mqtt.subscribe(cmdTopic.c_str());
-      Serial.print("Subscribed to: ");
-      Serial.println(cmdTopic);
-
-      // Publish online status
-      String statusTopic = String("devices/") + DEVICE_ID + "/status";
-      mqtt.publish(statusTopic.c_str(), "{\"status\":\"online\"}", true);
-    }
-    else
-    {
-      Serial.print(" Failed! Error code: ");
-      Serial.println(mqtt.state());
-      Serial.println("Error codes: -4=timeout, -3=connection lost, -2=connect failed");
-      Serial.println("             -1=disconnected, 0=connected, 1=bad protocol");
-      Serial.println("             2=bad client ID, 3=unavailable, 4=bad credentials");
-      Serial.println("             5=unauthorized");
-      attempts++;
-      delay(2000);
+      if (newInterval >= 500 && newInterval <= 3600000)
+      {
+        intervalMs = newInterval;
+        Serial.print("Sampling interval updated to: ");
+        Serial.print(intervalMs);
+        Serial.println(" ms");
+      }
+      else
+      {
+        Serial.println("Rejected interval. Allowed range: 500 to 3600000 ms");
+      }
     }
   }
 }
 
-// ============================================
-// SETUP
-// ============================================
-
-void setup()
+// =====================================================
+// MQTT FUNCTIONS
+// =====================================================
+void connectMqtt()
 {
-  Serial.begin(115200);
-  delay(1000); // Wait for serial to stabilize
+  if (WiFi.status() != WL_CONNECTED)
+    return;
 
-  Serial.println();
-  Serial.println("=========================================");
-  Serial.println("Smart Irrigation System - ESP32 Sensor");
-  Serial.println("=========================================");
-  Serial.print("Device ID: ");
-  Serial.println(DEVICE_ID);
-  Serial.print("MQTT Broker: ");
+  mqtt.setServer(MQTT_HOST, MQTT_PORT);
+  mqtt.setCallback(onMqttMessage);
+  mqtt.setBufferSize(768);
+
+  Serial.print("Connecting to MQTT: ");
   Serial.print(MQTT_HOST);
   Serial.print(":");
   Serial.println(MQTT_PORT);
-  Serial.println();
 
-  // Configure LED
+  String clientId = String("esp32-") + DEVICE_ID + "-" + String((uint32_t)esp_random());
+
+  if (mqtt.connect(clientId.c_str()))
+  {
+    Serial.println("MQTT connected.");
+
+    String cmdTopic = String("devices/") + DEVICE_ID + "/cmd";
+    mqtt.subscribe(cmdTopic.c_str());
+
+    Serial.print("Subscribed to: ");
+    Serial.println(cmdTopic);
+
+    String statusTopic = String("devices/") + DEVICE_ID + "/status";
+    mqtt.publish(statusTopic.c_str(), "{\"status\":\"online\"}", true);
+
+    digitalWrite(LED_PIN, HIGH);
+  }
+  else
+  {
+    Serial.print("MQTT connect failed, state = ");
+    Serial.println(mqtt.state());
+    Serial.println("Check broker IP, port 1883, Docker port mapping, and firewall.");
+  }
+}
+
+// =====================================================
+// SETUP
+// =====================================================
+void setup()
+{
+  Serial.begin(115200);
+  delay(1000);
+
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
 
-  // Configure ADC
-  analogReadResolution(12);       // 12-bit resolution (0-4095)
-  analogSetAttenuation(ADC_11db); // Full scale voltage
-
-  // Configure digital input
   pinMode(SOIL_DO, INPUT_PULLUP);
 
-  // Connect to WiFi and MQTT
+  analogReadResolution(12);
+  analogSetAttenuation(ADC_11db);
+
+  randomSeed(micros());
+
+  Serial.println();
+  Serial.println("==========================================");
+  Serial.println("SMART IRRIGATION SYSTEM - ESP32 TELEMETRY");
+  Serial.println("==========================================");
+  Serial.print("Device ID: ");
+  Serial.println(DEVICE_ID);
+  Serial.print("Soil probe depth: ");
+  Serial.print(SOIL_PROBE_DEPTH_CM);
+  Serial.println(" cm");
+  Serial.print("Water sensor height: ");
+  Serial.print(WATER_SENSOR_HEIGHT_CM);
+  Serial.println(" cm");
+  Serial.println();
+
   connectWifi();
   if (WiFi.status() == WL_CONNECTED)
   {
     connectMqtt();
   }
 
-  Serial.println();
-  Serial.println("Setup complete. Starting telemetry loop...");
+  Serial.println("Setup complete.");
   Serial.println();
 }
 
-// ============================================
+// =====================================================
 // MAIN LOOP
-// ============================================
-
+// =====================================================
 void loop()
 {
   unsigned long now = millis();
 
-  // Periodic WiFi check
-  if (now - lastWifiCheck >= WIFI_CHECK_INTERVAL)
+  // Keep WiFi alive
+  if (now - lastWifiCheckMs >= WIFI_CHECK_INTERVAL_MS)
   {
-    lastWifiCheck = now;
+    lastWifiCheckMs = now;
+
     if (WiFi.status() != WL_CONNECTED)
     {
-      Serial.println("WiFi disconnected, reconnecting...");
+      Serial.println("WiFi disconnected. Reconnecting...");
       connectWifi();
     }
   }
 
-  // Reconnect MQTT if needed
+  // Retry MQTT if disconnected
   if (WiFi.status() == WL_CONNECTED && !mqtt.connected())
   {
-    Serial.println("MQTT disconnected, reconnecting...");
-    connectMqtt();
+    if (now - lastMqttRetryMs >= MQTT_RETRY_INTERVAL_MS)
+    {
+      lastMqttRetryMs = now;
+      Serial.println("MQTT disconnected. Retrying...");
+      connectMqtt();
+    }
   }
 
-  // Process MQTT messages
-  mqtt.loop();
+  if (mqtt.connected())
+  {
+    mqtt.loop();
+  }
 
-  // Send telemetry at configured interval
+  // Publish telemetry
   if (now - lastSendMs >= intervalMs)
   {
     lastSendMs = now;
 
-    // Read sensors
     int soilAO = readAvg(SOIL_AO);
     int waterAO = readAvg(WATER_AO);
     int soilDO = digitalRead(SOIL_DO);
-    int rssi = WiFi.RSSI();
 
-    // Calculate percentages
     int soilPercent = soilToPercent(soilAO);
     int waterPercent = waterToPercent(waterAO);
+    float waterCm = waterPercentToCm(waterPercent);
 
-    // Build JSON payload
-    char payload[512];
+    const char *soilStatus = soilConditionLabel(soilPercent);
+    const char *waterStatus = waterConditionLabel(waterPercent);
+
+    int rssi = (WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : -999;
+
+    char payload[768];
     snprintf(payload, sizeof(payload),
              "{"
              "\"device_id\":\"%s\","
@@ -342,51 +396,75 @@ void loop()
              "\"water_ao\":%d,"
              "\"soil_moisture_pct\":%d,"
              "\"water_level_pct\":%d,"
+             "\"water_level_cm\":%.2f,"
+             "\"soil_probe_depth_cm\":%.1f,"
+             "\"water_sensor_height_cm\":%.1f,"
+             "\"soil_status\":\"%s\","
+             "\"water_status\":\"%s\","
              "\"rssi\":%d,"
              "\"sampling_ms\":%lu"
              "}",
              DEVICE_ID,
-             (unsigned long)millis(),
+             now,
              soilAO,
              soilDO,
              waterAO,
              soilPercent,
              waterPercent,
+             waterCm,
+             SOIL_PROBE_DEPTH_CM,
+             WATER_SENSOR_HEIGHT_CM,
+             soilStatus,
+             waterStatus,
              rssi,
              intervalMs);
 
-    // Publish telemetry
     String topic = String("devices/") + DEVICE_ID + "/telemetry";
 
     if (mqtt.connected())
     {
-      bool success = mqtt.publish(topic.c_str(), payload);
+      bool ok = mqtt.publish(topic.c_str(), payload);
 
-      Serial.print(success ? "✓ Published: " : "✗ Publish failed: ");
-      Serial.println(topic);
-      Serial.print("  Soil: ");
-      Serial.print(soilPercent);
-      Serial.print("% (raw:");
-      Serial.print(soilAO);
-      Serial.print(") | Water: ");
-      Serial.print(waterPercent);
-      Serial.print("% (raw:");
-      Serial.print(waterAO);
-      Serial.print(") | RSSI: ");
-      Serial.print(rssi);
-      Serial.println(" dBm");
-
-      // Blink LED on successful publish
-      if (success)
+      if (ok)
       {
+        Serial.println("--------------------------------------------------");
+        Serial.print("Published to: ");
+        Serial.println(topic);
+
+        Serial.print("Soil raw: ");
+        Serial.print(soilAO);
+        Serial.print(" | Soil %: ");
+        Serial.print(soilPercent);
+        Serial.print("% | Soil status: ");
+        Serial.println(soilStatus);
+
+        Serial.print("Water raw: ");
+        Serial.print(waterAO);
+        Serial.print(" | Water %: ");
+        Serial.print(waterPercent);
+        Serial.print("% | Water cm: ");
+        Serial.print(waterCm, 2);
+        Serial.print(" cm | Water status: ");
+        Serial.println(waterStatus);
+
+        Serial.print("Soil DO: ");
+        Serial.print(soilDO);
+        Serial.print(" | RSSI: ");
+        Serial.print(rssi);
+        Serial.println(" dBm");
+
         digitalWrite(LED_PIN, LOW);
         delay(50);
         digitalWrite(LED_PIN, HIGH);
       }
+      else
+      {
+        Serial.println("Publish failed.");
+      }
     }
     else
     {
-      Serial.println("✗ MQTT not connected, skipping publish");
+      Serial.println("MQTT not connected. Telemetry skipped.");
     }
   }
 }

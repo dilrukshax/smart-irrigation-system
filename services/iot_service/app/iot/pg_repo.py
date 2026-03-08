@@ -162,7 +162,7 @@ class PostgresRepository:
                 row = (
                     session.query(SensorTelemetryModel)
                     .filter(SensorTelemetryModel.device_id == device_id)
-                    .order_by(SensorTelemetryModel.timestamp.desc())
+                    .order_by(SensorTelemetryModel.id.desc())
                     .first()
                 )
 

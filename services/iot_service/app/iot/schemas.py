@@ -42,7 +42,7 @@ class TelemetryPayload(BaseModel):
 
     # Optional fields
     soil_do: Optional[int] = Field(None, ge=0, le=1, description="Soil moisture digital output (0/1)")
-    rssi: Optional[int] = Field(None, ge=-100, le=0, description="WiFi RSSI in dBm")
+    rssi: Optional[int] = Field(None, ge=-1000, le=0, description="WiFi RSSI in dBm (-999 when disconnected)")
     battery_v: Optional[float] = Field(None, ge=0, le=5.0, description="Battery voltage")
     firmware: Optional[str] = Field(None, max_length=32, description="Firmware version")
     ip: Optional[str] = Field(None, max_length=45, description="Device IP address")

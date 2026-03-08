@@ -5,6 +5,7 @@ Smart irrigation microservice providing:
 - Real-time sensor data simulation
 - ML-based irrigation predictions
 - Manual irrigation control
+- IoT sensor data integration (crop fields pull from IoT service)
 
 This service uses a RandomForestClassifier to predict irrigation needs
 based on soil moisture, temperature, humidity, and time of day.
@@ -34,24 +35,24 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """
     Application lifespan manager.
-    
+
     On startup: Initialize and train ML model
     On shutdown: Cleanup resources
     """
     # Startup
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Environment: {settings.environment}")
-    
+
     # Initialize and train ML model
     irrigation_model.train_model()
     logger.info("Irrigation ML model initialized and ready")
-    
+
     # Load Smart Water Management ML model
     water_management_model.load_model()
     logger.info("Water Management ML model loaded and ready")
-    
+
     yield
-    
+
     # Shutdown
     logger.info(f"Shutting down {settings.app_name}...")
 
@@ -99,7 +100,7 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     uvicorn.run(
         "app.main:app",
         host=settings.host,

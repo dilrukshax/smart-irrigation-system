@@ -57,54 +57,70 @@ import {
   SignalWifiOff,
 } from '@mui/icons-material';
 import { cropFieldsApi } from '../../../api/f1-irrigation.api';
-import type {
-  CropFieldConfig,
-  CropFieldStatus,
-  CropDefaults,
-  ValveControlRequest,
-} from '../types';
+import type { CropFieldConfig, CropFieldStatus, CropDefaults, ValveControlRequest } from '../types';
 
 // Status color mapping
 const getWaterStatusColor = (status: string): 'success' | 'warning' | 'error' | 'info' => {
   switch (status) {
-    case 'OPTIMAL': return 'success';
+    case 'OPTIMAL':
+      return 'success';
     case 'LOW':
-    case 'HIGH': return 'warning';
+    case 'HIGH':
+      return 'warning';
     case 'CRITICAL':
-    case 'EXCESS': return 'error';
-    default: return 'info';
+    case 'EXCESS':
+      return 'error';
+    default:
+      return 'info';
   }
 };
 
 const getSoilStatusColor = (status: string): 'success' | 'warning' | 'error' | 'info' => {
   switch (status) {
-    case 'OPTIMAL': return 'success';
+    case 'OPTIMAL':
+      return 'success';
     case 'DRY':
-    case 'WET': return 'warning';
+    case 'WET':
+      return 'warning';
     case 'CRITICAL':
-    case 'SATURATED': return 'error';
-    default: return 'info';
+    case 'SATURATED':
+      return 'error';
+    default:
+      return 'info';
   }
 };
 
-const getOverallStatusColor = (status: string): 'success' | 'warning' | 'error' | 'info' | 'primary' | 'default' => {
+const getOverallStatusColor = (
+  status: string
+): 'success' | 'warning' | 'error' | 'info' | 'primary' | 'default' => {
   switch (status) {
-    case 'OK': return 'success';
-    case 'WARNING': return 'warning';
-    case 'CRITICAL': return 'error';
-    case 'IRRIGATING': return 'primary';
-    case 'NO_SENSOR': return 'default';
-    default: return 'info';
+    case 'OK':
+      return 'success';
+    case 'WARNING':
+      return 'warning';
+    case 'CRITICAL':
+      return 'error';
+    case 'IRRIGATING':
+      return 'primary';
+    case 'NO_SENSOR':
+      return 'default';
+    default:
+      return 'info';
   }
 };
 
 const getCropIcon = (cropType: string) => {
   switch (cropType) {
-    case 'rice': return '🌾';
-    case 'wheat': return '🌿';
-    case 'vegetables': return '🥬';
-    case 'sugarcane': return '🎋';
-    default: return '🌱';
+    case 'rice':
+      return '🌾';
+    case 'wheat':
+      return '🌿';
+    case 'vegetables':
+      return '🥬';
+    case 'sugarcane':
+      return '🎋';
+    default:
+      return '🌱';
   }
 };
 
@@ -122,8 +138,8 @@ function FieldCard({ field, status, isSelected, onSelect, onDelete, onRefresh }:
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <Card 
-      sx={{ 
+    <Card
+      sx={{
         height: '100%',
         border: isSelected ? '2px solid' : '1px solid',
         borderColor: isSelected ? 'primary.main' : 'divider',
@@ -135,39 +151,68 @@ function FieldCard({ field, status, isSelected, onSelect, onDelete, onRefresh }:
     >
       <CardContent sx={{ pb: 1 }}>
         {/* Header */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+        <Box
+          sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}
+        >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography variant="h3" component="span">{getCropIcon(field.crop_type)}</Typography>
+            <Typography variant="h3" component="span">
+              {getCropIcon(field.crop_type)}
+            </Typography>
             <Box>
-              <Typography variant="h6" fontWeight={600}>{field.field_name}</Typography>
-              <Chip 
-                label={field.crop_type.toUpperCase()} 
-                size="small" 
+              <Typography variant="h6" fontWeight={600}>
+                {field.field_name}
+              </Typography>
+              <Chip
+                label={field.crop_type.toUpperCase()}
+                size="small"
                 variant="outlined"
                 color="primary"
               />
             </Box>
           </Box>
           {status && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.5 }}>
+            <Box
+              sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.5 }}
+            >
               <Chip
                 icon={
-                  status.overall_status === 'OK' ? <CheckCircle /> :
-                  status.overall_status === 'IRRIGATING' ? <Water /> :
-                  status.overall_status === 'CRITICAL' ? <ErrorIcon /> :
-                  status.overall_status === 'NO_SENSOR' ? <SensorsOff /> : <Warning />
+                  status.overall_status === 'OK' ? (
+                    <CheckCircle />
+                  ) : status.overall_status === 'IRRIGATING' ? (
+                    <Water />
+                  ) : status.overall_status === 'CRITICAL' ? (
+                    <ErrorIcon />
+                  ) : status.overall_status === 'NO_SENSOR' ? (
+                    <SensorsOff />
+                  ) : (
+                    <Warning />
+                  )
                 }
                 label={status.overall_status === 'NO_SENSOR' ? 'NO SENSOR' : status.overall_status}
-                color={getOverallStatusColor(status.overall_status) as 'success' | 'warning' | 'error' | 'info' | 'primary' | 'default'}
+                color={
+                  getOverallStatusColor(status.overall_status) as
+                    | 'success'
+                    | 'warning'
+                    | 'error'
+                    | 'info'
+                    | 'primary'
+                    | 'default'
+                }
                 size="small"
               />
               {/* Sensor connection indicator */}
               <Chip
                 icon={status.sensor_connected ? <Sensors /> : <SignalWifiOff />}
-                label={status.sensor_connected ? 'Connected' : (status.is_simulated ? 'Simulated' : 'Disconnected')}
+                label={
+                  status.sensor_connected
+                    ? 'Connected'
+                    : status.is_simulated
+                      ? 'Simulated'
+                      : 'Disconnected'
+                }
                 size="small"
                 variant="outlined"
-                color={status.sensor_connected ? 'success' : (status.is_simulated ? 'info' : 'error')}
+                color={status.sensor_connected ? 'success' : status.is_simulated ? 'info' : 'error'}
                 sx={{ height: 18, fontSize: '0.65rem' }}
               />
             </Box>
@@ -184,10 +229,9 @@ function FieldCard({ field, status, isSelected, onSelect, onDelete, onRefresh }:
                 Sensor Not Detected
               </Typography>
               <Typography variant="caption" color="text.disabled">
-                {field.device_id 
-                  ? `Waiting for device: ${field.device_id}` 
-                  : 'No IoT device assigned to this field'
-                }
+                {field.device_id
+                  ? `Waiting for device: ${field.device_id}`
+                  : 'No IoT device assigned to this field'}
               </Typography>
               {status.last_real_data_time && (
                 <Typography variant="caption" color="text.disabled" display="block" sx={{ mt: 1 }}>
@@ -200,16 +244,27 @@ function FieldCard({ field, status, isSelected, onSelect, onDelete, onRefresh }:
             <Box sx={{ mt: 2 }}>
               {/* Simulated data indicator */}
               {status.is_simulated && (
-                <Alert severity="info" sx={{ mb: 2, py: 0 }} icon={<Sensors sx={{ fontSize: 18 }} />}>
+                <Alert
+                  severity="info"
+                  sx={{ mb: 2, py: 0 }}
+                  icon={<Sensors sx={{ fontSize: 18 }} />}
+                >
                   <Typography variant="caption">
                     Using simulated data. Connect IoT device for real readings.
                   </Typography>
                 </Alert>
               )}
-              
+
               {/* Water Level */}
               <Box sx={{ mb: 2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    mb: 0.5,
+                  }}
+                >
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     <Water sx={{ fontSize: 18, color: 'primary.main' }} />
                     <Typography variant="body2">Water Level</Typography>
@@ -218,17 +273,17 @@ function FieldCard({ field, status, isSelected, onSelect, onDelete, onRefresh }:
                     <Typography variant="body1" fontWeight={600}>
                       {status.current_water_level_pct.toFixed(1)}%
                     </Typography>
-                    <Chip 
-                      label={status.water_status} 
-                      size="small" 
+                    <Chip
+                      label={status.water_status}
+                      size="small"
                       color={getWaterStatusColor(status.water_status)}
                       sx={{ height: 20, fontSize: '0.7rem' }}
                     />
                   </Box>
                 </Box>
-                <LinearProgress 
-                  variant="determinate" 
-                  value={status.current_water_level_pct} 
+                <LinearProgress
+                  variant="determinate"
+                  value={status.current_water_level_pct}
                   color={getWaterStatusColor(status.water_status)}
                   sx={{ height: 6, borderRadius: 3 }}
                 />
@@ -239,7 +294,14 @@ function FieldCard({ field, status, isSelected, onSelect, onDelete, onRefresh }:
 
               {/* Soil Moisture */}
               <Box sx={{ mb: 2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    mb: 0.5,
+                  }}
+                >
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     <Opacity sx={{ fontSize: 18, color: 'success.main' }} />
                     <Typography variant="body2">Soil Moisture</Typography>
@@ -248,44 +310,50 @@ function FieldCard({ field, status, isSelected, onSelect, onDelete, onRefresh }:
                     <Typography variant="body1" fontWeight={600}>
                       {status.current_soil_moisture_pct.toFixed(1)}%
                     </Typography>
-                  <Chip 
-                    label={status.soil_status} 
-                    size="small" 
-                    color={getSoilStatusColor(status.soil_status)}
-                    sx={{ height: 20, fontSize: '0.7rem' }}
+                    <Chip
+                      label={status.soil_status}
+                      size="small"
+                      color={getSoilStatusColor(status.soil_status)}
+                      sx={{ height: 20, fontSize: '0.7rem' }}
+                    />
+                  </Box>
+                </Box>
+                <LinearProgress
+                  variant="determinate"
+                  value={status.current_soil_moisture_pct}
+                  color={getSoilStatusColor(status.soil_status)}
+                  sx={{ height: 6, borderRadius: 3 }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Range: {field.soil_moisture_min_pct}% - {field.soil_moisture_max_pct}%
+                </Typography>
+              </Box>
+
+              {/* Valve Status */}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Speed sx={{ fontSize: 18, color: 'warning.main' }} />
+                  <Typography variant="body2">Valve</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Chip
+                    icon={status.valve_status === 'OPEN' ? <PlayArrow /> : <Stop />}
+                    label={`${status.valve_status} (${status.valve_position_pct}%)`}
+                    size="small"
+                    color={status.valve_status === 'OPEN' ? 'success' : 'default'}
                   />
+                  {status.auto_control_enabled && (
+                    <Chip
+                      icon={<AutoMode />}
+                      label="Auto"
+                      size="small"
+                      color="info"
+                      sx={{ height: 20 }}
+                    />
+                  )}
                 </Box>
               </Box>
-              <LinearProgress 
-                variant="determinate" 
-                value={status.current_soil_moisture_pct} 
-                color={getSoilStatusColor(status.soil_status)}
-                sx={{ height: 6, borderRadius: 3 }}
-              />
-              <Typography variant="caption" color="text.secondary">
-                Range: {field.soil_moisture_min_pct}% - {field.soil_moisture_max_pct}%
-              </Typography>
             </Box>
-
-            {/* Valve Status */}
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Speed sx={{ fontSize: 18, color: 'warning.main' }} />
-                <Typography variant="body2">Valve</Typography>
-              </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Chip
-                  icon={status.valve_status === 'OPEN' ? <PlayArrow /> : <Stop />}
-                  label={`${status.valve_status} (${status.valve_position_pct}%)`}
-                  size="small"
-                  color={status.valve_status === 'OPEN' ? 'success' : 'default'}
-                />
-                {status.auto_control_enabled && (
-                  <Chip icon={<AutoMode />} label="Auto" size="small" color="info" sx={{ height: 20 }} />
-                )}
-              </Box>
-            </Box>
-          </Box>
           )
         ) : (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
@@ -296,7 +364,9 @@ function FieldCard({ field, status, isSelected, onSelect, onDelete, onRefresh }:
         {/* Expandable Details */}
         <Collapse in={expanded}>
           <Divider sx={{ my: 2 }} />
-          <Typography variant="subtitle2" gutterBottom>Thresholds</Typography>
+          <Typography variant="subtitle2" gutterBottom>
+            Thresholds
+          </Typography>
           <TableContainer>
             <Table size="small">
               <TableBody>
@@ -331,21 +401,37 @@ function FieldCard({ field, status, isSelected, onSelect, onDelete, onRefresh }:
       </CardContent>
 
       <CardActions sx={{ justifyContent: 'space-between', pt: 0 }}>
-        <Button 
-          size="small" 
-          onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+        <Button
+          size="small"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded(!expanded);
+          }}
           endIcon={expanded ? <ExpandLess /> : <ExpandMore />}
         >
           {expanded ? 'Less' : 'More'}
         </Button>
         <Box>
           <Tooltip title="Refresh">
-            <IconButton size="small" onClick={(e) => { e.stopPropagation(); onRefresh(); }}>
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRefresh();
+              }}
+            >
               <Refresh fontSize="small" />
             </IconButton>
           </Tooltip>
           <Tooltip title="Delete Field">
-            <IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
+            <IconButton
+              size="small"
+              color="error"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+            >
               <Delete fontSize="small" />
             </IconButton>
           </Tooltip>
@@ -410,7 +496,7 @@ export default function CropFieldDashboard() {
     try {
       const res = await cropFieldsApi.getFields();
       setFields(res.data);
-      
+
       // Select first field if none selected
       if (!selectedField && res.data.length > 0) {
         setSelectedField(res.data[0].field_id);
@@ -420,14 +506,18 @@ export default function CropFieldDashboard() {
     }
   };
 
-  // Fetch status for all fields
+  // Fetch status for all fields — use real IoT data when a device_id is assigned
   const fetchAllFieldStatuses = useCallback(async () => {
     try {
       const statuses: Record<string, CropFieldStatus> = {};
       await Promise.all(
         fields.map(async (field) => {
           try {
-            const res = await cropFieldsApi.getFieldStatus(field.field_id);
+            // Pass use_simulated=false for fields with an assigned device so the
+            // backend tries the IoT service first, falling back to simulated only
+            // if no live reading is available.
+            const useSimulated = !field.device_id;
+            const res = await cropFieldsApi.getFieldStatus(field.field_id, useSimulated);
             statuses[field.field_id] = res.data;
           } catch (err) {
             console.error(`Failed to fetch status for ${field.field_id}:`, err);
@@ -657,9 +747,12 @@ export default function CropFieldDashboard() {
       {selectedFieldConfig && selectedFieldStatus && (
         <Card sx={{ mt: 3 }}>
           <CardContent>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Box
+              sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}
+            >
               <Typography variant="h6">
-                {getCropIcon(selectedFieldConfig.crop_type)} {selectedFieldConfig.field_name} - Control Panel
+                {getCropIcon(selectedFieldConfig.crop_type)} {selectedFieldConfig.field_name} -
+                Control Panel
               </Typography>
               <Box sx={{ display: 'flex', gap: 1 }}>
                 <FormControlLabel
@@ -700,35 +793,55 @@ export default function CropFieldDashboard() {
             <Grid container spacing={3}>
               {/* Live Sensor Data */}
               <Grid item xs={12} md={6}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    mb: 1,
+                  }}
+                >
                   <Typography variant="subtitle1" fontWeight={600}>
                     <Sensors sx={{ mr: 1, verticalAlign: 'middle' }} />
                     Live Sensor Data
                   </Typography>
                   <Chip
                     icon={selectedFieldStatus.sensor_connected ? <Sensors /> : <SensorsOff />}
-                    label={selectedFieldStatus.sensor_connected ? 'Sensor Connected' : (selectedFieldStatus.is_simulated ? 'Simulated Data' : 'Sensor Disconnected')}
+                    label={
+                      selectedFieldStatus.sensor_connected
+                        ? 'Sensor Connected'
+                        : selectedFieldStatus.is_simulated
+                          ? 'Simulated Data'
+                          : 'Sensor Disconnected'
+                    }
                     size="small"
-                    color={selectedFieldStatus.sensor_connected ? 'success' : (selectedFieldStatus.is_simulated ? 'info' : 'error')}
+                    color={
+                      selectedFieldStatus.sensor_connected
+                        ? 'success'
+                        : selectedFieldStatus.is_simulated
+                          ? 'info'
+                          : 'error'
+                    }
                   />
                 </Box>
-                
+
                 {/* No Sensor Warning */}
-                {selectedFieldStatus.overall_status === 'NO_SENSOR' && !selectedFieldStatus.is_simulated && (
-                  <Alert severity="warning" sx={{ mb: 2 }}>
-                    <AlertTitle>Sensor Not Detected</AlertTitle>
-                    {selectedFieldConfig.device_id 
-                      ? `Waiting for data from device: ${selectedFieldConfig.device_id}`
-                      : 'No IoT device assigned. Assign a device ID to connect sensors.'
-                    }
-                    {selectedFieldStatus.last_real_data_time && (
-                      <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
-                        Last received: {new Date(selectedFieldStatus.last_real_data_time).toLocaleString()}
-                      </Typography>
-                    )}
-                  </Alert>
-                )}
-                
+                {selectedFieldStatus.overall_status === 'NO_SENSOR' &&
+                  !selectedFieldStatus.is_simulated && (
+                    <Alert severity="warning" sx={{ mb: 2 }}>
+                      <AlertTitle>Sensor Not Detected</AlertTitle>
+                      {selectedFieldConfig.device_id
+                        ? `Waiting for data from device: ${selectedFieldConfig.device_id}`
+                        : 'No IoT device assigned. Assign a device ID to connect sensors.'}
+                      {selectedFieldStatus.last_real_data_time && (
+                        <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                          Last received:{' '}
+                          {new Date(selectedFieldStatus.last_real_data_time).toLocaleString()}
+                        </Typography>
+                      )}
+                    </Alert>
+                  )}
+
                 <TableContainer component={Paper} variant="outlined">
                   <Table size="small">
                     <TableBody>
@@ -780,10 +893,14 @@ export default function CropFieldDashboard() {
                         </TableCell>
                         <TableCell align="right">
                           <Chip
-                            icon={selectedFieldStatus.valve_status === 'OPEN' ? <PlayArrow /> : <Stop />}
+                            icon={
+                              selectedFieldStatus.valve_status === 'OPEN' ? <PlayArrow /> : <Stop />
+                            }
                             label={selectedFieldStatus.valve_status}
                             size="small"
-                            color={selectedFieldStatus.valve_status === 'OPEN' ? 'success' : 'default'}
+                            color={
+                              selectedFieldStatus.valve_status === 'OPEN' ? 'success' : 'default'
+                            }
                           />
                         </TableCell>
                       </TableRow>
@@ -791,7 +908,9 @@ export default function CropFieldDashboard() {
                         <TableCell>Device ID</TableCell>
                         <TableCell align="right" colSpan={2}>
                           <Chip
-                            icon={selectedFieldStatus.sensor_connected ? <Sensors /> : <SensorsOff />}
+                            icon={
+                              selectedFieldStatus.sensor_connected ? <Sensors /> : <SensorsOff />
+                            }
                             label={selectedFieldStatus.device_id || 'Not Assigned'}
                             size="small"
                             variant="outlined"
@@ -849,7 +968,8 @@ export default function CropFieldDashboard() {
                           Water Level Range
                         </Typography>
                         <Typography variant="body2" fontWeight={600}>
-                          {selectedFieldConfig.water_level_min_pct}% - {selectedFieldConfig.water_level_max_pct}%
+                          {selectedFieldConfig.water_level_min_pct}% -{' '}
+                          {selectedFieldConfig.water_level_max_pct}%
                         </Typography>
                       </Paper>
                     </Grid>
@@ -859,7 +979,8 @@ export default function CropFieldDashboard() {
                           Soil Moisture Range
                         </Typography>
                         <Typography variant="body2" fontWeight={600}>
-                          {selectedFieldConfig.soil_moisture_min_pct}% - {selectedFieldConfig.soil_moisture_max_pct}%
+                          {selectedFieldConfig.soil_moisture_min_pct}% -{' '}
+                          {selectedFieldConfig.soil_moisture_max_pct}%
                         </Typography>
                       </Paper>
                     </Grid>
@@ -872,7 +993,12 @@ export default function CropFieldDashboard() {
       )}
 
       {/* Add Field Dialog */}
-      <Dialog open={addFieldDialogOpen} onClose={() => setAddFieldDialogOpen(false)} maxWidth="md" fullWidth>
+      <Dialog
+        open={addFieldDialogOpen}
+        onClose={() => setAddFieldDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
         <DialogTitle>
           <Add sx={{ mr: 1, verticalAlign: 'middle' }} />
           Add New Crop Field
@@ -884,7 +1010,7 @@ export default function CropFieldDashboard() {
               <Typography variant="subtitle2" gutterBottom fontWeight={600}>
                 Basic Information
               </Typography>
-              
+
               <TextField
                 fullWidth
                 label="Field Name"
@@ -1093,7 +1219,12 @@ export default function CropFieldDashboard() {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => { setAddFieldDialogOpen(false); resetAddFieldForm(); }}>
+          <Button
+            onClick={() => {
+              setAddFieldDialogOpen(false);
+              resetAddFieldForm();
+            }}
+          >
             Cancel
           </Button>
           <Button
@@ -1108,7 +1239,12 @@ export default function CropFieldDashboard() {
       </Dialog>
 
       {/* Valve Control Dialog */}
-      <Dialog open={valveDialogOpen} onClose={() => setValveDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={valveDialogOpen}
+        onClose={() => setValveDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>
           <Settings sx={{ mr: 1, verticalAlign: 'middle' }} />
           Manual Valve Control - {selectedFieldConfig?.field_name}
@@ -1174,7 +1310,9 @@ export default function CropFieldDashboard() {
           <Button
             variant="contained"
             onClick={handleValveControl}
-            color={valveAction === 'OPEN' ? 'success' : valveAction === 'CLOSE' ? 'error' : 'primary'}
+            color={
+              valveAction === 'OPEN' ? 'success' : valveAction === 'CLOSE' ? 'error' : 'primary'
+            }
           >
             {valveAction === 'AUTO' ? 'Enable Auto Control' : `${valveAction} Valve`}
           </Button>
