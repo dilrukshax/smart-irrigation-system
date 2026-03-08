@@ -5,6 +5,7 @@ Configuration settings for the Crop Health & Water Stress Detection Service.
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 import os
+from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -14,10 +15,16 @@ class Settings(BaseSettings):
     APP_NAME: str = "Crop Health & Water Stress Detection Service"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True
+    ENVIRONMENT: str = "development"
+    STRICT_LIVE_DATA: Optional[bool] = None
     
     # Server
     HOST: str = "0.0.0.0"
-    PORT: int = 8002
+    PORT: int = 8007
+
+    # Event broker
+    MQTT_BROKER: str = "mosquitto"
+    MQTT_PORT: int = 1883
     
     # Model
     MODEL_PATH: str = os.path.join(
@@ -44,10 +51,19 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
         "http://localhost:8000",
     ]
+
+    # Local persistence for real analysis artifacts used by stress summaries.
+    ANALYSIS_ARTIFACTS_PATH: str = "/tmp/crop_health_analysis_artifacts.json"
     
     class Config:
         env_file = ".env"
         extra = "ignore"
+
+    @property
+    def is_strict_live_data(self) -> bool:
+        if self.STRICT_LIVE_DATA is not None:
+            return bool(self.STRICT_LIVE_DATA)
+        return self.ENVIRONMENT.lower() not in {"development", "dev", "local", "test"}
 
 
 @lru_cache()

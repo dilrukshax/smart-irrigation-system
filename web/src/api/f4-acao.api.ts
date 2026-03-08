@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { apiClient } from './index';
 
 export interface OptimizationRequest {
   waterQuota: number;
@@ -7,6 +7,54 @@ export interface OptimizationRequest {
     maxRiskLevel?: 'low' | 'medium' | 'high';
   };
   scenario?: string;
+}
+
+export interface DataContract {
+  status: 'ok' | 'stale' | 'data_unavailable' | 'analysis_pending' | 'source_unavailable';
+  source?: string;
+  is_live?: boolean;
+  observed_at?: string | null;
+  staleness_sec?: number | null;
+  quality?: string;
+  data_available?: boolean;
+  message?: string;
+}
+
+export interface ScenarioEvaluationRequest {
+  season?: string;
+  field_ids?: string[];
+  scenario_name?: string;
+  water_quota_mm?: number;
+  price_factor?: number;
+  min_paddy_area?: number;
+  max_risk_level?: 'low' | 'medium' | 'high';
+}
+
+export interface ScenarioEvaluationResponse extends DataContract {
+  data: {
+    status: string;
+    message?: string;
+    scenario_name?: string;
+    season?: string;
+    water_quota_mm?: number;
+    total_profit?: number;
+    total_area?: number;
+    water_usage?: number;
+    allocation: Array<{
+      crop_id: string;
+      crop_name: string;
+      area_ha: number;
+      predicted_yield: number;
+      predicted_price: number;
+      profit: number;
+      water_usage: number;
+      suitability: number;
+      risk: string;
+    }>;
+    fields_evaluated?: number;
+    fields_with_data?: number;
+    failures?: Array<{ field_id: string; status?: string; message?: string }>;
+  };
 }
 
 // Adaptive Recommendation Types
@@ -132,76 +180,77 @@ export interface CropInfo {
   growth_duration_days: number;
 }
 
-// TEMPORARY: Direct connection to Optimize Service (bypassing gateway)
-// Use this until API Gateway is configured at localhost:8000
-const DIRECT_OPTIMIZE_SERVICE = 'http://localhost:8004';
-const USE_DEMO = true;  // Set to false when database is configured
-
-// Create direct client for optimize service
-const optimizeClient = axios.create({
-  baseURL: DIRECT_OPTIMIZE_SERVICE,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
 // ACA-O (Optimization) API endpoints
 const ENDPOINTS = {
-  BASE: '/f4',
-  RECOMMENDATIONS: USE_DEMO ? '/f4/demo/recommendations' : '/f4/recommendations',
-  FIELD_RECOMMENDATIONS: (id: string) => `/f4/recommendations/${id}`,
-  OPTIMIZE: USE_DEMO ? '/f4/demo/optimize' : '/f4/recommendations/optimize',
-  SCENARIOS: '/f4/recommendations/scenarios',
-  PLANB: '/f4/planb',
-  WATER_BUDGET: USE_DEMO ? '/f4/demo/water-budget' : '/f4/supply/water-budget',
-  SUPPLY: USE_DEMO ? '/f4/demo/supply' : '/f4/supply',
-  HEALTH: '/f4/health',
+  RECOMMENDATIONS: '/optimization/recommendations',
+  FIELD_RECOMMENDATIONS: (id: string) => `/optimization/recommendations?field_id=${id}`,
+  OPTIMIZE: '/optimization/recommendations/optimize',
+  SCENARIO_EVALUATE: '/optimization/recommendations/scenario-evaluate',
+  PLANB: '/optimization/planb',
+  WATER_BUDGET: '/optimization/supply/water-budget',
+  SUPPLY: '/optimization/supply',
+  HEALTH: '/optimization/health',
   // Adaptive endpoints
-  ADAPTIVE_RECOMMENDATIONS: '/f4/adaptive',
-  ADAPTIVE_PARAMETERS: '/f4/adaptive/parameters',
-  ADAPTIVE_CROPS: '/f4/adaptive/crops',
+  ADAPTIVE_RECOMMENDATIONS: '/optimization/adaptive',
+  ADAPTIVE_PARAMETERS: '/optimization/adaptive/parameters',
+  ADAPTIVE_CROPS: '/optimization/adaptive/crops',
 };
 
 export const acaoApi = {
   // Health check
-  healthCheck: () => optimizeClient.get(ENDPOINTS.HEALTH),
+  healthCheck: () => apiClient.get(ENDPOINTS.HEALTH),
 
   // Get all recommendations
-  getRecommendations: () => optimizeClient.get(ENDPOINTS.RECOMMENDATIONS),
+  getRecommendations: () =>
+    apiClient.get(ENDPOINTS.RECOMMENDATIONS).then((r) => r.data),
 
   // Get field-specific recommendations
   getFieldRecommendations: (fieldId: string) =>
-    optimizeClient.get(ENDPOINTS.FIELD_RECOMMENDATIONS(fieldId)),
+    apiClient.get(ENDPOINTS.FIELD_RECOMMENDATIONS(fieldId)).then((r) => r.data),
 
   // Run optimization
   runOptimization: (params: OptimizationRequest) =>
-    optimizeClient.post(ENDPOINTS.OPTIMIZE, params),
+    apiClient.post(ENDPOINTS.OPTIMIZE, params).then((r) => r.data),
 
-  // Get scenarios
-  getScenarios: () => optimizeClient.get(ENDPOINTS.SCENARIOS),
+  // Evaluate what-if scenario on backend using live context
+  evaluateScenario: (params: ScenarioEvaluationRequest) =>
+    apiClient.post<ScenarioEvaluationResponse>(ENDPOINTS.SCENARIO_EVALUATE, params).then((r) => r.data),
+
+  // Scenario list is currently frontend-defined.
+  getScenarios: () => apiClient.get(ENDPOINTS.RECOMMENDATIONS).then((r) => r.data),
 
   // Get Plan B recommendations
-  getPlanB: (scenarioId: string) =>
-    optimizeClient.get(ENDPOINTS.PLANB, { params: { scenarioId } }),
+  getPlanB: (
+    fieldId: string,
+    season: string = 'Maha-2025',
+    updatedQuotaMm?: number,
+    updatedPrices?: Record<string, number>
+  ) =>
+    apiClient.post(ENDPOINTS.PLANB, {
+      field_id: fieldId,
+      season,
+      updated_quota_mm: updatedQuotaMm,
+      updated_prices: updatedPrices,
+    }).then((r) => r.data),
 
   // Get water budget
   getWaterBudget: (params?: { season?: string }) =>
-    optimizeClient.get(ENDPOINTS.WATER_BUDGET, { params }),
+    apiClient.get(ENDPOINTS.WATER_BUDGET, { params }).then((r) => r.data),
 
   // Get supply data
-  getSupplyData: () => optimizeClient.get(ENDPOINTS.SUPPLY),
+  getSupplyData: () => apiClient.get(ENDPOINTS.SUPPLY).then((r) => r.data),
 
   // ============ Adaptive Recommendation APIs ============
   
   // Get adaptive recommendations with custom parameters
   getAdaptiveRecommendations: (params: AdaptiveRecommendationRequest) =>
-    optimizeClient.post<AdaptiveRecommendationResponse>(ENDPOINTS.ADAPTIVE_RECOMMENDATIONS, params),
+    apiClient.post<AdaptiveRecommendationResponse>(ENDPOINTS.ADAPTIVE_RECOMMENDATIONS, params),
 
   // Get parameter defaults and valid ranges
   getParameterDefaults: () =>
-    optimizeClient.get<ParameterDefaults>(ENDPOINTS.ADAPTIVE_PARAMETERS),
+    apiClient.get<ParameterDefaults>(ENDPOINTS.ADAPTIVE_PARAMETERS),
 
   // Get available crops for filtering
   getAvailableCrops: () =>
-    optimizeClient.get<{ crops: CropInfo[]; total: number }>(ENDPOINTS.ADAPTIVE_CROPS),
+    apiClient.get<{ crops: CropInfo[]; total: number }>(ENDPOINTS.ADAPTIVE_CROPS),
 };

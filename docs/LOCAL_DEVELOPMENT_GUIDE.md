@@ -8,7 +8,7 @@ This guide explains how to run the Smart Irrigation System locally with each ser
 
 | Requirement | Version | Check Command |
 |-------------|---------|---------------|
-| Python | 3.11+ | `python --version` |
+| Python | 3.11.x (recommended) | `python3.11 --version` |
 | Node.js | 18+ | `node --version` |
 | Docker Desktop | 24+ | `docker --version` |
 
@@ -24,7 +24,7 @@ This guide explains how to run the Smart Irrigation System locally with each ser
 | 4 | Forecasting Service | 8003 | `services/forecasting_service` | `uvicorn app.main:app --reload --port 8003` |
 | 5 | ACA-O Service | 8004 | `services/optimize_service` | `uvicorn app.main:app --reload --port 8004` |
 | 6 | API Gateway | 8000 | `gateway` | `python gateway.py` |
-| 7 | Web Frontend | 5173 | `web` | `npm run dev` |
+| 7 | Web Frontend | 8005 | `web` | `npm run dev` |
 
 ---
 
@@ -52,16 +52,16 @@ The API Gateway routes all requests to the appropriate backend services.
 cd gateway
 
 # Create virtual environment (first time only)
-python -m venv venv
+python3.11 -m venv venv
 
 # Activate virtual environment
 .\venv\Scripts\activate
 
 # Install dependencies
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 
 # Run the gateway
-python gateway.py
+python -m uvicorn gateway:app --reload --port 8000
 ```
 
 ### Gateway Details
@@ -122,13 +122,13 @@ For each service, open a **new terminal** and run:
 cd services/<service_name>
 
 # Create virtual environment (first time only)
-python -m venv venv
+python3.11 -m venv venv
 
 # Activate virtual environment
 .\venv\Scripts\activate
 
 # Install dependencies
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 
 # Run the service
 uvicorn <module>:app --reload --port <port>
@@ -139,9 +139,9 @@ uvicorn <module>:app --reload --port <port>
 | Service | Directory | Module | Port |
 |---------|-----------|--------|------|
 | Auth | `services/auth_service` | `app.main` | 8001 |
-| Irrigation | `services/irrigation_service` | `src.main` | 8002 |
-| Forecasting | `services/forecasting_service` | `src.main` | 8003 |
-| ACA-O | `services/optimize_service` | `src.main` | 8004 |
+| Irrigation | `services/irrigation_service` | `app.main` | 8002 |
+| Forecasting | `services/forecasting_service` | `app.main` | 8003 |
+| ACA-O | `services/optimize_service` | `app.main` | 8004 |
 
 ---
 
@@ -153,7 +153,7 @@ npm install
 npm run dev
 ```
 
-**Access:** http://localhost:5173
+**Access:** http://localhost:8005
 
 ---
 
@@ -161,7 +161,7 @@ npm run dev
 
 | Service | URL |
 |---------|-----|
-| Web Dashboard | http://localhost:5173 |
+| Web Dashboard | http://localhost:8005 |
 | API Gateway Docs | http://localhost:8000/docs |
 | Auth Service Docs | http://localhost:8001/docs |
 | Irrigation Service Docs | http://localhost:8002/docs |

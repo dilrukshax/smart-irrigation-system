@@ -50,10 +50,12 @@ echo ""
 echo "Setting up Python virtual environments..."
 
 services=(
-  "services/auth-service"
-  "services/irrigation-service"
-  "services/forecasting-service"
-  "services/optimization-service"
+  "services/auth_service"
+  "services/irrigation_service"
+  "services/forecasting_service"
+  "services/optimize_service"
+  "services/iot_service"
+  "services/crop_health_and_water_stress_detection"
 )
 
 for service in "${services[@]}"; do
@@ -73,7 +75,7 @@ done
 # Setup frontend
 echo ""
 echo "Setting up frontend..."
-cd "${PROJECT_ROOT}/frontend"
+cd "${PROJECT_ROOT}/web"
 npm install
 echo "✓ Frontend dependencies installed"
 
@@ -81,7 +83,7 @@ echo "✓ Frontend dependencies installed"
 echo ""
 echo "Starting infrastructure services (MongoDB, PostgreSQL, Redis)..."
 cd "${PROJECT_ROOT}/infrastructure/docker"
-docker compose up -d mongodb postgres redis
+docker compose up -d mongo postgres redis mosquitto influxdb
 
 echo ""
 echo "Waiting for services to be ready..."
@@ -96,8 +98,8 @@ echo "To start all services with Docker Compose:"
 echo "  cd infrastructure/docker && docker compose up"
 echo ""
 echo "To start individual services for development:"
-echo "  cd services/auth-service && source venv/bin/activate && uvicorn app.main:app --reload --port 8001"
+echo "  cd services/auth_service && source venv/bin/activate && uvicorn app.main:app --reload --port 8001"
 echo ""
 echo "To start the frontend:"
-echo "  cd frontend && npm run dev"
+echo "  cd web && npm run dev"
 echo ""

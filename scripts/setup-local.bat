@@ -44,7 +44,7 @@ if not exist "infrastructure\docker\.env" (
 echo.
 echo Setting up Python virtual environments...
 
-for %%s in (auth-service irrigation-service forecasting-service optimization-service) do (
+for %%s in (auth_service irrigation_service forecasting_service optimize_service iot_service crop_health_and_water_stress_detection) do (
     if exist "services\%%s\requirements.txt" (
         echo Setting up services\%%s...
         if not exist "services\%%s\venv" (
@@ -59,7 +59,7 @@ for %%s in (auth-service irrigation-service forecasting-service optimization-ser
 
 echo.
 echo Setting up frontend...
-cd frontend
+cd web
 call npm install
 cd ..
 echo [OK] Frontend dependencies installed
@@ -67,7 +67,7 @@ echo [OK] Frontend dependencies installed
 echo.
 echo Starting infrastructure services...
 cd infrastructure\docker
-docker compose up -d mongodb postgres redis
+docker compose up -d mongo postgres redis mosquitto influxdb
 cd ..\..
 
 echo.
@@ -83,10 +83,10 @@ echo To start all services with Docker Compose:
 echo   cd infrastructure\docker ^&^& docker compose up
 echo.
 echo To start individual services for development:
-echo   cd services\auth-service
+echo   cd services\\auth_service
 echo   venv\Scripts\activate
 echo   uvicorn app.main:app --reload --port 8001
 echo.
 echo To start the frontend:
-echo   cd frontend ^&^& npm run dev
+echo   cd web ^&^& npm run dev
 echo.

@@ -35,6 +35,7 @@ class MQTTClient:
     
     TELEMETRY_TOPIC = "devices/+/telemetry"
     CMD_TOPIC_TEMPLATE = "devices/{device_id}/cmd"
+    EVENT_TOPIC_TEMPLATE = "events/{event_name}"
     
     def __init__(self, on_telemetry: Optional[Callable[[TelemetryPayload], None]] = None):
         """
@@ -228,6 +229,25 @@ class MQTTClient:
                 
         except Exception as e:
             logger.error(f"Error publishing command: {e}")
+            return False
+
+    def publish_event(self, event_name: str, payload: dict) -> bool:
+        """
+        Publish an internal observability/event payload.
+
+        Args:
+            event_name: Versioned event name such as sensor.reading.v1
+            payload: JSON-serializable event payload
+        """
+        if not self._client or not self._connected:
+            return False
+
+        try:
+            topic = self.EVENT_TOPIC_TEMPLATE.format(event_name=event_name)
+            result = self._client.publish(topic, json.dumps(payload), qos=1)
+            return result.rc == mqtt.MQTT_ERR_SUCCESS
+        except Exception as e:
+            logger.error(f"Error publishing event {event_name}: {e}")
             return False
 
 

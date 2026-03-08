@@ -293,11 +293,12 @@ class TestRecommendationsContentType:
     
     def test_get_not_allowed(self):
         """
-        Test that GET method is not allowed.
+        Test that GET method is supported for dashboard listing.
         """
         response = client.get("/f4/recommendations")
-        
-        assert response.status_code == 405
+        assert response.status_code == 200
+        data = response.json()
+        assert "data" in data
 
 
 # Parameterized tests for different seasons

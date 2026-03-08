@@ -12,11 +12,21 @@ import logging
 import time
 import math
 import random
+import json
+import os
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
+import requests
+
+from app.core.config import settings
+
+try:
+    import paho.mqtt.client as mqtt
+except Exception:  # pragma: no cover - optional at runtime
+    mqtt = None
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +162,15 @@ class CropFieldStatus(BaseModel):
     auto_control_enabled: bool
     next_action: Optional[str]
 
+    # Data provenance
+    status: str = Field(default="ok", description="ok|stale|data_unavailable|source_unavailable")
+    source: str = Field(default="iot_sensors", description="Data source identifier")
+    is_live: bool = Field(default=True, description="Whether payload came from live observed data")
+    observed_at: Optional[str] = Field(default=None, description="Timestamp of source observation")
+    staleness_sec: Optional[float] = Field(default=None, description="Seconds since source observation")
+    quality: str = Field(default="good", description="good|stale|unknown")
+    data_available: bool = Field(default=True, description="Whether source data was available")
+
 
 class IoTSensorData(BaseModel):
     """IoT sensor data from field devices."""
@@ -206,6 +225,15 @@ class AutoControlDecision(BaseModel):
     # ML model inputs (if applicable)
     ml_prediction: Optional[Dict[str, Any]] = None
 
+    # Data provenance
+    status: str = Field(default="ok", description="ok|stale|data_unavailable|source_unavailable")
+    source: str = Field(default="iot_sensors", description="Data source identifier")
+    is_live: bool = Field(default=True, description="Whether payload came from live observed data")
+    observed_at: Optional[str] = Field(default=None, description="Timestamp of source observation")
+    staleness_sec: Optional[float] = Field(default=None, description="Seconds since source observation")
+    quality: str = Field(default="good", description="good|stale|unknown")
+    data_available: bool = Field(default=True, description="Whether source data was available")
+
 
 # ============ In-Memory State (Use database in production) ============
 
@@ -215,6 +243,186 @@ _valve_states: Dict[str, dict] = {}
 _sensor_history: Dict[str, List[dict]] = {}
 _last_real_sensor_data: Dict[str, dict] = {}  # Stores last real IoT sensor data per field
 _sensor_connection_timeout_seconds: int = 60  # Consider sensor disconnected after this time
+
+
+def _safe_datetime_parse(ts: Optional[str]) -> Optional[datetime]:
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+def _build_data_contract(
+    *,
+    source: str,
+    observed_at: Optional[str],
+    data_available: bool,
+) -> Dict[str, Any]:
+    now = datetime.utcnow()
+    observed_dt = _safe_datetime_parse(observed_at)
+    staleness = (now - observed_dt).total_seconds() if observed_dt else None
+
+    if not data_available:
+        status = "data_unavailable"
+        quality = "unknown"
+        is_live = False
+    elif source == "simulated":
+        status = "stale"
+        quality = "unknown"
+        is_live = False
+    elif staleness is not None and staleness > _sensor_connection_timeout_seconds:
+        status = "stale"
+        quality = "stale"
+        is_live = False
+    else:
+        status = "ok"
+        quality = "good"
+        is_live = True
+
+    return {
+        "status": status,
+        "source": source,
+        "is_live": is_live,
+        "observed_at": observed_at,
+        "staleness_sec": round(float(staleness), 2) if staleness is not None else None,
+        "quality": quality,
+        "data_available": data_available,
+    }
+
+
+def _persist_state() -> None:
+    """Persist mutable runtime state so service restarts do not lose control context."""
+    payload = {
+        "crop_fields": {k: v.model_dump() for k, v in _crop_fields.items()},
+        "field_status": _field_status,
+        "valve_states": _valve_states,
+        "sensor_history": _sensor_history,
+        "last_real_sensor_data": _last_real_sensor_data,
+    }
+    try:
+        path = settings.crop_fields_state_path
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh)
+    except Exception as exc:
+        logger.warning("Failed to persist crop field state: %s", exc)
+
+
+def _load_state() -> bool:
+    """Load persisted runtime state if available."""
+    path = settings.crop_fields_state_path
+    if not path or not os.path.exists(path):
+        return False
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        _crop_fields.clear()
+        for field_id, cfg in (payload.get("crop_fields") or {}).items():
+            _crop_fields[field_id] = CropFieldConfig(**cfg)
+        _field_status.clear()
+        _field_status.update(payload.get("field_status") or {})
+        _valve_states.clear()
+        _valve_states.update(payload.get("valve_states") or {})
+        _sensor_history.clear()
+        _sensor_history.update(payload.get("sensor_history") or {})
+        _last_real_sensor_data.clear()
+        _last_real_sensor_data.update(payload.get("last_real_sensor_data") or {})
+        return True
+    except Exception as exc:
+        logger.warning("Failed to load crop field state: %s", exc)
+        return False
+
+
+def _emit_event(event_name: str, payload: Dict[str, Any]) -> None:
+    """Emit versioned events to MQTT for observability."""
+    if mqtt is None:
+        return
+    client = mqtt.Client(client_id=f"irrigation-service-{event_name}")
+    try:
+        client.connect(settings.mqtt_broker, settings.mqtt_port, keepalive=10)
+        envelope = {
+            "event": event_name,
+            "occurred_at": datetime.utcnow().isoformat(),
+            **payload,
+        }
+        client.publish(f"events/{event_name}", json.dumps(envelope), qos=1)
+    except Exception as exc:
+        logger.debug(f"Skipping event publish {event_name}: {exc}")
+    finally:
+        try:
+            client.disconnect()
+        except Exception:
+            pass
+
+
+def _fetch_forecast_adjustment() -> Dict[str, Any]:
+    """
+    Pull short-horizon weather adjustment from F3.
+    Returns adjustment as percent where 100 means no change.
+    """
+    default_payload = {
+        "adjustment_pct": 100.0,
+        "overall_recommendation": "NORMAL",
+        "net_water_balance_mm": 0.0,
+        "alert": None,
+        "data_available": False,
+    }
+    try:
+        response = requests.get(
+            f"{settings.forecasting_service_url}/api/weather/irrigation-recommendation",
+            timeout=5,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        weekly = payload.get("weekly_outlook", {})
+        adjustment = float(weekly.get("average_irrigation_adjustment_percent") or 100.0)
+        recommendation = payload.get("overall_recommendation", "NORMAL")
+        net_balance = float(weekly.get("net_water_balance_mm") or 0.0)
+        alert = None
+        if adjustment >= 125:
+            alert = "Increase irrigation demand expected"
+        elif adjustment <= 75:
+            alert = "Rainfall surplus expected; reduce irrigation"
+        return {
+            "adjustment_pct": adjustment,
+            "overall_recommendation": recommendation,
+            "net_water_balance_mm": net_balance,
+            "alert": alert,
+            "data_available": True,
+        }
+    except Exception as exc:
+        logger.debug(f"Forecast adjustment unavailable: {exc}")
+        return default_payload
+
+
+def _fetch_stress_summary(field_id: str) -> Dict[str, Any]:
+    """Pull field stress priority from F2."""
+    default_payload = {
+        "stress_index": 0.2,
+        "priority": "low",
+        "stress_penalty_factor": 0.05,
+        "data_available": False,
+    }
+    try:
+        response = requests.get(
+            f"{settings.crop_health_service_url}/api/v1/crop-health/fields/{field_id}/stress-summary",
+            timeout=5,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return {
+            "stress_index": float(payload.get("stress_index") or 0.0),
+            "priority": str(payload.get("priority") or "low"),
+            "stress_penalty_factor": float(payload.get("stress_penalty_factor") or 0.0),
+            "data_available": bool(payload.get("data_available", True)),
+        }
+    except Exception as exc:
+        logger.debug(f"Stress summary unavailable for {field_id}: {exc}")
+        return default_payload
 
 
 def _initialize_default_rice_field():
@@ -246,8 +454,10 @@ def _initialize_default_rice_field():
     }
 
 
-# Initialize default field
-_initialize_default_rice_field()
+# Initialize persisted/default state
+if not _load_state():
+    _initialize_default_rice_field()
+    _persist_state()
 
 
 # ============ Helper Functions ============
@@ -324,7 +534,38 @@ def _make_auto_control_decision(
     """
     water_level = sensor_data.water_level_pct
     soil_moisture = sensor_data.soil_moisture_pct
-    
+
+    forecast = _fetch_forecast_adjustment()
+    stress = _fetch_stress_summary(field_id)
+
+    # Forecast and stress influence threshold tuning.
+    adjustment_pct = float(forecast.get("adjustment_pct") or 100.0)
+    stress_priority = str(stress.get("priority") or "low").lower()
+    stress_index = float(stress.get("stress_index") or 0.0)
+
+    adjustment_delta = (adjustment_pct - 100.0) / 8.0
+    stress_delta = 0.0
+    if stress_priority in {"high", "critical"}:
+        stress_delta = 4.0
+    elif stress_priority == "medium":
+        stress_delta = 2.0
+
+    effective_water_min = max(0.0, min(100.0, config.water_level_min_pct + adjustment_delta + stress_delta))
+    effective_water_max = max(effective_water_min + 5.0, min(100.0, config.water_level_max_pct + adjustment_delta))
+    effective_soil_min = max(0.0, min(100.0, config.soil_moisture_min_pct + stress_delta))
+
+    if forecast.get("alert"):
+        _emit_event(
+            "forecast.alert.v1",
+            {
+                "field_id": field_id,
+                "adjustment_pct": adjustment_pct,
+                "overall_recommendation": forecast.get("overall_recommendation"),
+                "net_water_balance_mm": forecast.get("net_water_balance_mm"),
+                "alert": forecast.get("alert"),
+            },
+        )
+
     # Critical condition - immediate action needed
     if water_level <= config.water_level_critical_pct:
         return AutoControlDecision(
@@ -332,66 +573,91 @@ def _make_auto_control_decision(
             timestamp=datetime.now().isoformat(),
             water_level_pct=water_level,
             soil_moisture_pct=soil_moisture,
-            water_level_min=config.water_level_min_pct,
-            water_level_max=config.water_level_max_pct,
-            soil_moisture_min=config.soil_moisture_min_pct,
+            water_level_min=effective_water_min,
+            water_level_max=effective_water_max,
+            soil_moisture_min=effective_soil_min,
             soil_moisture_max=config.soil_moisture_max_pct,
             action="OPEN",
             valve_position_pct=100,
             reason=f"CRITICAL: Water level ({water_level}%) below critical threshold ({config.water_level_critical_pct}%)",
             priority="critical",
+            ml_prediction={
+                "forecast_adjustment_pct": adjustment_pct,
+                "stress_index": stress_index,
+                "stress_priority": stress_priority,
+            },
         )
     
     # Water level below minimum - need irrigation
-    if water_level < config.water_level_min_pct:
-        valve_position = min(100, int((config.water_level_min_pct - water_level) * 5))
+    if water_level < effective_water_min:
+        valve_position = min(100, int((effective_water_min - water_level) * 5))
+        if stress_priority in {"high", "critical"}:
+            valve_position = min(100, valve_position + 20)
         return AutoControlDecision(
             field_id=field_id,
             timestamp=datetime.now().isoformat(),
             water_level_pct=water_level,
             soil_moisture_pct=soil_moisture,
-            water_level_min=config.water_level_min_pct,
-            water_level_max=config.water_level_max_pct,
-            soil_moisture_min=config.soil_moisture_min_pct,
+            water_level_min=effective_water_min,
+            water_level_max=effective_water_max,
+            soil_moisture_min=effective_soil_min,
             soil_moisture_max=config.soil_moisture_max_pct,
             action="OPEN",
             valve_position_pct=valve_position,
-            reason=f"Water level ({water_level}%) below minimum ({config.water_level_min_pct}%)",
-            priority="high",
+            reason=(
+                f"Water level ({water_level}%) below effective minimum "
+                f"({effective_water_min:.1f}%) after forecast/stress adjustment"
+            ),
+            priority="critical" if stress_priority in {"high", "critical"} else "high",
+            ml_prediction={
+                "forecast_adjustment_pct": adjustment_pct,
+                "stress_index": stress_index,
+                "stress_priority": stress_priority,
+            },
         )
     
     # Water level at or above maximum - close valve
-    if water_level >= config.water_level_max_pct:
+    if water_level >= effective_water_max:
         return AutoControlDecision(
             field_id=field_id,
             timestamp=datetime.now().isoformat(),
             water_level_pct=water_level,
             soil_moisture_pct=soil_moisture,
-            water_level_min=config.water_level_min_pct,
-            water_level_max=config.water_level_max_pct,
-            soil_moisture_min=config.soil_moisture_min_pct,
+            water_level_min=effective_water_min,
+            water_level_max=effective_water_max,
+            soil_moisture_min=effective_soil_min,
             soil_moisture_max=config.soil_moisture_max_pct,
             action="CLOSE",
             valve_position_pct=0,
-            reason=f"Water level ({water_level}%) reached maximum ({config.water_level_max_pct}%)",
+            reason=f"Water level ({water_level}%) reached effective maximum ({effective_water_max:.1f}%)",
             priority="medium",
+            ml_prediction={
+                "forecast_adjustment_pct": adjustment_pct,
+                "stress_index": stress_index,
+                "stress_priority": stress_priority,
+            },
         )
     
     # Check soil moisture as secondary factor
-    if soil_moisture < config.soil_moisture_min_pct and water_level < config.water_level_optimal_pct:
+    if soil_moisture < effective_soil_min and water_level < config.water_level_optimal_pct:
         return AutoControlDecision(
             field_id=field_id,
             timestamp=datetime.now().isoformat(),
             water_level_pct=water_level,
             soil_moisture_pct=soil_moisture,
-            water_level_min=config.water_level_min_pct,
-            water_level_max=config.water_level_max_pct,
-            soil_moisture_min=config.soil_moisture_min_pct,
+            water_level_min=effective_water_min,
+            water_level_max=effective_water_max,
+            soil_moisture_min=effective_soil_min,
             soil_moisture_max=config.soil_moisture_max_pct,
             action="OPEN",
-            valve_position_pct=50,
-            reason=f"Soil moisture ({soil_moisture}%) below minimum ({config.soil_moisture_min_pct}%)",
-            priority="medium",
+            valve_position_pct=65 if stress_priority in {"high", "critical"} else 50,
+            reason=f"Soil moisture ({soil_moisture}%) below effective minimum ({effective_soil_min:.1f}%)",
+            priority="high" if stress_priority in {"high", "critical"} else "medium",
+            ml_prediction={
+                "forecast_adjustment_pct": adjustment_pct,
+                "stress_index": stress_index,
+                "stress_priority": stress_priority,
+            },
         )
     
     # Normal operation - maintain current state
@@ -401,14 +667,19 @@ def _make_auto_control_decision(
         timestamp=datetime.now().isoformat(),
         water_level_pct=water_level,
         soil_moisture_pct=soil_moisture,
-        water_level_min=config.water_level_min_pct,
-        water_level_max=config.water_level_max_pct,
-        soil_moisture_min=config.soil_moisture_min_pct,
+        water_level_min=effective_water_min,
+        water_level_max=effective_water_max,
+        soil_moisture_min=effective_soil_min,
         soil_moisture_max=config.soil_moisture_max_pct,
         action="HOLD",
         valve_position_pct=current_valve.get("position_pct", 0),
         reason=f"Water level ({water_level}%) and soil moisture ({soil_moisture}%) within acceptable range",
         priority="low",
+        ml_prediction={
+            "forecast_adjustment_pct": adjustment_pct,
+            "stress_index": stress_index,
+            "stress_priority": stress_priority,
+        },
     )
 
 
@@ -456,6 +727,7 @@ async def create_field(config: CropFieldConfig):
         "last_action": None,
         "last_action_time": None,
     }
+    _persist_state()
     
     logger.info(f"Created crop field: {config.field_id} ({config.crop_type})")
     return config
@@ -469,6 +741,21 @@ async def get_field(field_id: str):
     return _crop_fields[field_id]
 
 
+@router.get("/devices/{device_id}/resolve")
+async def resolve_device_to_field(device_id: str):
+    """
+    Resolve IoT device to field mapping for IoT->F1 bridge.
+    """
+    for field in _crop_fields.values():
+        if field.device_id == device_id:
+            return {
+                "device_id": device_id,
+                "field_id": field.field_id,
+                "field_name": field.field_name,
+            }
+    raise HTTPException(status_code=404, detail=f"No field mapped for device '{device_id}'")
+
+
 @router.put("/fields/{field_id}", response_model=CropFieldConfig)
 async def update_field(field_id: str, config: CropFieldConfig):
     """Update crop field configuration."""
@@ -477,6 +764,7 @@ async def update_field(field_id: str, config: CropFieldConfig):
     
     config.field_id = field_id  # Ensure field_id matches
     _crop_fields[field_id] = config
+    _persist_state()
     
     logger.info(f"Updated crop field: {field_id}")
     return config
@@ -491,13 +779,15 @@ async def delete_field(field_id: str):
     del _crop_fields[field_id]
     _valve_states.pop(field_id, None)
     _sensor_history.pop(field_id, None)
+    _last_real_sensor_data.pop(field_id, None)
+    _persist_state()
     
     logger.info(f"Deleted crop field: {field_id}")
     return {"status": "deleted", "field_id": field_id}
 
 
 @router.get("/fields/{field_id}/status", response_model=CropFieldStatus)
-async def get_field_status(field_id: str, use_simulated: bool = True):
+async def get_field_status(field_id: str, use_simulated: bool = False):
     """
     Get current status of a crop field including sensor data and valve state.
     
@@ -511,6 +801,9 @@ async def get_field_status(field_id: str, use_simulated: bool = True):
     config = _crop_fields[field_id]
     valve_state = _valve_states.get(field_id, {"status": "CLOSED", "position_pct": 0})
     
+    # Strict mode forbids simulated fallback in runtime flows.
+    effective_use_simulated = bool(use_simulated and not settings.is_strict_live_data)
+
     # Check if we have real sensor data and if it's still valid (not timed out)
     sensor_connected = False
     is_simulated = True
@@ -535,8 +828,13 @@ async def get_field_status(field_id: str, use_simulated: bool = True):
             except Exception as e:
                 logger.warning(f"Error parsing sensor timestamp: {e}")
     
-    # If no valid real data and simulation not requested, return "no sensor" status
-    if not sensor_connected and not use_simulated:
+    # If no valid real data and simulation not requested/allowed, return no-data status.
+    if not sensor_connected and not effective_use_simulated:
+        contract = _build_data_contract(
+            source="unavailable",
+            observed_at=last_real_data_time,
+            data_available=False,
+        )
         return CropFieldStatus(
             field_id=field_id,
             field_name=config.field_name,
@@ -556,6 +854,7 @@ async def get_field_status(field_id: str, use_simulated: bool = True):
             last_valve_action=valve_state.get("last_action_time"),
             auto_control_enabled=config.auto_control_enabled,
             next_action="Waiting for sensor data...",
+            **contract,
         )
     
     # Get sensor data (real, simulated based on request)
@@ -563,19 +862,20 @@ async def get_field_status(field_id: str, use_simulated: bool = True):
         sensor_data = _get_simulated_sensor_data(field_id, config)
         is_simulated = True
     
-    # Store in history
-    if field_id not in _sensor_history:
-        _sensor_history[field_id] = []
-    _sensor_history[field_id].append(sensor_data.model_dump())
-    if len(_sensor_history[field_id]) > 100:
-        _sensor_history[field_id] = _sensor_history[field_id][-100:]
+    # Store in history only for real data or explicitly requested simulation mode.
+    if sensor_connected or effective_use_simulated:
+        if field_id not in _sensor_history:
+            _sensor_history[field_id] = []
+        _sensor_history[field_id].append(sensor_data.model_dump())
+        if len(_sensor_history[field_id]) > 100:
+            _sensor_history[field_id] = _sensor_history[field_id][-100:]
     
     # Assess status
     water_status = _assess_water_status(sensor_data.water_level_pct, config)
     soil_status = _assess_soil_status(sensor_data.soil_moisture_pct, config)
     
     # Determine overall status
-    if not sensor_connected and not use_simulated:
+    if not sensor_connected and not effective_use_simulated:
         overall_status = "NO_SENSOR"
     elif water_status == "CRITICAL" or soil_status == "CRITICAL":
         overall_status = "CRITICAL"
@@ -590,6 +890,17 @@ async def get_field_status(field_id: str, use_simulated: bool = True):
     decision = _make_auto_control_decision(field_id, config, sensor_data)
     next_action = f"{decision.action} (valve {decision.valve_position_pct}%)" if decision.action != "HOLD" else None
     
+    observed_at = sensor_data.timestamp if sensor_data else last_real_data_time
+    source = "simulated" if is_simulated else "iot_sensors"
+    contract = _build_data_contract(
+        source=source,
+        observed_at=observed_at,
+        data_available=bool(sensor_data),
+    )
+
+    if not is_simulated:
+        _persist_state()
+
     return CropFieldStatus(
         field_id=field_id,
         field_name=config.field_name,
@@ -609,6 +920,7 @@ async def get_field_status(field_id: str, use_simulated: bool = True):
         last_valve_action=valve_state.get("last_action_time"),
         auto_control_enabled=config.auto_control_enabled,
         next_action=next_action,
+        **contract,
     )
 
 
@@ -635,6 +947,7 @@ async def receive_sensor_data(field_id: str, data: IoTSensorData):
     _sensor_history[field_id].append(data.model_dump())
     if len(_sensor_history[field_id]) > 100:
         _sensor_history[field_id] = _sensor_history[field_id][-100:]
+    _persist_state()
     
     # Auto control if enabled
     result = {"data_received": True, "auto_control_triggered": False, "sensor_connected": True}
@@ -653,6 +966,20 @@ async def receive_sensor_data(field_id: str, data: IoTSensorData):
             
             result["auto_control_triggered"] = True
             result["decision"] = decision.model_dump()
+
+            _emit_event(
+                "irrigation.action.v1",
+                {
+                    "field_id": field_id,
+                    "device_id": data.device_id,
+                    "action": decision.action,
+                    "valve_position_pct": decision.valve_position_pct,
+                    "priority": decision.priority,
+                    "reason": decision.reason,
+                    "water_level_pct": data.water_level_pct,
+                    "soil_moisture_pct": data.soil_moisture_pct,
+                },
+            )
             
             logger.info(
                 f"Auto control for {field_id}: {decision.action} "
@@ -682,6 +1009,7 @@ async def control_valve(field_id: str, request: ValveControlRequest):
         # Enable auto control
         config.auto_control_enabled = True
         _crop_fields[field_id] = config
+        _persist_state()
         
         return ValveControlResponse(
             field_id=field_id,
@@ -701,6 +1029,7 @@ async def control_valve(field_id: str, request: ValveControlRequest):
     valve_state["last_action"] = request.action
     valve_state["last_action_time"] = datetime.now().isoformat()
     _valve_states[field_id] = valve_state
+    _persist_state()
     
     logger.info(f"Manual valve control for {field_id}: {request.action} ({request.reason})")
     
@@ -715,7 +1044,7 @@ async def control_valve(field_id: str, request: ValveControlRequest):
 
 
 @router.get("/fields/{field_id}/auto-decision", response_model=AutoControlDecision)
-async def get_auto_decision(field_id: str, use_simulated: bool = True):
+async def get_auto_decision(field_id: str, use_simulated: bool = False):
     """
     Get the current auto-control decision for a field based on sensor data.
     
@@ -726,14 +1055,55 @@ async def get_auto_decision(field_id: str, use_simulated: bool = True):
     
     config = _crop_fields[field_id]
     
-    # Get sensor data
-    if use_simulated:
+    effective_use_simulated = bool(use_simulated and not settings.is_strict_live_data)
+
+    # Get sensor data, preferring real telemetry when available.
+    sensor_data = None
+    if field_id in _last_real_sensor_data:
+        try:
+            sensor_data = IoTSensorData(**_last_real_sensor_data[field_id])
+        except Exception:
+            sensor_data = None
+    if sensor_data is None and effective_use_simulated:
         sensor_data = _get_simulated_sensor_data(field_id, config)
-    else:
-        # In production, fetch from IoT service
-        sensor_data = _get_simulated_sensor_data(field_id, config)
-    
+
+    if sensor_data is None:
+        now_iso = datetime.utcnow().isoformat()
+        contract = _build_data_contract(
+            source="unavailable",
+            observed_at=None,
+            data_available=False,
+        )
+        return AutoControlDecision(
+            field_id=field_id,
+            timestamp=now_iso,
+            water_level_pct=0.0,
+            soil_moisture_pct=0.0,
+            water_level_min=config.water_level_min_pct,
+            water_level_max=config.water_level_max_pct,
+            soil_moisture_min=config.soil_moisture_min_pct,
+            soil_moisture_max=config.soil_moisture_max_pct,
+            action="HOLD",
+            valve_position_pct=_valve_states.get(field_id, {}).get("position_pct", 0),
+            reason="No live sensor data available",
+            priority="low",
+            ml_prediction={
+                "forecast_adjustment_pct": None,
+                "stress_index": None,
+                "stress_priority": None,
+            },
+            **contract,
+        )
+
     decision = _make_auto_control_decision(field_id, config, sensor_data)
+    source = "simulated" if effective_use_simulated and field_id not in _last_real_sensor_data else "iot_sensors"
+    contract = _build_data_contract(
+        source=source,
+        observed_at=sensor_data.timestamp,
+        data_available=True,
+    )
+    for key, value in contract.items():
+        setattr(decision, key, value)
     return decision
 
 

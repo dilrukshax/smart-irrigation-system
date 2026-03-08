@@ -17,6 +17,8 @@ import random
 
 import httpx
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,6 +49,36 @@ class WeatherAPIClient:
         self._cache: Dict[str, Any] = {}
         self._cache_ttl = 300  # 5 minutes cache
         self._last_fetch: Dict[str, float] = {}
+
+    def _annotate_contract(
+        self,
+        payload: Dict[str, Any],
+        *,
+        source: str,
+        data_available: bool,
+        observed_at: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        observed = observed_at or payload.get("timestamp") or payload.get("generated_at")
+        payload["source"] = source
+        payload["is_live"] = bool(data_available and source != "simulated")
+        payload["observed_at"] = observed
+        payload["staleness_sec"] = 0.0 if payload["is_live"] else None
+        payload["quality"] = "good" if payload["is_live"] else "unknown"
+        payload["data_available"] = data_available
+        return payload
+
+    def _source_unavailable(self, message: str) -> Dict[str, Any]:
+        return {
+            "status": "source_unavailable",
+            "message": message,
+            "source": "unavailable",
+            "is_live": False,
+            "observed_at": None,
+            "staleness_sec": None,
+            "quality": "unknown",
+            "data_available": False,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
     
     async def get_current_weather(self) -> Dict[str, Any]:
         """
@@ -64,7 +96,9 @@ class WeatherAPIClient:
             self._update_cache(cache_key, weather)
             return weather
         except Exception as e:
-            logger.warning(f"Failed to fetch weather API: {e}. Using simulated data.")
+            logger.warning(f"Failed to fetch weather API: {e}.")
+            if settings.is_strict_live_data:
+                return self._source_unavailable("Current weather source unavailable")
             return self._generate_simulated_current()
     
     async def get_forecast(self, days: int = 7) -> Dict[str, Any]:
@@ -86,7 +120,9 @@ class WeatherAPIClient:
             self._update_cache(cache_key, forecast)
             return forecast
         except Exception as e:
-            logger.warning(f"Failed to fetch forecast: {e}. Using simulated data.")
+            logger.warning(f"Failed to fetch forecast: {e}.")
+            if settings.is_strict_live_data:
+                return self._source_unavailable("Weather forecast source unavailable")
             return self._generate_simulated_forecast(days)
     
     async def get_historical(self, days_back: int = 30) -> Dict[str, Any]:
@@ -108,7 +144,9 @@ class WeatherAPIClient:
             self._update_cache(cache_key, historical)
             return historical
         except Exception as e:
-            logger.warning(f"Failed to fetch historical data: {e}. Using simulated data.")
+            logger.warning(f"Failed to fetch historical data: {e}.")
+            if settings.is_strict_live_data:
+                return self._source_unavailable("Historical weather source unavailable")
             return self._generate_simulated_historical(days_back)
     
     async def _fetch_open_meteo_current(self) -> Dict[str, Any]:
@@ -128,7 +166,7 @@ class WeatherAPIClient:
         
         current = data.get("current", {})
         
-        return {
+        return self._annotate_contract({
             "status": "success",
             "source": "open-meteo",
             "location": {
@@ -150,7 +188,7 @@ class WeatherAPIClient:
                 "cloud_cover_percent": current.get("cloud_cover", 50)
             },
             "irrigation_impact": self._calculate_irrigation_impact(current)
-        }
+        }, source="open-meteo", data_available=True)
     
     async def _fetch_open_meteo_forecast(self, days: int) -> Dict[str, Any]:
         """Fetch weather forecast from Open-Meteo API."""
@@ -205,7 +243,7 @@ class WeatherAPIClient:
         total_rain_7d = sum([d.get("rain_mm", 0) or 0 for d in daily_forecast[:7]])
         avg_temp = sum([d.get("temp_max_c", 28) for d in daily_forecast[:7]]) / max(len(daily_forecast[:7]), 1)
         
-        return {
+        return self._annotate_contract({
             "status": "success",
             "source": "open-meteo",
             "location": {
@@ -223,7 +261,7 @@ class WeatherAPIClient:
                 "rainy_days_count": sum(1 for d in daily_forecast[:7] if (d.get("rain_mm") or 0) > 1),
                 "irrigation_recommendation": self._calculate_irrigation_recommendation(daily_forecast)
             }
-        }
+        }, source="open-meteo", data_available=True)
     
     async def _fetch_open_meteo_historical(self, days_back: int) -> Dict[str, Any]:
         """Fetch historical weather from Open-Meteo Archive API."""
@@ -260,7 +298,7 @@ class WeatherAPIClient:
         # Aggregate by day
         daily_aggregated = self._aggregate_hourly_to_daily(historical_data)
         
-        return {
+        return self._annotate_contract({
             "status": "success",
             "source": "open-meteo",
             "period": {
@@ -271,7 +309,7 @@ class WeatherAPIClient:
             "hourly_data": historical_data[-168:],  # Last 7 days hourly
             "daily_data": daily_aggregated,
             "statistics": self._calculate_historical_stats(daily_aggregated)
-        }
+        }, source="open-meteo", data_available=True)
     
     def _aggregate_hourly_to_daily(self, hourly_data: List[Dict]) -> List[Dict]:
         """Aggregate hourly data to daily summaries."""
@@ -438,7 +476,7 @@ class WeatherAPIClient:
         base_temp = 28 if month in [3, 4, 5] else 26
         rain = random.uniform(0, 20) if is_monsoon else random.uniform(0, 5)
         
-        return {
+        return self._annotate_contract({
             "status": "success",
             "source": "simulated",
             "location": {
@@ -464,7 +502,7 @@ class WeatherAPIClient:
                 "recommendation": "REDUCE" if rain > 5 else "NORMAL",
                 "evaporation_risk": "MEDIUM"
             }
-        }
+        }, source="simulated", data_available=True)
     
     def _generate_simulated_forecast(self, days: int) -> Dict[str, Any]:
         """Generate simulated weather forecast for fallback."""
@@ -507,7 +545,7 @@ class WeatherAPIClient:
         
         total_rain = sum(d["rain_mm"] for d in daily_forecast[:7])
         
-        return {
+        return self._annotate_contract({
             "status": "success",
             "source": "simulated",
             "location": {
@@ -525,7 +563,7 @@ class WeatherAPIClient:
                 "rainy_days_count": sum(1 for d in daily_forecast[:7] if d["rain_mm"] > 1),
                 "irrigation_recommendation": "REDUCE" if total_rain > 30 else "NORMAL"
             }
-        }
+        }, source="simulated", data_available=True)
     
     def _generate_simulated_historical(self, days_back: int) -> Dict[str, Any]:
         """Generate simulated historical weather for fallback."""
@@ -547,7 +585,7 @@ class WeatherAPIClient:
                 "rain_mm": round(rain * 0.9, 1)
             })
         
-        return {
+        return self._annotate_contract({
             "status": "success",
             "source": "simulated",
             "period": {
@@ -558,7 +596,7 @@ class WeatherAPIClient:
             "hourly_data": [],
             "daily_data": daily_data,
             "statistics": self._calculate_historical_stats(daily_data)
-        }
+        }, source="simulated", data_available=True)
 
 
 # Singleton instance

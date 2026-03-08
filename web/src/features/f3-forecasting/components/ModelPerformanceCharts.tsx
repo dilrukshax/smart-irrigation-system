@@ -129,23 +129,15 @@ const ModelPerformanceCharts: React.FC<ModelPerformanceChartsProps> = ({ compact
     return { color: 'error', label: 'Needs Improvement' };
   };
 
-  // Generate simulated model data if not available
   const getModelData = (): ModelInfo[] => {
     if (modelComparison?.models) {
       return modelComparison.models;
     }
-    // Simulated data for demo
-    return [
-      { name: 'Random Forest', metrics: { rmse: 1.24, mae: 0.89, r2: 0.92 }, rank: 1 },
-      { name: 'Gradient Boosting', metrics: { rmse: 1.31, mae: 0.95, r2: 0.90 }, rank: 2 },
-      { name: 'LSTM', metrics: { rmse: 1.45, mae: 1.12, r2: 0.88 }, rank: 3 },
-      { name: 'Linear Regression', metrics: { rmse: 2.15, mae: 1.68, r2: 0.75 }, rank: 4 },
-      { name: 'ARIMA', metrics: { rmse: 1.98, mae: 1.52, r2: 0.78 }, rank: 5 },
-    ];
+    return [];
   };
 
   const models = getModelData();
-  const bestModel = modelComparison?.best_model || models[0]?.name || 'Random Forest';
+  const bestModel = modelComparison?.best_model || models[0]?.name || 'Unavailable';
 
   // Prepare chart data
   const metricsBarData = models.map((model, index) => ({
@@ -165,9 +157,8 @@ const ModelPerformanceCharts: React.FC<ModelPerformanceChartsProps> = ({ compact
   ].map((item) => {
     const result: any = { ...item };
     models.slice(0, 3).forEach((model) => {
-      // Generate synthetic scores based on metrics
-      const baseScore = (1 - model.metrics.rmse / 5) * 100;
-      result[model.name] = Math.min(100, Math.max(0, baseScore + (Math.random() * 20 - 10)));
+      const baseScore = Math.max(0, Math.min(100, (1 - model.metrics.rmse / 5) * 100));
+      result[model.name] = baseScore;
     });
     return result;
   });
@@ -177,17 +168,7 @@ const ModelPerformanceCharts: React.FC<ModelPerformanceChartsProps> = ({ compact
     if (featureImportance?.features) {
       return featureImportance.features;
     }
-    // Simulated feature importance
-    return [
-      { feature: 'hour', importance: 0.25 },
-      { feature: 'day_of_week', importance: 0.18 },
-      { feature: 'rolling_mean_24h', importance: 0.15 },
-      { feature: 'lag_1h', importance: 0.12 },
-      { feature: 'lag_24h', importance: 0.10 },
-      { feature: 'rolling_std_6h', importance: 0.08 },
-      { feature: 'month', importance: 0.07 },
-      { feature: 'trend', importance: 0.05 },
-    ];
+    return [];
   };
 
   const featureData = getFeatureData();
@@ -247,6 +228,13 @@ const ModelPerformanceCharts: React.FC<ModelPerformanceChartsProps> = ({ compact
                 </Box>
               </Grid>
             ))}
+            {!models.length && (
+              <Grid item xs={12}>
+                <Typography variant="body2" color="text.secondary">
+                  No live model metrics available.
+                </Typography>
+              </Grid>
+            )}
           </Grid>
         </CardContent>
       </Card>
@@ -268,7 +256,13 @@ const ModelPerformanceCharts: React.FC<ModelPerformanceChartsProps> = ({ compact
 
       {error && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          {error}. Showing sample data for demonstration.
+          {error}
+        </Alert>
+      )}
+
+      {!models.length && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Model performance data is unavailable from the forecasting service.
         </Alert>
       )}
 
@@ -303,15 +297,15 @@ const ModelPerformanceCharts: React.FC<ModelPerformanceChartsProps> = ({ compact
                 <Grid container spacing={2}>
                   <Grid item xs={4}>
                     <Typography variant="caption" sx={{ opacity: 0.8 }}>RMSE</Typography>
-                    <Typography variant="h6">{models[0]?.metrics.rmse.toFixed(2)}</Typography>
+                    <Typography variant="h6">{(models[0]?.metrics.rmse ?? 0).toFixed(2)}</Typography>
                   </Grid>
                   <Grid item xs={4}>
                     <Typography variant="caption" sx={{ opacity: 0.8 }}>MAE</Typography>
-                    <Typography variant="h6">{models[0]?.metrics.mae.toFixed(2)}</Typography>
+                    <Typography variant="h6">{(models[0]?.metrics.mae ?? 0).toFixed(2)}</Typography>
                   </Grid>
                   <Grid item xs={4}>
                     <Typography variant="caption" sx={{ opacity: 0.8 }}>R²</Typography>
-                    <Typography variant="h6">{models[0]?.metrics.r2.toFixed(2)}</Typography>
+                    <Typography variant="h6">{(models[0]?.metrics.r2 ?? 0).toFixed(2)}</Typography>
                   </Grid>
                 </Grid>
               </CardContent>

@@ -16,6 +16,8 @@ Without these data sources, the service will return empty recommendations.
 """
 
 import logging
+import json
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 from sqlalchemy.orm import Session
@@ -26,7 +28,7 @@ from app.core.schemas import (
     CropOption,
 )
 from app.features.feature_builder import FeatureBuilder
-from app.ml.suitability_fuzzy_topsis import compute_fuzzy_topsis_scores, rank_crops_by_suitability
+from app.ml.suitability_fuzzy_topsis import compute_fuzzy_topsis_scores
 from app.ml.inference import (
     predict_yield_for_candidates,
     predict_price_for_candidates,
@@ -35,9 +37,16 @@ from app.ml.inference import (
 )
 from app.optimization.constraints import OptimizationCropInput, OptimizationConstraints
 from app.optimization.optimizer import Optimizer
-from app.data.repositories import FieldRepository
+from app.data.repositories import FieldRepository, RecommendationRepository
+from app.core.config import get_settings
+
+try:
+    import paho.mqtt.client as mqtt
+except Exception:  # pragma: no cover
+    mqtt = None
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 class RecommendationService:
@@ -84,6 +93,8 @@ class RecommendationService:
             Returns empty recommendations if required data is missing.
         """
         logger.info(f"Generating recommendations for field={request.field_id}")
+        strict_live_data = settings.is_strict_live_data
+        observed_at = datetime.utcnow().isoformat()
         
         # Extract scenario parameters
         scenario = request.scenario or {}
@@ -96,6 +107,7 @@ class RecommendationService:
             season=request.season,
             scenario=scenario,
         )
+        feature_status = feature_builder.get_runtime_status()
         
         if not features_per_crop:
             logger.warning(
@@ -106,6 +118,17 @@ class RecommendationService:
                 field_id=request.field_id,
                 season=request.season,
                 recommendations=[],
+                status=str(feature_status.get("status") or "data_unavailable"),
+                source="optimization_service",
+                is_live=False,
+                observed_at=observed_at,
+                staleness_sec=None,
+                quality="unavailable",
+                data_available=False,
+                message=str(
+                    feature_status.get("message")
+                    or "Feature inputs unavailable for recommendation generation."
+                ),
             )
         
         # === Step 2: Compute Suitability Scores ===
@@ -117,6 +140,14 @@ class RecommendationService:
                 field_id=request.field_id,
                 season=request.season,
                 recommendations=[],
+                status="data_unavailable",
+                source="optimization_service",
+                is_live=False,
+                observed_at=observed_at,
+                staleness_sec=None,
+                quality="unavailable",
+                data_available=False,
+                message="Suitability scoring could not be computed from available inputs.",
             )
         
         # === Step 3: Predict Yields ===
@@ -147,6 +178,29 @@ class RecommendationService:
                 "Price predictions unavailable. ML model not loaded. "
                 "Profitability calculations will be incomplete."
             )
+
+        if strict_live_data and (not has_yield_data or not has_price_data):
+            missing = []
+            if not has_yield_data:
+                missing.append("yield_predictions")
+            if not has_price_data:
+                missing.append("price_predictions")
+            return RecommendationResponse(
+                field_id=request.field_id,
+                season=request.season,
+                recommendations=[],
+                status="data_unavailable",
+                source="optimization_service",
+                is_live=False,
+                observed_at=observed_at,
+                staleness_sec=None,
+                quality="unavailable",
+                data_available=False,
+                message=(
+                    "Strict live-data mode requires complete yield and price predictions; "
+                    f"missing: {', '.join(missing)}."
+                ),
+            )
         
         # === Step 5: Build Optimization Inputs ===
         optimization_inputs = self._build_optimization_inputs(
@@ -154,7 +208,23 @@ class RecommendationService:
             suitability_scores=suitability_scores,
             yield_predictions=yield_predictions,
             price_predictions=price_predictions,
+            strict_live_data=strict_live_data,
         )
+
+        if strict_live_data and not optimization_inputs:
+            return RecommendationResponse(
+                field_id=request.field_id,
+                season=request.season,
+                recommendations=[],
+                status="data_unavailable",
+                source="optimization_service",
+                is_live=False,
+                observed_at=observed_at,
+                staleness_sec=None,
+                quality="unavailable",
+                data_available=False,
+                message="No optimization candidates could be built from live model outputs.",
+            )
         
         # Get field area for optimization
         field_data = FieldRepository.get_field_by_id(db_session, request.field_id)
@@ -165,6 +235,20 @@ class RecommendationService:
                 f"Field {request.field_id} not found in database. "
                 "Using default area of 1.0 ha."
             )
+            if strict_live_data:
+                return RecommendationResponse(
+                    field_id=request.field_id,
+                    season=request.season,
+                    recommendations=[],
+                    status="data_unavailable",
+                    source="optimization_service",
+                    is_live=False,
+                    observed_at=observed_at,
+                    staleness_sec=None,
+                    quality="unavailable",
+                    data_available=False,
+                    message="Strict live-data mode requires persisted field area metadata.",
+                )
         
         # === Step 6: Run Optimization ===
         optimizer = Optimizer(
@@ -187,12 +271,63 @@ class RecommendationService:
         )
         
         logger.info(f"Generated {len(recommendations)} recommendations")
-        
-        return RecommendationResponse(
+
+        response = RecommendationResponse(
             field_id=request.field_id,
             season=request.season,
             recommendations=recommendations,
+            status="ok" if recommendations else "data_unavailable",
+            source="optimization_service",
+            is_live=bool(recommendations),
+            observed_at=observed_at,
+            staleness_sec=0 if recommendations else None,
+            quality="good" if recommendations else "unavailable",
+            data_available=bool(recommendations),
+            message=(
+                "Recommendations generated from live upstream context."
+                if recommendations
+                else "No recommendations could be generated from available live data."
+            ),
         )
+
+        # Persist recommendation payloads for downstream Plan-B/supply aggregation.
+        RecommendationRepository.save_recommendation(
+            db_session=db_session,
+            field_id=request.field_id,
+            season=request.season,
+            request_data=request.model_dump(),
+            response_data=response.model_dump(),
+        )
+        self._emit_recommendation_event(response)
+
+        return response
+
+    @staticmethod
+    def _emit_recommendation_event(response: RecommendationResponse) -> None:
+        """Emit optimization.recommendation.v1 for downstream consumers."""
+        if mqtt is None:
+            return
+        client = mqtt.Client(client_id=f"optimize-service-{response.field_id}")
+        payload = {
+            "event": "optimization.recommendation.v1",
+            "occurred_at": datetime.utcnow().isoformat(),
+            "field_id": response.field_id,
+            "season": response.season,
+            "recommendation_count": len(response.recommendations),
+            "top_crop_id": response.recommendations[0].crop_id if response.recommendations else None,
+            "top_risk_band": response.recommendations[0].risk_band if response.recommendations else None,
+            "top_suitability_score": response.recommendations[0].suitability_score if response.recommendations else None,
+        }
+        try:
+            client.connect(settings.mqtt_broker, settings.mqtt_port, keepalive=10)
+            client.publish("events/optimization.recommendation.v1", json.dumps(payload), qos=1)
+        except Exception as exc:
+            logger.debug("Skipping optimization event publish: %s", exc)
+        finally:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
     
     def _build_optimization_inputs(
         self,
@@ -200,6 +335,7 @@ class RecommendationService:
         suitability_scores: Dict[str, float],
         yield_predictions: Dict[str, Optional[float]],
         price_predictions: Dict[str, Optional[float]],
+        strict_live_data: bool = False,
     ) -> List[OptimizationCropInput]:
         """
         Build optimization input objects from predictions.
@@ -211,6 +347,13 @@ class RecommendationService:
         for crop_id, features in features_per_crop.items():
             yield_t_ha = yield_predictions.get(crop_id)
             price_per_kg = price_predictions.get(crop_id)
+            suitability = suitability_scores.get(crop_id)
+            water_requirement = features.get("water_requirement_mm")
+
+            if strict_live_data and (
+                suitability is None or water_requirement is None or yield_t_ha is None or price_per_kg is None
+            ):
+                continue
             
             # Calculate expected profit if data available
             if yield_t_ha is not None and price_per_kg is not None:
@@ -230,8 +373,8 @@ class RecommendationService:
                 max_area_ha=10.0,
                 min_area_ha=0.0,
                 expected_profit_per_ha=expected_profit,
-                water_req_mm_per_ha=features.get("water_requirement_mm", 500),
-                suitability_score=suitability_scores.get(crop_id, 0.5),
+                water_req_mm_per_ha=float(water_requirement or 500),
+                suitability_score=float(suitability if suitability is not None else 0.5),
             ))
         
         return inputs
@@ -250,8 +393,14 @@ class RecommendationService:
         """
         recommendations = []
         
-        # Rank by suitability score
-        ranked = rank_crops_by_suitability(suitability_scores, top_n=max_count)
+        # Rank by precomputed suitability scores.
+        ranked = sorted(
+            suitability_scores.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        if max_count > 0:
+            ranked = ranked[:max_count]
         
         for crop_id, score in ranked:
             features = features_per_crop.get(crop_id, {})

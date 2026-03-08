@@ -14,8 +14,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Switch,
-  FormControlLabel,
   Divider,
   Paper,
   List,
@@ -68,44 +66,6 @@ const AnomalyVisualization: React.FC<AnomalyVisualizationProps> = ({
   const [sensitivity, setSensitivity] = useState(1.0);
   const [selectedMethods, setSelectedMethods] = useState<string[]>(['z_score', 'iqr', 'isolation_forest']);
   const [showDetails, setShowDetails] = useState(false);
-  const [useSimulatedData, setUseSimulatedData] = useState(true);
-
-  // Generate simulated data for demo
-  const generateSimulatedData = useCallback(() => {
-    const data: number[] = [];
-    const now = new Date();
-    const timestamps: string[] = [];
-    
-    // Generate 168 hours (7 days) of water level data
-    for (let i = 0; i < 168; i++) {
-      const hour = i % 24;
-      const day = Math.floor(i / 24);
-      
-      // Base pattern: daily cycle
-      let value = 50 + 10 * Math.sin((hour - 6) * Math.PI / 12);
-      
-      // Weekly variation
-      value += 5 * Math.sin(day * Math.PI / 3.5);
-      
-      // Random noise
-      value += (Math.random() - 0.5) * 5;
-      
-      // Inject some anomalies
-      if (i === 25 || i === 72 || i === 130) {
-        value += 30; // Spike
-      }
-      if (i === 50 || i === 100) {
-        value -= 25; // Drop
-      }
-      
-      data.push(value);
-      
-      const timestamp = new Date(now.getTime() - (168 - i) * 60 * 60 * 1000);
-      timestamps.push(timestamp.toISOString());
-    }
-    
-    return { data, timestamps };
-  }, []);
 
   const runAnomalyDetection = useCallback(async () => {
     setLoading(true);
@@ -118,12 +78,8 @@ const AnomalyVisualization: React.FC<AnomalyVisualizationProps> = ({
       if (externalData && externalData.length > 0) {
         data = externalData;
         timestamps = externalTimestamps;
-      } else if (useSimulatedData) {
-        const simulated = generateSimulatedData();
-        data = simulated.data;
-        timestamps = simulated.timestamps;
       } else {
-        setError('No data provided for analysis');
+        setError('No live data provided for anomaly analysis.');
         setLoading(false);
         return;
       }
@@ -146,7 +102,7 @@ const AnomalyVisualization: React.FC<AnomalyVisualizationProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [externalData, externalTimestamps, useSimulatedData, selectedMethods, sensitivity, generateSimulatedData, onAnomalyDetected]);
+  }, [externalData, externalTimestamps, selectedMethods, sensitivity, onAnomalyDetected]);
 
   const getSeverityIcon = (severity: string) => {
     switch (severity.toUpperCase()) {
@@ -184,9 +140,7 @@ const AnomalyVisualization: React.FC<AnomalyVisualizationProps> = ({
       data = externalData;
       timestamps = externalTimestamps;
     } else {
-      const simulated = generateSimulatedData();
-      data = simulated.data;
-      timestamps = simulated.timestamps;
+      return [];
     }
     
     const anomalyIndices = new Set(results.consensus_anomalies.map(a => a.index));
@@ -223,17 +177,6 @@ const AnomalyVisualization: React.FC<AnomalyVisualizationProps> = ({
           Anomaly Detection
         </Typography>
         <Box display="flex" gap={2} alignItems="center">
-          {!externalData && (
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={useSimulatedData}
-                  onChange={(e) => setUseSimulatedData(e.target.checked)}
-                />
-              }
-              label="Use Demo Data"
-            />
-          )}
           <Button
             variant="contained"
             onClick={runAnomalyDetection}

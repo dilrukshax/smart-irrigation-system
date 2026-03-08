@@ -39,3 +39,4 @@ opentelemetry-instrumentation-httpx>=0.43b0
 
 # Additional utilities
 python-multipart>=0.0.6
+paho-mqtt>=2.0.0

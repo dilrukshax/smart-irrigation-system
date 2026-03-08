@@ -74,3 +74,12 @@ async def readiness_check() -> dict:
             "models": "ok",    # Placeholder - implement real check later
         },
     }
+
+
+@router.get("/live")
+async def liveness_check() -> dict:
+    """Liveness probe endpoint for orchestrators."""
+    return {
+        "status": "alive",
+        "service": settings.app_name,
+    }

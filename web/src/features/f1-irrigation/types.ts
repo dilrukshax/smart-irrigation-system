@@ -45,6 +45,12 @@ export interface ReservoirData {
   wind_speed_ms?: number;
   timestamp?: string;
   source?: 'simulated' | 'iot_sensors';
+  status?: 'ok' | 'stale' | 'data_unavailable' | 'analysis_pending' | 'source_unavailable';
+  is_live?: boolean;
+  observed_at?: string | null;
+  staleness_sec?: number | null;
+  quality?: string;
+  data_available?: boolean;
 }
 
 export interface WaterReleasePrediction {
@@ -191,6 +197,13 @@ export interface CropFieldStatus {
   last_valve_action: string | null;
   auto_control_enabled: boolean;
   next_action: string | null;
+  status?: 'ok' | 'stale' | 'data_unavailable' | 'analysis_pending' | 'source_unavailable';
+  source?: string;
+  is_live?: boolean;
+  observed_at?: string | null;
+  staleness_sec?: number | null;
+  quality?: string;
+  data_available?: boolean;
 }
 
 export interface IoTSensorData {
@@ -233,4 +246,11 @@ export interface AutoControlDecision {
   reason: string;
   priority: 'low' | 'medium' | 'high' | 'critical';
   ml_prediction?: Record<string, unknown>;
+  status?: 'ok' | 'stale' | 'data_unavailable' | 'analysis_pending' | 'source_unavailable';
+  source?: string;
+  is_live?: boolean;
+  observed_at?: string | null;
+  staleness_sec?: number | null;
+  quality?: string;
+  data_available?: boolean;
 }

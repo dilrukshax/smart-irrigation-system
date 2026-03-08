@@ -2,18 +2,18 @@
  * IoT Telemetry API - ESP32 Sensor Data
  * 
  * API functions for IoT device telemetry ingestion and queries.
- * Endpoints accessed via gateway at /irrigation/iot/*
+ * Endpoints accessed via gateway at /iot/*
  */
 
 import { apiClient } from './index';
 
 // IoT API Endpoints - via Gateway
 const IOT_ENDPOINTS = {
-  DEVICES: '/irrigation/iot/devices',
-  DEVICE_LATEST: (deviceId: string) => `/irrigation/iot/devices/${deviceId}/latest`,
-  DEVICE_RANGE: (deviceId: string) => `/irrigation/iot/devices/${deviceId}/range`,
-  DEVICE_CMD: (deviceId: string) => `/irrigation/iot/devices/${deviceId}/cmd`,
-  TELEMETRY: '/irrigation/iot/telemetry',
+  DEVICES: '/iot/devices',
+  DEVICE_LATEST: (deviceId: string) => `/iot/devices/${deviceId}/latest`,
+  DEVICE_RANGE: (deviceId: string) => `/iot/devices/${deviceId}/range`,
+  DEVICE_CMD: (deviceId: string) => `/iot/devices/${deviceId}/cmd`,
+  TELEMETRY: '/iot/telemetry',
 };
 
 // Type Definitions

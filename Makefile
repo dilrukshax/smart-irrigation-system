@@ -11,7 +11,7 @@ help:
 	@echo ""
 	@echo "Build:"
 	@echo "  make build          - Build all Docker images"
-	@echo "  make build-<svc>    - Build specific service (auth, irrigation, forecasting, optimization)"
+	@echo "  make build-<svc>    - Build specific service (auth, irrigation, forecasting, optimize, iot, crop-health)"
 	@echo ""
 	@echo "Testing:"
 	@echo "  make test           - Run all tests"
@@ -50,16 +50,24 @@ build:
 	@./scripts/build-all.sh
 
 build-auth:
-	docker build -t $(REGISTRY)/auth-service:$(TAG) -f services/auth-service/Dockerfile .
+	docker build -t $(REGISTRY)/auth-service:$(TAG) -f services/auth_service/Dockerfile .
 
 build-irrigation:
-	docker build -t $(REGISTRY)/irrigation-service:$(TAG) -f services/irrigation-service/Dockerfile .
+	docker build -t $(REGISTRY)/irrigation-service:$(TAG) -f services/irrigation_service/Dockerfile .
 
 build-forecasting:
-	docker build -t $(REGISTRY)/forecasting-service:$(TAG) -f services/forecasting-service/Dockerfile .
+	docker build -t $(REGISTRY)/forecasting-service:$(TAG) -f services/forecasting_service/Dockerfile .
 
-build-optimization:
-	docker build -t $(REGISTRY)/optimization-service:$(TAG) -f services/optimization-service/Dockerfile .
+build-optimize:
+	docker build -t $(REGISTRY)/optimization-service:$(TAG) -f services/optimize_service/Dockerfile .
+
+build-iot:
+	docker build -t $(REGISTRY)/iot-service:$(TAG) -f services/iot_service/Dockerfile .
+
+build-crop-health:
+	docker build -t $(REGISTRY)/crop-health-service:$(TAG) -f services/crop_health_and_water_stress_detection/Dockerfile .
+
+build-optimization: build-optimize
 
 build-gateway:
 	docker build -t $(REGISTRY)/gateway:$(TAG) -f gateway/Dockerfile .
@@ -68,34 +76,47 @@ build-web:
 	docker build -t $(REGISTRY)/web:$(TAG) -f web/Dockerfile .
 
 # Testing
-test: test-auth test-irrigation test-forecasting test-optimization
+test: test-auth test-irrigation test-forecasting test-optimize test-iot
 
 test-auth:
-	cd services/auth-service && python -m pytest tests/ -v
+	cd services/auth_service && python -m pytest tests/ -v
 
 test-irrigation:
-	cd services/irrigation-service && python -m pytest tests/ -v
+	cd services/irrigation_service && python -m pytest tests/ -v
 
 test-forecasting:
-	cd services/forecasting-service && python -m pytest tests/ -v
+	cd services/forecasting_service && python -m pytest tests/ -v
 
-test-optimization:
-	cd services/optimization-service && python -m pytest tests/ -v
+test-optimize:
+	cd services/optimize_service && python -m pytest tests/ -v
+
+test-iot:
+	cd services/iot_service && python -m pytest tests/ -v
+
+test-optimization: test-optimize
 
 # Linting
-lint: lint-auth lint-irrigation lint-forecasting lint-optimization
+lint: lint-auth lint-irrigation lint-forecasting lint-optimize lint-iot lint-crop-health
 
 lint-auth:
-	cd services/auth-service && ruff check src/
+	cd services/auth_service && ruff check app/
 
 lint-irrigation:
-	cd services/irrigation-service && ruff check src/
+	cd services/irrigation_service && ruff check app/
 
 lint-forecasting:
-	cd services/forecasting-service && ruff check src/
+	cd services/forecasting_service && ruff check app/
 
-lint-optimization:
-	cd services/optimization-service && ruff check src/
+lint-optimize:
+	cd services/optimize_service && ruff check app/
+
+lint-iot:
+	cd services/iot_service && ruff check app/
+
+lint-crop-health:
+	cd services/crop_health_and_water_stress_detection && ruff check app/
+
+lint-optimization: lint-optimize
 
 # Deployment
 deploy-dev:

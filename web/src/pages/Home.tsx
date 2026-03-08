@@ -1,72 +1,138 @@
-import { Grid, Card, CardContent, Typography, Box, Paper } from '@mui/material';
-import {
-  WaterDrop as WaterIcon,
-  Grass as CropIcon,
-  ShowChart as ForecastIcon,
-  Agriculture as OptimizeIcon,
-} from '@mui/icons-material';
+import { Alert, Box, Card, CardContent, Chip, CircularProgress, Grid, Typography } from '@mui/material';
+import { useQuery } from '@tanstack/react-query';
+import { cropFieldsApi } from '../api/f1-irrigation.api';
+import { acaoApi } from '../api/f4-acao.api';
+import forecastingAPI from '../api/forecasting';
+import cropHealthApi from '../features/f2-crop-health/api/cropHealth.api';
+import { getFreshnessView } from '../utils/dataFreshness';
 
-const summaryCards = [
-  {
-    title: 'Irrigation Status',
-    value: '12 Active',
-    description: 'Fields being irrigated',
-    icon: <WaterIcon fontSize="large" />,
-    color: '#1976d2',
-  },
-  {
-    title: 'Crop Health',
-    value: '89%',
-    description: 'Fields healthy',
-    icon: <CropIcon fontSize="large" />,
-    color: '#2e7d32',
-  },
-  {
-    title: 'Water Forecast',
-    value: '75%',
-    description: 'Reservoir capacity',
-    icon: <ForecastIcon fontSize="large" />,
-    color: '#ed6c02',
-  },
-  {
-    title: 'Optimized Area',
-    value: '450 ha',
-    description: 'Under recommendation',
-    icon: <OptimizeIcon fontSize="large" />,
-    color: '#9c27b0',
-  },
-];
+type CardState = {
+  title: string;
+  value: string;
+  description: string;
+  freshness: ReturnType<typeof getFreshnessView>;
+};
 
 export default function Home() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['dashboard-overview-live'],
+    queryFn: async () => {
+      const [fields, cropModel, forecast, optimization] = await Promise.allSettled([
+        cropFieldsApi.getFields(),
+        cropHealthApi.getModelStatus(),
+        forecastingAPI.getBasicForecast(24),
+        acaoApi.getRecommendations(),
+      ]);
+      return {
+        fields,
+        cropModel,
+        forecast,
+        optimization,
+      };
+    },
+    refetchInterval: 10000,
+  });
+
+  if (isLoading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  const fieldsValue =
+    data?.fields.status === 'fulfilled'
+      ? Array.isArray(data.fields.value.data)
+        ? data.fields.value.data.length
+        : 0
+      : 0;
+  const forecastValue =
+    data?.forecast.status === 'fulfilled'
+      ? Array.isArray(data.forecast.value?.predictions)
+        ? data.forecast.value.predictions.length
+        : 0
+      : 0;
+  const optimizationCount =
+    data?.optimization.status === 'fulfilled'
+      ? Number(data.optimization.value?.count || 0)
+      : 0;
+
+  const cards: CardState[] = [
+    {
+      title: 'Irrigation Fields',
+      value: `${fieldsValue}`,
+      description: 'Registered field configurations',
+      freshness: getFreshnessView({
+        status: data?.fields.status === 'fulfilled' ? 'ok' : 'data_unavailable',
+        data_available: data?.fields.status === 'fulfilled',
+      }),
+    },
+    {
+      title: 'Crop Health Model',
+      value:
+        data?.cropModel.status === 'fulfilled'
+          ? data.cropModel.value.model_loaded
+            ? 'Ready'
+            : 'Unavailable'
+          : 'Unavailable',
+      description: 'Image prediction model state',
+      freshness: getFreshnessView({
+        status:
+          data?.cropModel.status === 'fulfilled' && data.cropModel.value.model_loaded
+            ? 'ok'
+            : data?.cropModel.status === 'fulfilled'
+            ? data.cropModel.value.status
+            : 'data_unavailable',
+        data_available:
+          data?.cropModel.status === 'fulfilled'
+            ? Boolean(data.cropModel.value.model_loaded)
+            : false,
+      }),
+    },
+    {
+      title: 'Forecast Horizon',
+      value: `${forecastValue} points`,
+      description: 'Live forecast samples returned',
+      freshness: getFreshnessView(
+        data?.forecast.status === 'fulfilled'
+          ? data.forecast.value
+          : { status: 'data_unavailable', data_available: false }
+      ),
+    },
+    {
+      title: 'Optimization Records',
+      value: `${optimizationCount}`,
+      description: 'Latest recommendation rows',
+      freshness: getFreshnessView(
+        data?.optimization.status === 'fulfilled'
+          ? data.optimization.value
+          : { status: 'data_unavailable', data_available: false }
+      ),
+    },
+  ];
+
+  const liveCount = cards.filter((card) => card.freshness.label === 'Live').length;
+
   return (
     <Box>
       <Typography variant="h4" gutterBottom fontWeight={600}>
         Dashboard Overview
       </Typography>
       <Typography variant="body1" color="text.secondary" paragraph>
-        Welcome to the Smart Irrigation & Crop Optimization Platform
+        Runtime status from live service endpoints only
       </Typography>
 
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        {summaryCards.map((card) => (
+        {cards.map((card) => (
           <Grid item xs={12} sm={6} md={3} key={card.title}>
             <Card>
               <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <Box
-                    sx={{
-                      p: 1,
-                      borderRadius: 2,
-                      bgcolor: `${card.color}20`,
-                      color: card.color,
-                      mr: 2,
-                    }}
-                  >
-                    {card.icon}
-                  </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                   <Typography variant="h6" color="text.secondary">
                     {card.title}
                   </Typography>
+                  <Chip label={card.freshness.label} color={card.freshness.color} size="small" />
                 </Box>
                 <Typography variant="h4" fontWeight={700}>
                   {card.value}
@@ -80,39 +146,17 @@ export default function Home() {
         ))}
       </Grid>
 
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={8}>
-          <Paper sx={{ p: 3, height: 400 }}>
-            <Typography variant="h6" gutterBottom>
-              Water Usage Trends
-            </Typography>
-            <Box
-              sx={{
-                height: 320,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                bgcolor: 'grey.100',
-                borderRadius: 1,
-              }}
-            >
-              <Typography color="text.secondary">Chart placeholder</Typography>
-            </Box>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 3, height: 400 }}>
-            <Typography variant="h6" gutterBottom>
-              Recent Alerts
-            </Typography>
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="body2" color="text.secondary">
-                No active alerts
-              </Typography>
-            </Box>
-          </Paper>
-        </Grid>
-      </Grid>
+      {liveCount === 0 ? (
+        <Alert severity="warning">No live data is currently available from upstream services.</Alert>
+      ) : (
+        <Alert severity="success">{liveCount} modules are currently reporting live data.</Alert>
+      )}
+
+      {isError && (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          One or more dashboard modules failed to load.
+        </Alert>
+      )}
     </Box>
   );
 }

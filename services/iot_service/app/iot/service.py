@@ -12,6 +12,8 @@ import logging
 from datetime import datetime
 from typing import Optional, List
 
+import requests
+
 from app.core.config import settings
 from app.iot.schemas import (
     TelemetryPayload,
@@ -130,6 +132,10 @@ class IoTService:
             success = influx_repo.write_point(telemetry)
             
             if success:
+                field_id = cls._resolve_field_id(payload.device_id)
+                cls._forward_to_irrigation(field_id=field_id, telemetry=telemetry)
+                cls._emit_sensor_event(field_id=field_id, telemetry=telemetry)
+
                 logger.info(
                     f"Stored telemetry from {payload.device_id}: "
                     f"soil={soil_moisture_pct}%, water={water_level_pct}%"
@@ -142,6 +148,83 @@ class IoTService:
         except Exception as e:
             logger.error(f"Error processing telemetry: {e}")
             return None
+
+    @staticmethod
+    def _resolve_field_id(device_id: str) -> Optional[str]:
+        """Resolve a device identifier into a field identifier via F1 service."""
+        # Prefer static mapping when provided for deterministic local E2E runs.
+        mapping = settings.get_device_field_map()
+        if device_id in mapping:
+            return mapping[device_id]
+
+        try:
+            response = requests.get(
+                f"{settings.irrigation_service_url}/api/v1/crop-fields/devices/{device_id}/resolve",
+                timeout=1.5,
+            )
+            if response.status_code == 200:
+                payload = response.json()
+                return payload.get("field_id")
+        except Exception as exc:
+            logger.debug(f"Device resolution failed for {device_id}: {exc}")
+        return None
+
+    @staticmethod
+    def _forward_to_irrigation(field_id: Optional[str], telemetry: TelemetryWithDerived) -> None:
+        """Forward normalized sensor payload to F1 field ingestion endpoint."""
+        if not field_id:
+            return
+
+        payload = {
+            "device_id": telemetry.device_id,
+            "timestamp": telemetry.timestamp.isoformat(),
+            "soil_moisture_pct": telemetry.soil_moisture_pct,
+            "water_level_pct": telemetry.water_level_pct,
+            "soil_ao": telemetry.soil_ao,
+            "water_ao": telemetry.water_ao,
+            "rssi": telemetry.rssi,
+            "battery_v": telemetry.battery_v,
+        }
+
+        try:
+            response = requests.post(
+                f"{settings.irrigation_service_url}/api/v1/crop-fields/fields/{field_id}/sensor-data",
+                json=payload,
+                timeout=1.5,
+            )
+            if response.status_code >= 400:
+                logger.warning(
+                    "IoT->F1 bridge failed for device=%s field=%s status=%s",
+                    telemetry.device_id,
+                    field_id,
+                    response.status_code,
+                )
+        except Exception as exc:
+            logger.warning(
+                "IoT->F1 bridge exception for device=%s field=%s: %s",
+                telemetry.device_id,
+                field_id,
+                exc,
+            )
+
+    @staticmethod
+    def _emit_sensor_event(field_id: Optional[str], telemetry: TelemetryWithDerived) -> None:
+        """Emit sensor.reading.v1 for observability/traceability."""
+        mqtt = get_mqtt_client()
+        if not mqtt or not mqtt.is_connected:
+            return
+
+        event_payload = {
+            "event": "sensor.reading.v1",
+            "occurred_at": datetime.utcnow().isoformat(),
+            "device_id": telemetry.device_id,
+            "field_id": field_id,
+            "soil_moisture_pct": telemetry.soil_moisture_pct,
+            "water_level_pct": telemetry.water_level_pct,
+            "rssi": telemetry.rssi,
+            "battery_v": telemetry.battery_v,
+        }
+        mqtt.publish_event("sensor.reading.v1", event_payload)
     
     @staticmethod
     def get_all_devices() -> DeviceListResponse:

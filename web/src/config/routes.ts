@@ -16,6 +16,7 @@ export const ROUTES = {
   // F1 - Irrigation
   IRRIGATION: {
     ROOT: '/irrigation',
+    TELEMETRY: '/irrigation/telemetry',
     MONITORING: '/irrigation/monitoring',
     HISTORY: '/irrigation/history',
     WATER_MANAGEMENT: '/irrigation/water-management',

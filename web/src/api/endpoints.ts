@@ -16,12 +16,12 @@ export const ENDPOINTS = {
     SCHEDULES: '/irrigation/schedules',
     EVENTS: '/irrigation/events',
     CONTROL: '/irrigation/control',
-    // IoT Telemetry endpoints
-    IOT_DEVICES: '/irrigation/iot/devices',
-    IOT_LATEST: (id: string) => `/irrigation/iot/devices/${id}/latest`,
-    IOT_RANGE: (id: string) => `/irrigation/iot/devices/${id}/range`,
-    IOT_CMD: (id: string) => `/irrigation/iot/devices/${id}/cmd`,
-    IOT_TELEMETRY: '/irrigation/iot/telemetry',
+    // IoT Telemetry endpoints (canonical)
+    IOT_DEVICES: '/iot/devices',
+    IOT_LATEST: (id: string) => `/iot/devices/${id}/latest`,
+    IOT_RANGE: (id: string) => `/iot/devices/${id}/range`,
+    IOT_CMD: (id: string) => `/iot/devices/${id}/cmd`,
+    IOT_TELEMETRY: '/iot/telemetry',
   },
 
   // F2 - Crop Health
@@ -35,21 +35,20 @@ export const ENDPOINTS = {
 
   // F3 - Forecasting
   FORECASTING: {
-    FORECASTS: '/forecasting/forecasts',
-    FORECAST_BY_METRIC: (metric: string) => `/forecasting/forecasts/${metric}`,
-    ALERTS: '/forecasting/alerts',
-    SIMULATION: '/forecasting/simulation',
-    RISK: '/forecasting/risk',
+    STATUS: '/forecast/status',
+    CURRENT: '/forecast/current-data',
+    FORECASTS: '/forecast/forecast',
+    RISK: '/forecast/risk-assessment',
+    WEATHER_SUMMARY: '/forecast/weather/summary',
   },
 
   // F4 - ACA-O
   ACAO: {
-    RECOMMENDATIONS: '/acao/recommendations',
-    FIELD_RECOMMENDATIONS: (id: string) => `/acao/recommendations/${id}`,
-    OPTIMIZE: '/acao/optimize',
-    SCENARIOS: '/acao/scenarios',
-    PLANB: '/acao/planb',
-    WATER_BUDGET: '/acao/water-budget',
-    SUPPLY: '/acao/supply',
+    RECOMMENDATIONS: '/optimization/recommendations',
+    FIELD_RECOMMENDATIONS: (id: string) => `/optimization/recommendations?field_id=${id}`,
+    OPTIMIZE: '/optimization/recommendations/optimize',
+    PLANB: '/optimization/planb',
+    WATER_BUDGET: '/optimization/supply/water-budget',
+    SUPPLY: '/optimization/supply',
   },
 };

@@ -15,14 +15,16 @@ Used by:
 
 import logging
 from typing import Optional, List, Dict, Any
+from datetime import datetime
 
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 from app.core.schemas import SupplyResponse, SupplySummaryItem
-from app.data.repositories import FieldRepository, CropRepository
+from app.data.repositories import CropRepository, RecommendationRepository
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 class SupplyService:
@@ -73,10 +75,19 @@ class SupplyService:
                 "Please ensure recommendation/planting data is populated in the database."
             )
         
+        observed_at = datetime.utcnow().isoformat()
+        data_available = bool(items)
         return SupplyResponse(
             season=season,
             scheme_id=scheme_id,
             items=items,
+            status="ok" if data_available else "data_unavailable",
+            source="optimization_service",
+            is_live=data_available,
+            observed_at=observed_at,
+            staleness_sec=0 if data_available else None,
+            quality="good" if data_available else "unavailable",
+            data_available=data_available,
         )
     
     def _get_aggregate_data(
@@ -91,49 +102,25 @@ class SupplyService:
         Queries the recommendations/planting records table to aggregate
         by crop. Returns empty list if no data available.
         """
-        logger.debug("Fetching aggregate supply data from database")
-        
+        logger.debug("Fetching aggregate supply data from recommendations table")
+
         try:
-            # TODO: Replace with actual query when recommendations table exists
-            # Example query structure:
-            #
-            # from app.data.models_orm import Recommendation, Field, Crop
-            # 
-            # query = db_session.query(
-            #     Recommendation.crop_id,
-            #     Crop.name.label('crop_name'),
-            #     func.sum(Recommendation.allocated_area_ha).label('total_area'),
-            #     func.sum(Recommendation.allocated_area_ha * Recommendation.expected_yield).label('total_production')
-            # ).join(
-            #     Field, Recommendation.field_id == Field.id
-            # ).join(
-            #     Crop, Recommendation.crop_id == Crop.id
-            # ).filter(
-            #     Recommendation.season == season
-            # )
-            # 
-            # if scheme_id:
-            #     query = query.filter(Field.scheme_id == scheme_id)
-            # 
-            # results = query.group_by(Recommendation.crop_id, Crop.name).all()
-            # 
-            # return [
-            #     SupplySummaryItem(
-            #         crop_id=r.crop_id,
-            #         crop_name=r.crop_name,
-            #         total_area_ha=float(r.total_area or 0),
-            #         total_expected_production_tonnes=float(r.total_production or 0),
-            #     )
-            #     for r in results
-            # ]
-            
-            # For now, return empty list indicating no data
-            logger.warning(
-                "Supply aggregation requires recommendations/planting data table. "
-                "Please implement the Recommendation model and populate data."
+            records = RecommendationRepository.aggregate_supply(
+                db_session=db_session,
+                season=season,
+                scheme_id=scheme_id,
             )
-            return []
-            
+            return [
+                SupplySummaryItem(
+                    crop_id=item["crop_id"],
+                    crop_name=item["crop_name"],
+                    total_area_ha=float(item["total_area_ha"]),
+                    total_expected_production_tonnes=float(
+                        item["total_expected_production_tonnes"]
+                    ),
+                )
+                for item in records
+            ]
         except Exception as e:
             logger.error(f"Database error fetching supply data: {e}")
             return []
@@ -175,6 +162,64 @@ class SupplyService:
             "comparison": None,
             "data_available": False,
             "message": "Detailed supply data requires populated recommendations/planting records.",
+        }
+
+    def get_water_budget(
+        self,
+        season: str,
+        scheme_id: Optional[str],
+        db_session: Session,
+    ) -> Dict[str, Any]:
+        """Aggregate crop-level water usage from generated recommendations."""
+        records = RecommendationRepository.list_latest_by_field(
+            db_session=db_session,
+            season=season,
+            scheme_id=scheme_id,
+        )
+
+        crops: Dict[str, Dict[str, Any]] = {}
+        total_usage = 0.0
+        default_quota: Optional[float] = None
+
+        for rec_record in records:
+            request_data = rec_record.get("request_data") or {}
+            scenario = request_data.get("scenario") or {}
+            quota = scenario.get("water_quota_mm")
+            if quota:
+                default_quota = float(quota)
+
+            top = ((rec_record.get("response_data") or {}).get("recommendations") or [])
+            if not top:
+                continue
+            crop = top[0]
+            crop_name = crop.get("crop_name") or crop.get("crop_id") or "Unknown"
+            usage = float(
+                (crop.get("expected_yield_t_per_ha") or 0.0) * 120
+            )
+            if crop_name not in crops:
+                crops[crop_name] = {"crop_name": crop_name, "water_usage": 0.0}
+            crops[crop_name]["water_usage"] += usage
+            total_usage += usage
+
+        return {
+            "crops": [
+                {
+                    "crop_name": value["crop_name"],
+                    "water_usage": round(value["water_usage"], 2),
+                    "waterUsed": round(value["water_usage"], 2),
+                }
+                for value in crops.values()
+            ],
+            "quota": round(default_quota, 2) if default_quota is not None else None,
+            "total_usage": round(total_usage, 2),
+            "totalWaterUsage": round(total_usage, 2),
+            "status": "ok" if default_quota is not None or total_usage > 0 else "data_unavailable",
+            "source": "optimization_service",
+            "is_live": bool(records),
+            "observed_at": datetime.utcnow().isoformat(),
+            "staleness_sec": 0 if records else None,
+            "quality": "good" if records else "unavailable",
+            "data_available": bool(records) and (default_quota is not None or not settings.is_strict_live_data),
         }
 
 

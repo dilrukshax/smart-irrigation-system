@@ -8,7 +8,7 @@ Defines the data models for:
 """
 
 from datetime import datetime
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Union
 from pydantic import BaseModel, Field, field_validator
 from dateutil import parser as date_parser
 
@@ -168,7 +168,7 @@ class DeviceCommand(BaseModel):
     type: Literal["set_interval_ms", "reboot", "calibrate", "update_firmware"] = Field(
         ..., description="Command type"
     )
-    value: Optional[int | str] = Field(None, description="Command value (if applicable)")
+    value: Optional[Union[int, str]] = Field(None, description="Command value (if applicable)")
     
     @field_validator("value")
     @classmethod

@@ -5,6 +5,7 @@ Manages application settings using Pydantic's BaseSettings.
 """
 
 from functools import lru_cache
+from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,6 +25,12 @@ class Settings(BaseSettings):
     
     # Logging
     log_level: str = "INFO"
+
+    # Runtime behavior
+    strict_live_data: Optional[bool] = None
+
+    # Local persistence for ingested observations
+    time_series_store_path: str = "/tmp/forecasting_timeseries_store.json"
     
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -31,6 +38,13 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @property
+    def is_strict_live_data(self) -> bool:
+        """Resolve strict mode with environment-aware default."""
+        if self.strict_live_data is not None:
+            return bool(self.strict_live_data)
+        return self.environment.lower() not in {"development", "dev", "local", "test"}
 
 
 @lru_cache()

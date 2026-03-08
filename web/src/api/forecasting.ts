@@ -1,6 +1,4 @@
-import axios from 'axios';
-
-const API_BASE_URL = import.meta.env.VITE_FORECASTING_SERVICE_URL || 'http://localhost:8003';
+import { apiClient } from './index';
 
 export interface ForecastPrediction {
   hour: number;
@@ -73,40 +71,40 @@ class ForecastingAPI {
   private baseUrl: string;
 
   constructor() {
-    this.baseUrl = API_BASE_URL;
+    this.baseUrl = '/forecast';
   }
 
   // Basic forecasting endpoints
   async getStatus() {
-    const response = await axios.get(`${this.baseUrl}/api/v1/status`);
+    const response = await apiClient.get(`${this.baseUrl}/status`);
     return response.data;
   }
 
   async getCurrentData() {
-    const response = await axios.get(`${this.baseUrl}/api/v1/current-data`);
+    const response = await apiClient.get(`${this.baseUrl}/current-data`);
     return response.data;
   }
 
   async getBasicForecast(hours: number = 24) {
-    const response = await axios.get(`${this.baseUrl}/api/v1/forecast`, {
+    const response = await apiClient.get(`${this.baseUrl}/forecast`, {
       params: { hours }
     });
     return response.data;
   }
 
   async getBasicRiskAssessment() {
-    const response = await axios.get(`${this.baseUrl}/api/v1/risk-assessment`);
+    const response = await apiClient.get(`${this.baseUrl}/risk-assessment`);
     return response.data;
   }
 
   // Advanced ML endpoints
   async getAdvancedStatus() {
-    const response = await axios.get(`${this.baseUrl}/api/v2/status`);
+    const response = await apiClient.get(`${this.baseUrl}/v2/status`);
     return response.data;
   }
 
   async trainModels(): Promise<TrainingStatus> {
-    const response = await axios.post(`${this.baseUrl}/api/v2/train`);
+    const response = await apiClient.post(`${this.baseUrl}/v2/train`);
     return response.data;
   }
 
@@ -115,77 +113,77 @@ class ForecastingAPI {
     model: string = 'best',
     uncertainty: boolean = true
   ): Promise<ForecastResponse> {
-    const response = await axios.get(`${this.baseUrl}/api/v2/forecast`, {
+    const response = await apiClient.get(`${this.baseUrl}/v2/forecast`, {
       params: { hours, model, uncertainty }
     });
     return response.data;
   }
 
   async getModelComparison(): Promise<ModelComparisonResponse> {
-    const response = await axios.get(`${this.baseUrl}/api/v2/model-comparison`);
+    const response = await apiClient.get(`${this.baseUrl}/v2/model-comparison`);
     return response.data;
   }
 
   async getAdvancedRiskAssessment(): Promise<RiskAssessment> {
-    const response = await axios.get(`${this.baseUrl}/api/v2/risk-assessment`);
+    const response = await apiClient.get(`${this.baseUrl}/v2/risk-assessment`);
     return response.data;
   }
 
   async getModelAnalysis(modelName: string) {
-    const response = await axios.get(`${this.baseUrl}/api/v2/model-analysis/${modelName}`);
+    const response = await apiClient.get(`${this.baseUrl}/v2/model-analysis/${modelName}`);
     return response.data;
   }
 
   async getFeatureImportance(model: string = 'rf') {
-    const response = await axios.get(`${this.baseUrl}/api/v2/feature-importance`, {
+    const response = await apiClient.get(`${this.baseUrl}/v2/feature-importance`, {
       params: { model }
     });
     return response.data;
   }
 
   async updateData() {
-    const response = await axios.post(`${this.baseUrl}/api/v2/update-data`);
+    const response = await apiClient.post(`${this.baseUrl}/v2/update-data`);
     return response.data;
   }
 
   // Weather API endpoints
   async getCurrentWeather() {
-    const response = await axios.get(`${this.baseUrl}/api/weather/current`);
+    const response = await apiClient.get(`${this.baseUrl}/weather/current`);
     return response.data;
   }
 
   async getWeatherForecast(days: number = 7) {
-    const response = await axios.get(`${this.baseUrl}/api/weather/forecast`, {
+    const response = await apiClient.get(`${this.baseUrl}/weather/forecast`, {
       params: { days }
     });
     return response.data;
   }
 
   async getHistoricalWeather(days: number = 30) {
-    const response = await axios.get(`${this.baseUrl}/api/weather/historical`, {
+    const response = await apiClient.get(`${this.baseUrl}/weather/historical`, {
       params: { days }
     });
     return response.data;
   }
 
   async getIrrigationRecommendation() {
-    const response = await axios.get(`${this.baseUrl}/api/weather/irrigation-recommendation`);
+    const response = await apiClient.get(`${this.baseUrl}/weather/irrigation-recommendation`);
     return response.data;
   }
 
   async getWeatherSummary() {
-    const response = await axios.get(`${this.baseUrl}/api/weather/summary`);
+    const response = await apiClient.get(`${this.baseUrl}/weather/summary`);
     return response.data;
   }
 
   // Analytics API endpoints
   async getAnalyticsStatus() {
-    const response = await axios.get(`${this.baseUrl}/api/v2/analytics/status`);
+    const response = await apiClient.get(`${this.baseUrl}/v2/analytics/status`);
     return response.data;
   }
 
   async trainArimaModel(data: number[], dataType: string = 'water_level', auto: boolean = true) {
-    const response = await axios.post(`${this.baseUrl}/api/v2/analytics/arima/train`, {
+    const response = await apiClient.post(`${this.baseUrl}/v2/analytics/arima/train`, {
       values: data,
       data_type: dataType,
       auto
@@ -194,7 +192,7 @@ class ForecastingAPI {
   }
 
   async getArimaForecast(dataType: string = 'water_level', steps: number = 24) {
-    const response = await axios.post(`${this.baseUrl}/api/v2/analytics/arima/forecast`, {
+    const response = await apiClient.post(`${this.baseUrl}/v2/analytics/arima/forecast`, {
       data_type: dataType,
       steps
     });
@@ -202,7 +200,7 @@ class ForecastingAPI {
   }
 
   async analyzeTimeSeries(data: number[], dataType: string = 'water_level') {
-    const response = await axios.post(`${this.baseUrl}/api/v2/analytics/arima/analyze`, {
+    const response = await apiClient.post(`${this.baseUrl}/v2/analytics/arima/analyze`, {
       values: data,
       data_type: dataType
     });
@@ -215,7 +213,7 @@ class ForecastingAPI {
     methods?: string[],
     sensitivity: number = 1.0
   ) {
-    const response = await axios.post(`${this.baseUrl}/api/v2/analytics/anomaly/detect`, {
+    const response = await apiClient.post(`${this.baseUrl}/v2/analytics/anomaly/detect`, {
       values: data,
       timestamps,
       methods,
@@ -225,17 +223,17 @@ class ForecastingAPI {
   }
 
   async getAnomalyDetectionMethods() {
-    const response = await axios.get(`${this.baseUrl}/api/v2/analytics/anomaly/methods`);
+    const response = await apiClient.get(`${this.baseUrl}/v2/analytics/anomaly/methods`);
     return response.data;
   }
 
   async getModelRankings() {
-    const response = await axios.get(`${this.baseUrl}/api/v2/analytics/ensemble/rankings`);
+    const response = await apiClient.get(`${this.baseUrl}/v2/analytics/ensemble/rankings`);
     return response.data;
   }
 
   async analyzeSeasonalPatterns(data: number[], dataType: string = 'water_level') {
-    const response = await axios.post(`${this.baseUrl}/api/v2/analytics/seasonal/analyze`, {
+    const response = await apiClient.post(`${this.baseUrl}/v2/analytics/seasonal/analyze`, {
       values: data,
       data_type: dataType
     });

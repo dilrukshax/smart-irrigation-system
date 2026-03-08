@@ -8,19 +8,27 @@ build:
     - image: auth-service
       context: .
       docker:
-        dockerfile: services/auth-service/Dockerfile
+        dockerfile: services/auth_service/Dockerfile
     - image: irrigation-service
       context: .
       docker:
-        dockerfile: services/irrigation-service/Dockerfile
+        dockerfile: services/irrigation_service/Dockerfile
     - image: forecasting-service
       context: .
       docker:
-        dockerfile: services/forecasting-service/Dockerfile
+        dockerfile: services/forecasting_service/Dockerfile
     - image: optimization-service
       context: .
       docker:
-        dockerfile: services/optimization-service/Dockerfile
+        dockerfile: services/optimize_service/Dockerfile
+    - image: iot-service
+      context: .
+      docker:
+        dockerfile: services/iot_service/Dockerfile
+    - image: crop-health-service
+      context: .
+      docker:
+        dockerfile: services/crop_health_and_water_stress_detection/Dockerfile
     - image: gateway
       context: .
       docker:

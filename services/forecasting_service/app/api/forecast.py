@@ -11,6 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core.config import settings
 from app.ml.forecasting_system import forecasting_system
 
 logger = logging.getLogger(__name__)
@@ -23,8 +24,14 @@ router = APIRouter(prefix="/api/v1", tags=["Forecast"])
 class CurrentDataResponse(BaseModel):
     """Current sensor data response."""
     status: str
-    current_data: dict
+    current_data: Optional[dict] = None
     data_points_total: int
+    source: str = "observed"
+    is_live: bool = True
+    observed_at: Optional[float] = None
+    staleness_sec: Optional[float] = None
+    quality: str = "good"
+    data_available: bool = True
 
 
 class ForecastPrediction(BaseModel):
@@ -41,6 +48,12 @@ class ForecastResponse(BaseModel):
     predictions: Optional[list] = None
     forecast_generated_at: Optional[float] = None
     message: Optional[str] = None
+    source: str = "observed"
+    is_live: bool = True
+    observed_at: Optional[float] = None
+    staleness_sec: Optional[float] = None
+    quality: str = "good"
+    data_available: bool = True
 
 
 class RiskAssessmentResponse(BaseModel):
@@ -53,6 +66,12 @@ class RiskAssessmentResponse(BaseModel):
     alerts: list
     assessment_time: Optional[float] = None
     status: Optional[str] = None
+    source: str = "observed"
+    is_live: bool = True
+    observed_at: Optional[float] = None
+    staleness_sec: Optional[float] = None
+    quality: str = "good"
+    data_available: bool = True
 
 
 class SensorDataSubmit(BaseModel):
@@ -61,6 +80,37 @@ class SensorDataSubmit(BaseModel):
     rainfall_mm: Optional[float] = Field(None, ge=0)
     gate_opening_percent: Optional[float] = Field(None, ge=0, le=100)
     timestamp: Optional[float] = None
+
+
+def _build_data_contract(observed_at: Optional[float], data_available: bool) -> dict:
+    now = time.time()
+    staleness = (now - float(observed_at)) if observed_at is not None else None
+    if not data_available:
+        return {
+            "source": "unavailable",
+            "is_live": False,
+            "observed_at": observed_at,
+            "staleness_sec": staleness,
+            "quality": "unknown",
+            "data_available": False,
+        }
+    if staleness is not None and staleness > 3600:
+        return {
+            "source": "observed",
+            "is_live": False,
+            "observed_at": observed_at,
+            "staleness_sec": staleness,
+            "quality": "stale",
+            "data_available": True,
+        }
+    return {
+        "source": "observed",
+        "is_live": True,
+        "observed_at": observed_at,
+        "staleness_sec": staleness,
+        "quality": "good",
+        "data_available": True,
+    }
 
 
 # ============ Routes ============
@@ -73,6 +123,7 @@ async def get_status():
         "status": "running",
         "data_points": forecasting_system.data_summary,
         "model_ready": forecasting_system.is_ready,
+        "strict_live_data": settings.is_strict_live_data,
         "timestamp": time.time(),
     }
 
@@ -90,18 +141,27 @@ async def get_current_data():
             detail="Forecasting system not initialized.",
         )
     
-    current_data = forecasting_system.simulate_current_data()
-    
+    current_data = forecasting_system.get_latest_observation()
+    if not current_data:
+        return CurrentDataResponse(
+            status="data_unavailable",
+            current_data=None,
+            data_points_total=len(forecasting_system.water_level_data),
+            **_build_data_contract(None, False),
+        )
+
     logger.info(
-        f"Current conditions - Water: {current_data['water_level_percent']}%, "
-        f"Rainfall: {current_data['rainfall_mm']}mm, "
-        f"Gates: {current_data['gate_opening_percent']}%"
+        "Current conditions - Water: %s%%, Rainfall: %smm, Gates: %s%%",
+        current_data.get("water_level_percent"),
+        current_data.get("rainfall_mm"),
+        current_data.get("gate_opening_percent"),
     )
-    
+
     return CurrentDataResponse(
-        status="success",
+        status="ok",
         current_data=current_data,
         data_points_total=len(forecasting_system.water_level_data),
+        **_build_data_contract(current_data.get("timestamp"), True),
     )
 
 
@@ -126,10 +186,23 @@ async def get_forecast(
     
     forecast = forecasting_system.forecast_water_level(hours)
     
-    if forecast["status"] == "success":
+    latest = forecasting_system.get_latest_observation()
+    contract = _build_data_contract(
+        latest.get("timestamp") if latest else None,
+        bool(latest),
+    )
+
+    if forecast["status"] in {"success", "ok"}:
         logger.info(f"Generated {hours}-hour forecast")
-    
-    return ForecastResponse(**forecast)
+
+    # Normalize statuses to platform contract.
+    status = forecast.get("status", "data_unavailable")
+    if status == "success":
+        status = "ok"
+    elif status == "insufficient_data":
+        status = "data_unavailable"
+
+    return ForecastResponse(**forecast, status=status, **contract)
 
 
 @router.get("/risk-assessment", response_model=RiskAssessmentResponse)
@@ -147,11 +220,22 @@ async def get_risk_assessment():
     
     risk_analysis = forecasting_system.analyze_flood_risk()
     
-    if "alerts" in risk_analysis and risk_analysis["alerts"]:
+    if "alerts" in risk_analysis and risk_analysis.get("alerts"):
         for alert in risk_analysis["alerts"]:
             logger.warning(f"ALERT: {alert}")
-    
-    return RiskAssessmentResponse(**risk_analysis)
+
+    latest = forecasting_system.get_latest_observation()
+    contract = _build_data_contract(
+        latest.get("timestamp") if latest else None,
+        bool(latest),
+    )
+    status = risk_analysis.get("status", "data_unavailable")
+    if status == "success":
+        status = "ok"
+    elif status == "insufficient_data":
+        status = "data_unavailable"
+
+    return RiskAssessmentResponse(**risk_analysis, status=status, **contract)
 
 
 @router.post("/submit-data")
@@ -162,29 +246,16 @@ async def submit_sensor_data(data: SensorDataSubmit):
     Allows external systems to submit sensor readings.
     """
     try:
-        ts = data.timestamp or time.time()
-        
-        if data.water_level_percent is not None:
-            forecasting_system.water_level_data.append({
-                "timestamp": ts,
-                "water_level_percent": data.water_level_percent,
-            })
-        
-        if data.rainfall_mm is not None:
-            forecasting_system.rainfall_data.append({
-                "timestamp": ts,
-                "rainfall_mm": data.rainfall_mm,
-            })
-        
-        if data.gate_opening_percent is not None:
-            forecasting_system.dam_gate_data.append({
-                "timestamp": ts,
-                "gate_opening_percent": data.gate_opening_percent,
-            })
-        
+        point = forecasting_system.add_observation(
+            water_level_percent=data.water_level_percent,
+            rainfall_mm=data.rainfall_mm,
+            gate_opening_percent=data.gate_opening_percent,
+            timestamp=data.timestamp,
+        )
         return {
-            "status": "success",
+            "status": "ok",
             "message": "Data recorded successfully",
+            **_build_data_contract(point.get("timestamp"), True),
         }
     
     except Exception as e:

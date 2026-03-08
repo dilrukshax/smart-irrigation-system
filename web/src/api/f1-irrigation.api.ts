@@ -96,7 +96,7 @@ export const waterManagementApi = {
   getStatus: () =>
     apiClient.get<WaterManagementStatus>(ENDPOINTS.WATER_MGMT.STATUS),
 
-  // Get current reservoir data (simulated or from IoT)
+  // Get current reservoir data (live ingest-first)
   getCurrentReservoirData: () =>
     apiClient.get<ReservoirData>(ENDPOINTS.WATER_MGMT.RESERVOIR_CURRENT),
 
@@ -185,7 +185,7 @@ export const cropFieldsApi = {
     ),
 
   // Get field status (current sensor data + valve state)
-  getFieldStatus: (fieldId: string, useSimulated: boolean = true) =>
+  getFieldStatus: (fieldId: string, useSimulated: boolean = false) =>
     apiClient.get<CropFieldStatus>(ENDPOINTS.CROP_FIELDS.FIELD_STATUS(fieldId), {
       params: { use_simulated: useSimulated },
     }),
@@ -198,7 +198,7 @@ export const cropFieldsApi = {
     ),
 
   // Get auto control decision
-  getAutoDecision: (fieldId: string, useSimulated: boolean = true) =>
+  getAutoDecision: (fieldId: string, useSimulated: boolean = false) =>
     apiClient.get<AutoControlDecision>(
       ENDPOINTS.CROP_FIELDS.FIELD_AUTO_DECISION(fieldId),
       { params: { use_simulated: useSimulated } }

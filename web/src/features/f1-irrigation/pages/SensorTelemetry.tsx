@@ -474,8 +474,8 @@ export default function SensorTelemetry() {
                     <XAxis dataKey="time" />
                     <YAxis domain={[0, 100]} unit="%" />
                     <RechartsTooltip
-                      formatter={(value: number, name: string) => [
-                        `${value.toFixed(1)}%`,
+                      formatter={(value: number | string | undefined, name: string | undefined) => [
+                        `${typeof value === 'number' ? value.toFixed(1) : Number(value || 0).toFixed(1)}%`,
                         name === 'soilMoisture' ? 'Soil Moisture' : 'Water Level'
                       ]}
                       labelFormatter={(label) => `Time: ${label}`}

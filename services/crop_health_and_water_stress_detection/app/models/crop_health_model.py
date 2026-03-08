@@ -186,6 +186,10 @@ class CropHealthModel:
             health_info = self._get_health_status(class_label, confidence)
             
         else:
+            if settings.is_strict_live_data:
+                raise RuntimeError(
+                    "Strict live-data mode is enabled and crop-health model is unavailable."
+                )
             # Fallback: Use image analysis heuristics
             logger.warning("Model not loaded, using fallback prediction")
             class_label, confidence, health_info = self._fallback_prediction(img)

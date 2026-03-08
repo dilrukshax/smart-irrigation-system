@@ -18,6 +18,7 @@ import { ProtectedRoute, AdminRoute, PublicRoute } from '@components/auth/Protec
 import IrrigationDashboard from '@features/f1-irrigation/pages/IrrigationDashboard';
 import WaterManagementDashboard from '@features/f1-irrigation/pages/WaterManagementDashboard';
 import CropFieldDashboard from '@features/f1-irrigation/pages/CropFieldDashboard';
+import SensorTelemetry from '@features/f1-irrigation/pages/SensorTelemetry';
 
 // Feature Pages - F2 Crop Health
 import CropHealthDashboard from '@features/f2-crop-health/pages/CropHealthDashboard';
@@ -50,6 +51,7 @@ function App() {
 
           {/* F1 - Irrigation Routes */}
           <Route path="/irrigation" element={<IrrigationDashboard />} />
+          <Route path="/irrigation/telemetry" element={<SensorTelemetry />} />
           <Route path="/irrigation/water-management" element={<WaterManagementDashboard />} />
           <Route path="/irrigation/crop-fields" element={<CropFieldDashboard />} />
 

@@ -14,12 +14,14 @@ import logging
 from typing import Dict, Any, List, Optional, Tuple
 import numpy as np
 
+from app.core.config import get_settings
 from app.ml.yield_model import get_yield_model
 from app.ml.price_model import get_price_model
 from app.ml.crop_recommendation_model import get_crop_recommendation_model
 from app.ml.suitability_fuzzy_topsis import compute_fuzzy_topsis_scores
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 def generate_crop_recommendations(
@@ -186,13 +188,13 @@ def predict_yield_for_candidates(
     """
     logger.info(f"Predicting yields for {len(features_per_crop)} crops in {field_id}")
 
+    strict_live_data = settings.is_strict_live_data
     model = get_yield_model()
     predictions: Dict[str, Optional[float]] = {}
 
     if not model.model_loaded:
-        logger.error("Yield model not loaded. Using default fallback.")
-        # Fallback to reasonable defaults
-        return {crop_id: 4.5 for crop_id in features_per_crop.keys()}
+        logger.error("Yield model not loaded. Returning unavailable predictions.")
+        return {crop_id: None for crop_id in features_per_crop.keys()}
 
     for crop_id, features in features_per_crop.items():
         try:
@@ -204,7 +206,7 @@ def predict_yield_for_candidates(
             predictions[crop_id] = yield_pred
         except Exception as e:
             logger.error(f"Yield prediction failed for {crop_id}: {e}")
-            predictions[crop_id] = 4.5  # Default fallback
+            predictions[crop_id] = None if strict_live_data else 4.5
 
     return predictions
 
@@ -227,13 +229,13 @@ def predict_price_for_candidates_enhanced(
     """
     logger.info(f"Predicting prices for {len(crop_names)} crops")
 
+    strict_live_data = settings.is_strict_live_data
     model = get_price_model()
     predictions: Dict[str, Optional[float]] = {}
 
     if not model.model_loaded:
-        logger.error("Price model not loaded. Using default fallback prices.")
-        # Fallback to reasonable defaults (Rs/kg)
-        return {crop_id: 50.0 for crop_id in crop_names.keys()}
+        logger.error("Price model not loaded. Returning unavailable predictions.")
+        return {crop_id: None for crop_id in crop_names.keys()}
 
     # Extract location from field features
     location = field_features.get('location', 'Kandy')
@@ -254,7 +256,7 @@ def predict_price_for_candidates_enhanced(
             predictions[crop_id] = price
         except Exception as e:
             logger.error(f"Price prediction failed for {crop_id}: {e}")
-            predictions[crop_id] = 50.0  # Default fallback
+            predictions[crop_id] = None if strict_live_data else 50.0
 
     return predictions
 
@@ -446,10 +448,11 @@ def predict_price_for_candidates(
         Dictionary mapping crop_id to predicted price
     """
     model = get_price_model()
+    strict_live_data = settings.is_strict_live_data
 
     if not model.model_loaded:
         logger.error("Price model not loaded")
-        return {crop_id: 50.0 for crop_id in crop_ids}
+        return {crop_id: None for crop_id in crop_ids}
 
     predictions = {}
     for crop_id in crop_ids:
@@ -458,6 +461,6 @@ def predict_price_for_candidates(
             predictions[crop_id] = price
         except Exception as e:
             logger.error(f"Price prediction failed for {crop_id}: {e}")
-            predictions[crop_id] = 50.0
+            predictions[crop_id] = None if strict_live_data else 50.0
 
     return predictions

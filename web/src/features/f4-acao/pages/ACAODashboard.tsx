@@ -22,6 +22,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ROUTES } from '@config/routes';
 import { acaoApi } from '../../../api/f4-acao.api';
+import { getFreshnessView } from '../../../utils/dataFreshness';
 import {
   BarChart,
   Bar,
@@ -34,13 +35,9 @@ import {
   ScatterChart,
   Scatter,
   ResponsiveContainer,
-  LineChart,
-  Line,
   PieChart,
   Pie,
-  Cell,
-  AreaChart,
-  Area
+  Cell
 } from 'recharts';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import AgricultureIcon from '@mui/icons-material/Agriculture';
@@ -108,18 +105,6 @@ function prepareCropDistribution(fields: any[]) {
   }));
 }
 
-// Prepare historical price trend (demo data - replace with real API)
-function prepareHistoricalPrices() {
-  return [
-    { month: 'Jan', paddy: 38, tomato: 75, onion: 55, chili: 115 },
-    { month: 'Feb', paddy: 40, tomato: 80, onion: 60, chili: 120 },
-    { month: 'Mar', paddy: 39, tomato: 72, onion: 58, chili: 110 },
-    { month: 'Apr', paddy: 41, tomato: 85, onion: 62, chili: 125 },
-    { month: 'May', paddy: 42, tomato: 78, onion: 59, chili: 118 },
-    { month: 'Jun', paddy: 40, tomato: 82, onion: 65, chili: 122 },
-  ];
-}
-
 // Prepare yield comparison data
 function prepareYieldComparison(fields: any[]) {
   const yieldData: any[] = [];
@@ -130,7 +115,7 @@ function prepareYieldComparison(fields: any[]) {
       yieldData.push({
         field: field.field_name || field.fieldName,
         predicted: topRec.expected_yield_t_per_ha || topRec.yield_t_ha || 0,
-        historical: (topRec.expected_yield_t_per_ha || topRec.yield_t_ha || 0) * 0.85, // Mock historical
+        historical: topRec.historical_yield_t_per_ha || null,
       });
     }
   });
@@ -158,6 +143,7 @@ export default function ACAODashboard() {
   });
 
   const isLoading = loadingRecommendations || loadingWaterBudget || loadingSupply;
+  const optimizationFreshness = getFreshnessView(recommendationsData);
 
   // Calculate summary stats from real data
   // Handle nested data structure from API response
@@ -198,8 +184,13 @@ export default function ACAODashboard() {
 
   const profitRiskData = prepareProfitRiskData(fields);
   const cropDistribution = prepareCropDistribution(fields);
-  const historicalPrices = prepareHistoricalPrices();
   const yieldComparison = prepareYieldComparison(fields);
+  const supplyItems = Array.isArray(supplyData?.items) ? supplyData.items : [];
+  const supplyChartData = supplyItems.slice(0, 8).map((item: any) => ({
+    crop: item.crop_name,
+    production: Number(item.total_expected_production_tonnes || 0),
+    area: Number(item.total_area_ha || 0),
+  }));
 
   return (
     <Box>
@@ -212,7 +203,7 @@ export default function ACAODashboard() {
             Real-time insights powered by 4 ML models: Random Forest, LightGBM, Fuzzy-TOPSIS, Rule-based Heuristic
           </Typography>
         </Box>
-        <Chip label="Live Data" color="success" icon={<AssessmentIcon />} />
+        <Chip label={optimizationFreshness.label} color={optimizationFreshness.color} icon={<AssessmentIcon />} />
       </Box>
 
       {/* Summary Cards */}
@@ -356,30 +347,30 @@ export default function ACAODashboard() {
         <Grid item xs={12} md={6}>
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
-              Market Price Trends (6 Months)
+              Live Supply Snapshot
             </Typography>
             <Typography variant="body2" color="text.secondary" gutterBottom>
-              Historical price data for major crops (Rs/kg) - LightGBM 24-feature prediction
+              Aggregated production and planted area from latest recommendation outputs
             </Typography>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={historicalPrices} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis label={{ value: 'Price (Rs/kg)', angle: -90, position: 'insideLeft' }} />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="paddy" stroke="#8884d8" strokeWidth={2} name="Paddy" />
-                <Line type="monotone" dataKey="tomato" stroke="#82ca9d" strokeWidth={2} name="Tomato" />
-                <Line type="monotone" dataKey="onion" stroke="#ffc658" strokeWidth={2} name="Onion" />
-                <Line type="monotone" dataKey="chili" stroke="#ff8042" strokeWidth={2} name="Chili" />
-              </LineChart>
-            </ResponsiveContainer>
-            <Box sx={{ mt: 2, p: 1.5, bgcolor: 'info.light', borderRadius: 1 }}>
-              <Typography variant="caption" color="info.contrastText">
-                <strong>ML Features:</strong> Location encoding, temporal (month/season), weather (temp, rain, radiation),
-                GDD calculation, water stress index, price history (lags, moving averages)
-              </Typography>
-            </Box>
+            {loadingSupply ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            ) : supplyChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={supplyChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="crop" angle={-30} textAnchor="end" height={80} />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="production" fill="#8884d8" name="Production (t)" />
+                  <Bar dataKey="area" fill="#82ca9d" name="Area (ha)" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <Alert severity="info">No live supply data available.</Alert>
+            )}
           </Paper>
         </Grid>
 
@@ -406,12 +397,6 @@ export default function ACAODashboard() {
             ) : (
               <Alert severity="info">No yield data available</Alert>
             )}
-            <Box sx={{ mt: 2, p: 1.5, bgcolor: 'success.light', borderRadius: 1 }}>
-              <Typography variant="caption" color="success.contrastText">
-                <strong>Yield Model:</strong> Rule-based heuristic using soil factors (pH, EC, suitability),
-                water coverage, climate conditions, and crop growth duration
-              </Typography>
-            </Box>
           </Paper>
         </Grid>
       </Grid>
@@ -440,15 +425,42 @@ export default function ACAODashboard() {
                     <Tooltip />
                     <Legend />
                     <Bar dataKey="waterUsed" fill="#8884d8" name="Water Required (mm)" />
-                    <ReferenceLine y={waterBudgetData.data.quota || 3000} stroke="red" label="Available Quota" strokeDasharray="3 3" strokeWidth={2} />
+                    {waterBudgetData.data.quota !== null && waterBudgetData.data.quota !== undefined && (
+                      <ReferenceLine
+                        y={waterBudgetData.data.quota}
+                        stroke="red"
+                        label="Available Quota"
+                        strokeDasharray="3 3"
+                        strokeWidth={2}
+                      />
+                    )}
                   </BarChart>
                 </ResponsiveContainer>
                 <Box sx={{ display: 'flex', gap: 2, mt: 2, flexWrap: 'wrap' }}>
-                  <Chip label={`Total Quota: ${waterBudgetData.data.quota || 3000} mm`} color="primary" />
+                  <Chip
+                    label={
+                      waterBudgetData.data.quota !== null && waterBudgetData.data.quota !== undefined
+                        ? `Total Quota: ${waterBudgetData.data.quota} mm`
+                        : 'Total Quota: Unavailable'
+                    }
+                    color={
+                      waterBudgetData.data.quota !== null && waterBudgetData.data.quota !== undefined
+                        ? 'primary'
+                        : 'default'
+                    }
+                  />
                   <Chip label={`Used: ${waterBudgetData.data.total_usage || 0} mm`} color="info" />
                   <Chip
-                    label={`Available: ${(waterBudgetData.data.quota || 3000) - (waterBudgetData.data.total_usage || 0)} mm`}
-                    color="success"
+                    label={
+                      waterBudgetData.data.quota !== null && waterBudgetData.data.quota !== undefined
+                        ? `Available: ${waterBudgetData.data.quota - (waterBudgetData.data.total_usage || 0)} mm`
+                        : 'Available: Unavailable'
+                    }
+                    color={
+                      waterBudgetData.data.quota !== null && waterBudgetData.data.quota !== undefined
+                        ? 'success'
+                        : 'default'
+                    }
                   />
                 </Box>
               </>

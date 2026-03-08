@@ -63,10 +63,18 @@ class Settings(BaseSettings):
     # External service URLs (other microservices in the system)
     irrigation_service_url: str = "http://localhost:8002"
     forecasting_service_url: str = "http://localhost:8003"
+    crop_health_service_url: str = "http://localhost:8007"
     sediment_service_url: str = "http://localhost:8003"
+
+    # Event broker
+    mqtt_broker: str = "mosquitto"
+    mqtt_port: int = 1883
     
     # Logging
     log_level: str = "INFO"
+
+    # Runtime behavior
+    strict_live_data: Optional[bool] = None
     
     # Model configuration - tells Pydantic where to load settings from
     model_config = SettingsConfigDict(
@@ -75,6 +83,13 @@ class Settings(BaseSettings):
         case_sensitive=False,       # Environment variables are case-insensitive
         extra="ignore",             # Ignore extra fields in .env
     )
+
+    @property
+    def is_strict_live_data(self) -> bool:
+        """Resolve strict mode with environment-aware default."""
+        if self.strict_live_data is not None:
+            return bool(self.strict_live_data)
+        return self.app_env.lower() not in {"development", "dev", "local", "test"}
     
     @property
     def database_url(self) -> str:

@@ -5,6 +5,7 @@ Unit tests for IoT service business logic.
 import pytest
 from datetime import datetime
 from unittest.mock import Mock, patch
+from requests.models import Response
 
 from app.iot.service import IoTService
 from app.iot.schemas import TelemetryPayload, DeviceCommand
@@ -92,6 +93,46 @@ class TestProcessTelemetry:
         result = IoTService.process_telemetry(payload)
         
         assert result is None
+
+    @patch('app.iot.service.get_mqtt_client')
+    @patch('app.iot.service.requests.post')
+    @patch.object(IoTService, '_resolve_field_id')
+    @patch('app.iot.service.influx_repo')
+    def test_process_telemetry_bridges_to_irrigation(
+        self,
+        mock_influx_repo,
+        mock_resolve_field_id,
+        mock_post,
+        mock_get_mqtt,
+    ):
+        """Stored telemetry should be bridged to F1 and emit sensor.reading.v1."""
+        mock_influx_repo.write_point.return_value = True
+        mock_resolve_field_id.return_value = "field-rice-01"
+
+        post_response = Mock(spec=Response)
+        post_response.status_code = 200
+        mock_post.return_value = post_response
+
+        mock_mqtt = Mock()
+        mock_mqtt.is_connected = True
+        mock_get_mqtt.return_value = mock_mqtt
+
+        payload = TelemetryPayload(
+            device_id="esp32-rice-01",
+            ts=datetime.utcnow(),
+            soil_ao=2400,
+            water_ao=1400,
+        )
+
+        result = IoTService.process_telemetry(payload)
+
+        assert result is not None
+        mock_resolve_field_id.assert_called_once_with("esp32-rice-01")
+        mock_post.assert_called_once()
+        args, kwargs = mock_post.call_args
+        assert "/api/v1/crop-fields/fields/field-rice-01/sensor-data" in args[0]
+        assert kwargs["json"]["device_id"] == "esp32-rice-01"
+        mock_mqtt.publish_event.assert_called_once()
 
 
 class TestSendCommand:

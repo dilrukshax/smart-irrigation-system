@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     mqtt_keepalive: int = 60
     mqtt_reconnect_delay: int = 5
     mqtt_max_reconnect_delay: int = 120
+
+    # Cross-service integration
+    irrigation_service_url: str = "http://irrigation_service:8002"
+    device_field_map: Optional[str] = None
     
     # Device Authentication (comma-separated or JSON map)
     # Format: "device1:apikey1,device2:apikey2" or '{"device1":"apikey1","device2":"apikey2"}'
@@ -87,6 +91,29 @@ class Settings(BaseSettings):
                 result[device_id.strip()] = api_key.strip()
         
         return result
+
+    def get_device_field_map(self) -> dict[str, str]:
+        """Parse device-to-field mapping from env configuration."""
+        if not self.device_field_map:
+            return {}
+
+        import json
+
+        try:
+            parsed = json.loads(self.device_field_map)
+            if isinstance(parsed, dict):
+                return {str(k): str(v) for k, v in parsed.items()}
+        except json.JSONDecodeError:
+            pass
+
+        mapping: dict[str, str] = {}
+        for pair in self.device_field_map.split(","):
+            pair = pair.strip()
+            if ":" not in pair:
+                continue
+            device_id, field_id = pair.split(":", 1)
+            mapping[device_id.strip()] = field_id.strip()
+        return mapping
 
 
 @lru_cache()

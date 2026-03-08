@@ -24,10 +24,11 @@ logger = logging.getLogger(__name__)
 # Service URLs - Local Development
 SERVICES = {
     "auth": "http://127.0.0.1:8001",
-    "crop_health": "http://127.0.0.1:8002",
+    "irrigation": "http://127.0.0.1:8002",
     "forecasting": "http://127.0.0.1:8003",
     "optimization": "http://127.0.0.1:8004",
     "iot": "http://127.0.0.1:8006",
+    "crop_health": "http://127.0.0.1:8007",
 }
 
 # API Tags for categorization in docs
@@ -79,7 +80,7 @@ This API Gateway routes requests to the appropriate microservices.
 | Service | Port | Description |
 |---------|------|-------------|
 | **Auth** | 8001 | Authentication & Authorization |
-| **Crop Health (F2)** | 8002 | Satellite analysis & Image prediction |
+| **Crop Health (F2)** | 8007 | Satellite analysis & Image prediction |
 | **Forecasting (F3)** | 8003 | Weather & Resource predictions |
 | **Optimization (F4)** | 8004 | AI recommendations & Planning |
 
@@ -376,20 +377,33 @@ async def forecast_health(request: Request):
 @app.get("/api/v1/forecast/weather", tags=["Forecasting Service (F3)"], summary="Get Weather Forecast")
 async def forecast_weather(request: Request):
     """Get weather forecast data."""
-    return await proxy_request(SERVICES["forecasting"], "/api/v1/weather", request)
+    return await proxy_request(SERVICES["forecasting"], "/api/weather/forecast", request)
 
 
 @app.get("/api/v1/forecast/predictions", tags=["Forecasting Service (F3)"], summary="Get Predictions")
 async def forecast_predictions(request: Request):
     """Get resource usage predictions."""
-    return await proxy_request(SERVICES["forecasting"], "/api/v1/predictions", request)
+    return await proxy_request(SERVICES["forecasting"], "/api/v1/forecast", request)
+
+
+def _map_forecast_path(path: str) -> str:
+    """Map canonical gateway forecast path to forecasting service routes."""
+    if path.startswith("weather/"):
+        return f"/api/weather/{path[len('weather/'):]}"
+    if path == "weather":
+        return "/api/weather/forecast"
+    if path.startswith("v2/"):
+        return f"/api/v2/{path[len('v2/'):]}"
+    if path == "v2":
+        return "/api/v2/status"
+    return f"/api/v1/{path}"
 
 
 @app.api_route("/api/v1/forecast/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"], 
                tags=["Forecasting Service (F3)"], summary="Forecasting Service Proxy", include_in_schema=False)
 async def forecasting_proxy(path: str, request: Request):
-    """Proxy to Forecasting Service - maps /api/v1/forecast/* -> /api/v1/*"""
-    return await proxy_request(SERVICES["forecasting"], f"/api/v1/{path}", request)
+    """Proxy to Forecasting Service for /api/v1, /api/v2 and /api/weather APIs."""
+    return await proxy_request(SERVICES["forecasting"], _map_forecast_path(path), request)
 
 
 # =================== Optimization Service Routes (ACA-O) ===================

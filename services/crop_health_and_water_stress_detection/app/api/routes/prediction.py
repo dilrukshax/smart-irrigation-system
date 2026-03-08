@@ -14,10 +14,25 @@ import uuid
 
 from app.schemas.prediction import ImagePredictionResponse
 from app.models.crop_health_model import get_model
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/crop-health", tags=["Image Prediction"])
+
+
+def _strict_model_unavailable_detail() -> dict:
+    now = datetime.utcnow()
+    return {
+        "status": "source_unavailable",
+        "message": "Strict live-data mode is enabled and crop-health model is unavailable.",
+        "source": "crop_health_model",
+        "is_live": False,
+        "observed_at": now.isoformat(),
+        "staleness_sec": None,
+        "quality": "unavailable",
+        "data_available": False,
+    }
 
 
 @router.post(
@@ -71,6 +86,11 @@ async def predict_image(
         
         # Get model and run prediction
         model = get_model()
+        if settings.is_strict_live_data and not model.loaded:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=_strict_model_unavailable_detail(),
+            )
         result = model.predict(img)
         
         # Create response
@@ -140,6 +160,11 @@ async def predict_from_url(
         
         # Get model and run prediction
         model = get_model()
+        if settings.is_strict_live_data and not model.loaded:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=_strict_model_unavailable_detail(),
+            )
         result = model.predict(img)
         
         return ImagePredictionResponse(
@@ -178,7 +203,9 @@ async def get_model_status():
         "model_path": model.model_path,
         "image_size": model.img_size,
         "num_classes": len(model.class_labels),
-        "status": "ready" if model.loaded else "fallback_mode"
+        "status": "ready" if model.loaded else "source_unavailable",
+        "strict_live_data": settings.is_strict_live_data,
+        "data_available": bool(model.loaded),
     }
 
 

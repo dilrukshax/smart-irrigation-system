@@ -6,6 +6,7 @@ interface ImportMetaEnv {
   readonly VITE_F2_SERVICE_URL: string;
   readonly VITE_F3_SERVICE_URL: string;
   readonly VITE_F4_SERVICE_URL: string;
+  readonly VITE_F4_DEMO_FALLBACK: string;
   readonly VITE_MAP_TILE_URL: string;
   readonly VITE_DEFAULT_MAP_CENTER: string;
   readonly VITE_DEFAULT_MAP_ZOOM: string;

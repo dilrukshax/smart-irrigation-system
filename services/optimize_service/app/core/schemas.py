@@ -455,6 +455,17 @@ class RecommendationResponse(BaseModel):
         ...,
         description="List of recommended crops, sorted by suitability",
     )
+    status: str = Field(
+        default="ok",
+        description="ok|stale|data_unavailable|analysis_pending|source_unavailable",
+    )
+    source: str = Field(default="optimization_service", description="Primary data source identifier")
+    is_live: bool = Field(default=True, description="Whether payload was produced from live observed inputs")
+    observed_at: Optional[str] = Field(default=None, description="ISO timestamp when payload context was observed")
+    staleness_sec: Optional[int] = Field(default=None, description="Estimated staleness in seconds")
+    quality: str = Field(default="good", description="Data quality label")
+    data_available: bool = Field(default=True, description="Whether recommendation data is available")
+    message: Optional[str] = Field(default=None, description="Human-readable status detail")
 
 
 # =============================================================================
@@ -568,3 +579,13 @@ class SupplyResponse(BaseModel):
         ...,
         description="Supply statistics per crop",
     )
+    status: str = Field(
+        default="ok",
+        description="ok|stale|data_unavailable|analysis_pending|source_unavailable",
+    )
+    source: str = Field(default="optimization_service", description="Primary data source identifier")
+    is_live: bool = Field(default=True, description="Whether payload was produced from live observed inputs")
+    observed_at: Optional[str] = Field(default=None, description="ISO timestamp when payload context was observed")
+    staleness_sec: Optional[int] = Field(default=None, description="Estimated staleness in seconds")
+    quality: str = Field(default="good", description="Data quality label")
+    data_available: bool = Field(default=True, description="Whether supply data is available")

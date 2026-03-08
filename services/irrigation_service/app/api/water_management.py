@@ -10,6 +10,8 @@ Provides endpoints for:
 
 import logging
 import time
+import json
+import os
 from datetime import datetime
 from typing import Optional, List
 
@@ -17,6 +19,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.ml.water_management_model import water_management_model
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +62,13 @@ class PredictionResponse(BaseModel):
     predicted_release_mcm: float
     confidence: float
     model_used: str
+    status: str = "ok"
+    source: str = "observed"
+    is_live: bool = True
+    observed_at: Optional[str] = None
+    staleness_sec: Optional[float] = None
+    quality: str = "good"
+    data_available: bool = True
 
 
 class DecisionResponse(BaseModel):
@@ -67,6 +77,13 @@ class DecisionResponse(BaseModel):
     valve_position: int
     reason: str
     priority: str
+    status: str = "ok"
+    source: str = "observed"
+    is_live: bool = True
+    observed_at: Optional[str] = None
+    staleness_sec: Optional[float] = None
+    quality: str = "good"
+    data_available: bool = True
 
 
 class ReservoirStatusResponse(BaseModel):
@@ -86,6 +103,13 @@ class RecommendationResponse(BaseModel):
     decision: DecisionResponse
     reservoir_status: ReservoirStatusResponse
     input_data: dict
+    status: str = "ok"
+    source: str = "observed"
+    is_live: bool = True
+    observed_at: Optional[str] = None
+    staleness_sec: Optional[float] = None
+    quality: str = "good"
+    data_available: bool = True
 
 
 class ThresholdConfig(BaseModel):
@@ -165,6 +189,108 @@ _current_state = {
 }
 
 
+def _safe_datetime_parse(ts: Optional[str]) -> Optional[datetime]:
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+def _build_data_contract(
+    *,
+    source: str,
+    observed_at: Optional[str],
+    data_available: bool,
+    stale_after_sec: int = 600,
+) -> dict:
+    now = datetime.utcnow()
+    observed_dt = _safe_datetime_parse(observed_at)
+    staleness = (now - observed_dt).total_seconds() if observed_dt else None
+
+    if not data_available:
+        status = "data_unavailable"
+        quality = "unknown"
+        is_live = False
+    elif source == "simulated":
+        status = "stale"
+        quality = "unknown"
+        is_live = False
+    elif staleness is not None and staleness > stale_after_sec:
+        status = "stale"
+        quality = "stale"
+        is_live = False
+    else:
+        status = "ok"
+        quality = "good"
+        is_live = True
+
+    return {
+        "status": status,
+        "source": source,
+        "is_live": is_live,
+        "observed_at": observed_at,
+        "staleness_sec": round(float(staleness), 2) if staleness is not None else None,
+        "quality": quality,
+        "data_available": data_available,
+    }
+
+
+def _persist_state() -> None:
+    path = settings.water_management_state_path
+    try:
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(_current_state, fh)
+    except Exception as exc:
+        logger.warning("Failed to persist water-management state: %s", exc)
+
+
+def _load_state() -> None:
+    path = settings.water_management_state_path
+    if not path or not os.path.exists(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        _current_state.update(payload or {})
+    except Exception as exc:
+        logger.warning("Failed to load water-management state: %s", exc)
+
+
+def _persist_reservoir_snapshot(data: dict) -> None:
+    path = settings.reservoir_snapshot_path
+    payload = dict(data)
+    payload["observed_at"] = payload.get("timestamp") or datetime.utcnow().isoformat()
+    try:
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh)
+    except Exception as exc:
+        logger.warning("Failed to persist reservoir snapshot: %s", exc)
+
+
+def _load_reservoir_snapshot() -> Optional[dict]:
+    path = settings.reservoir_snapshot_path
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        return payload
+    except Exception as exc:
+        logger.warning("Failed to load reservoir snapshot: %s", exc)
+        return None
+
+
+_load_state()
+
+
 # ============ Routes ============
 
 @router.get("/status")
@@ -176,7 +302,8 @@ async def get_water_management_status():
         "model_ready": water_management_model.is_ready,
         "model_type": "HistGradientBoostingRegressor",
         "timestamp": datetime.now().isoformat(),
-        "manual_override_active": _current_state["manual_override_active"]
+        "manual_override_active": _current_state["manual_override_active"],
+        "strict_live_data": settings.is_strict_live_data,
     }
 
 
@@ -188,10 +315,51 @@ async def get_current_reservoir_data():
     Returns simulated data for demonstration.
     In production, integrates with IoT sensors.
     """
+    snapshot = _load_reservoir_snapshot()
+    if snapshot:
+        observed_at = snapshot.get("observed_at") or snapshot.get("timestamp")
+        contract = _build_data_contract(
+            source="reservoir_ingest",
+            observed_at=observed_at,
+            data_available=True,
+        )
+        snapshot.update(contract)
+        return snapshot
+
+    if settings.is_strict_live_data:
+        contract = _build_data_contract(
+            source="unavailable",
+            observed_at=None,
+            data_available=False,
+        )
+        return {"message": "No live reservoir snapshot available", **contract}
+
     data = get_simulated_reservoir_data()
-    data["timestamp"] = datetime.now().isoformat()
-    data["source"] = "simulated"  # Change to "iot_sensors" in production
-    return data
+    now = datetime.utcnow().isoformat()
+    contract = _build_data_contract(
+        source="simulated",
+        observed_at=now,
+        data_available=True,
+    )
+    return {
+        **data,
+        "timestamp": now,
+        **contract,
+    }
+
+
+@router.post("/reservoir/ingest")
+async def ingest_reservoir_data(data: ReservoirData):
+    """Persist latest observed reservoir snapshot for live recommendation flow."""
+    payload = data.model_dump()
+    payload["timestamp"] = datetime.utcnow().isoformat()
+    _persist_reservoir_snapshot(payload)
+    contract = _build_data_contract(
+        source="reservoir_ingest",
+        observed_at=payload["timestamp"],
+        data_available=True,
+    )
+    return {"status": "ok", "message": "Reservoir snapshot ingested", **contract}
 
 
 @router.post("/predict", response_model=PredictionResponse)
@@ -213,8 +381,14 @@ async def predict_water_release(data: ReservoirData):
     )
     
     _current_state["last_prediction"] = prediction
+    _persist_state()
     
-    return PredictionResponse(**prediction)
+    contract = _build_data_contract(
+        source="observed",
+        observed_at=datetime.utcnow().isoformat(),
+        data_available=True,
+    )
+    return PredictionResponse(**prediction, **contract)
 
 
 @router.post("/decide", response_model=DecisionResponse)
@@ -257,8 +431,14 @@ async def get_control_decision(
     )
     
     _current_state["last_decision"] = decision
+    _persist_state()
     
-    return DecisionResponse(**decision)
+    contract = _build_data_contract(
+        source="observed",
+        observed_at=datetime.utcnow().isoformat(),
+        data_available=True,
+    )
+    return DecisionResponse(**decision, **contract)
 
 
 @router.post("/recommend", response_model=RecommendationResponse)
@@ -282,6 +462,14 @@ async def get_recommendation(data: ReservoirDataWithLags):
         f"Reservoir status: {recommendation['reservoir_status']['status']}"
     )
     
+    contract = _build_data_contract(
+        source="observed",
+        observed_at=datetime.utcnow().isoformat(),
+        data_available=True,
+    )
+    recommendation.update(contract)
+    recommendation["prediction"] = {**recommendation.get("prediction", {}), **contract}
+    recommendation["decision"] = {**recommendation.get("decision", {}), **contract}
     return RecommendationResponse(**recommendation)
 
 
@@ -296,8 +484,47 @@ async def get_auto_recommendation():
     if not water_management_model.is_ready:
         water_management_model.load_model()
     
-    # Get current sensor data
-    data = get_simulated_reservoir_data()
+    snapshot = _load_reservoir_snapshot()
+    contract: dict
+    if snapshot:
+        data = {
+            "water_level_mmsl": snapshot.get("water_level_mmsl"),
+            "total_storage_mcm": snapshot.get("total_storage_mcm"),
+            "active_storage_mcm": snapshot.get("active_storage_mcm"),
+            "inflow_mcm": snapshot.get("inflow_mcm", 0.0),
+            "rain_mm": snapshot.get("rain_mm", 0.0),
+            "main_canals_mcm": snapshot.get("main_canals_mcm", 0.0),
+            "lb_main_canal_mcm": snapshot.get("lb_main_canal_mcm", 0.0),
+            "rb_main_canal_mcm": snapshot.get("rb_main_canal_mcm", 0.0),
+            "evap_mm": snapshot.get("evap_mm"),
+            "spillway_mcm": snapshot.get("spillway_mcm"),
+            "wind_speed_ms": snapshot.get("wind_speed_ms"),
+        }
+        observed_at = snapshot.get("observed_at") or snapshot.get("timestamp")
+        contract = _build_data_contract(
+            source="reservoir_ingest",
+            observed_at=observed_at,
+            data_available=True,
+        )
+    elif settings.is_strict_live_data:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "No live reservoir data available",
+                **_build_data_contract(
+                    source="unavailable",
+                    observed_at=None,
+                    data_available=False,
+                ),
+            },
+        )
+    else:
+        data = get_simulated_reservoir_data()
+        contract = _build_data_contract(
+            source="simulated",
+            observed_at=datetime.utcnow().isoformat(),
+            data_available=True,
+        )
     
     # Get recommendation
     recommendation = water_management_model.get_recommendation(data)
@@ -305,6 +532,9 @@ async def get_auto_recommendation():
     # Update historical data
     water_management_model.update_historical_data(data)
     
+    recommendation.update(contract)
+    recommendation["prediction"] = {**recommendation.get("prediction", {}), **contract}
+    recommendation["decision"] = {**recommendation.get("decision", {}), **contract}
     return RecommendationResponse(**recommendation)
 
 
@@ -319,6 +549,7 @@ async def set_manual_override(request: ManualOverrideRequest):
     _current_state["manual_override_active"] = True
     _current_state["manual_override_action"] = request.action
     _current_state["manual_valve_position"] = request.valve_position
+    _persist_state()
     
     logger.warning(
         f"MANUAL OVERRIDE: {request.action} by {request.operator_id or 'unknown'} - "
@@ -342,6 +573,7 @@ async def cancel_manual_override():
     _current_state["manual_override_active"] = False
     _current_state["manual_override_action"] = None
     _current_state["manual_valve_position"] = None
+    _persist_state()
     
     logger.info("Manual override cancelled - returning to automatic control")
     

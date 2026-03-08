@@ -11,10 +11,12 @@ TAG="${TAG:-latest}"
 echo "Building all services..."
 
 services=(
-  "services/auth-service:auth-service"
-  "services/irrigation-service:irrigation-service"
-  "services/forecasting-service:forecasting-service"
-  "services/optimization-service:optimization-service"
+  "services/auth_service:auth-service"
+  "services/irrigation_service:irrigation-service"
+  "services/forecasting_service:forecasting-service"
+  "services/optimize_service:optimization-service"
+  "services/iot_service:iot-service"
+  "services/crop_health_and_water_stress_detection:crop-health-service"
   "gateway:gateway"
   "web:web"
 )

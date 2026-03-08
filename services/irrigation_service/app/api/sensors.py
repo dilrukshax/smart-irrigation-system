@@ -41,6 +41,12 @@ class SensorResponse(BaseModel):
     sensor_data: SensorData
     prediction: IrrigationPrediction
     actuator_signal: str
+    source: str = "simulated"
+    is_live: bool = False
+    observed_at: Optional[float] = None
+    staleness_sec: Optional[float] = None
+    quality: str = "unknown"
+    data_available: bool = True
 
 
 class ManualControlRequest(BaseModel):
@@ -111,7 +117,53 @@ async def get_sensor_data():
         sensor_data=sensor_data,
         prediction=IrrigationPrediction(**prediction),
         actuator_signal=prediction["recommendation"],
+        source="simulated",
+        is_live=False,
+        observed_at=sensor_data.timestamp,
+        staleness_sec=0.0,
+        quality="unknown",
+        data_available=True,
     )
+
+
+@router.get("/sensors")
+async def list_sensors():
+    """Canonical route for gateway compatibility."""
+    return {
+        "status": "ok",
+        "source": "simulated",
+        "is_live": False,
+        "data_available": True,
+        "count": 1,
+        "sensors": [
+            {
+                "sensor_id": "simulated-sensor-01",
+                "type": "virtual",
+                "status": "active",
+            }
+        ],
+    }
+
+
+@router.get("/sensors/{sensor_id}")
+async def get_sensor(sensor_id: str):
+    """Canonical route for gateway compatibility."""
+    return {
+        "status": "ok",
+        "source": "simulated",
+        "is_live": False,
+        "data_available": True,
+        "sensor_id": sensor_id,
+        "type": "virtual",
+        "message": "Simulated sensor endpoint",
+    }
+
+
+@router.get("/sensors/{sensor_id}/data", response_model=SensorResponse)
+async def get_sensor_data_by_id(sensor_id: str):
+    """Canonical route for gateway compatibility."""
+    _ = sensor_id
+    return await get_sensor_data()
 
 
 @router.post("/irrigation-control", response_model=ManualControlResponse)

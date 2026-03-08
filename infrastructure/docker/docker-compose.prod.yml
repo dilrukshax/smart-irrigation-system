@@ -12,7 +12,7 @@ services:
           cpus: '0.5'
           memory: 256M
 
-  auth-service:
+  auth_service:
     environment:
       - ENVIRONMENT=production
       - DEBUG=false
@@ -23,7 +23,7 @@ services:
           cpus: '0.5'
           memory: 512M
 
-  irrigation-service:
+  irrigation_service:
     environment:
       - ENVIRONMENT=production
       - DEBUG=false
@@ -34,7 +34,7 @@ services:
           cpus: '0.5'
           memory: 512M
 
-  forecasting-service:
+  forecasting_service:
     environment:
       - ENVIRONMENT=production
       - DEBUG=false
@@ -45,7 +45,7 @@ services:
           cpus: '1'
           memory: 1G
 
-  optimization-service:
+  optimize_service:
     environment:
       - ENVIRONMENT=production
       - DEBUG=false
