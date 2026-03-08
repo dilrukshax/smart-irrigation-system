@@ -32,6 +32,9 @@ def _strict_model_unavailable_detail() -> dict:
         "staleness_sec": None,
         "quality": "unavailable",
         "data_available": False,
+        "ml_only_mode": settings.is_ml_only_mode,
+        "missing_models": ["crop_health_mobilenet"],
+        "missing_features": [],
     }
 
 
@@ -103,6 +106,11 @@ async def predict_image(
             risk_level=result["risk_level"],
             recommendation=result["recommendation"],
             model_used=result["model_used"],
+            model_name=result.get("model_name"),
+            model_version=result.get("model_version"),
+            input_contract_version=result.get("input_contract_version"),
+            features_used_count=result.get("features_used_count"),
+            data_available=result.get("data_available", True),
             timestamp=datetime.utcnow()
         )
         
@@ -176,6 +184,11 @@ async def predict_from_url(
             risk_level=result["risk_level"],
             recommendation=result["recommendation"],
             model_used=result["model_used"],
+            model_name=result.get("model_name"),
+            model_version=result.get("model_version"),
+            input_contract_version=result.get("input_contract_version"),
+            features_used_count=result.get("features_used_count"),
+            data_available=result.get("data_available", True),
             timestamp=datetime.utcnow()
         )
         
@@ -197,6 +210,9 @@ async def predict_from_url(
 async def get_model_status():
     """Get the current status of the prediction model."""
     model = get_model()
+    required_models = {"crop_health_mobilenet": model.model_path}
+    loaded_models = ["crop_health_mobilenet"] if model.loaded else []
+    missing_models = [] if model.loaded else ["crop_health_mobilenet"]
     
     return {
         "model_loaded": model.loaded,
@@ -205,6 +221,10 @@ async def get_model_status():
         "num_classes": len(model.class_labels),
         "status": "ready" if model.loaded else "source_unavailable",
         "strict_live_data": settings.is_strict_live_data,
+        "ml_only_mode": settings.is_ml_only_mode,
+        "required_models": required_models,
+        "loaded_models": loaded_models,
+        "missing_models": missing_models,
         "data_available": bool(model.loaded),
     }
 

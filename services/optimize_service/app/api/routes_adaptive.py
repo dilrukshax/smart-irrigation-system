@@ -17,6 +17,7 @@ import csv
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+import numpy as np
 
 from fastapi import APIRouter, HTTPException
 
@@ -30,11 +31,14 @@ from app.core.schemas import (
     WaterParameters,
     MarketParameters,
 )
+from app.core.config import get_settings
 from app.ml.suitability_fuzzy_topsis import compute_fuzzy_topsis_scores
 from app.ml.yield_model import get_yield_model
 from app.ml.price_model import get_price_model
+from app.ml.crop_recommendation_model import get_crop_recommendation_model
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 router = APIRouter(
     prefix="/f4/adaptive",
@@ -223,11 +227,6 @@ def predict_yield(
     # Combined yield
     predicted_yield = base_yield * soil_factor * water_factor * temp_factor * duration_factor
     
-    # Add small variability
-    import random
-    variability = random.uniform(0.95, 1.05)
-    predicted_yield *= variability
-    
     return round(max(0.5, min(50.0, predicted_yield)), 2)
 
 
@@ -260,11 +259,9 @@ def predict_price(
     demand_factors = {'low': 0.85, 'normal': 1.0, 'high': 1.2}
     price *= demand_factors.get(market_params.demand_level, 1.0)
     
-    # Volatility adjustment
-    import random
-    volatility_ranges = {'low': 0.02, 'medium': 0.08, 'high': 0.15}
-    volatility = volatility_ranges.get(market_params.price_volatility, 0.08)
-    price *= random.uniform(1 - volatility, 1 + volatility)
+    # Deterministic volatility penalty/bonus (no inference-time randomness).
+    volatility_factor = {'low': 1.02, 'medium': 1.0, 'high': 0.95}
+    price *= volatility_factor.get(market_params.price_volatility, 1.0)
     
     # Weather impact on price
     rainfall = weather_params.season_rainfall_mm
@@ -397,37 +394,60 @@ async def get_adaptive_recommendations(
     start_time = time.time()
     
     logger.info(f"Received adaptive recommendation request for season={request.season}")
-    
-    # Load crop data
     all_crops = load_crops_csv()
-    
     if not all_crops:
         raise HTTPException(
             status_code=500,
             detail="Crop data not available. Please ensure crops.csv exists."
         )
-    
-    # Apply filters
+
     filtered_crops = filter_crops(
         crops=all_crops,
         crop_ids=request.crop_filters.crop_ids,
         water_sensitivity_filter=request.crop_filters.water_sensitivity_filter,
         max_growth_duration=request.crop_filters.max_growth_duration_days,
     )
-    
     if not filtered_crops:
         raise HTTPException(
             status_code=400,
             detail="No crops match the specified filters."
         )
-    
-    logger.info(f"Evaluating {len(filtered_crops)} crops after filtering")
-    
-    # Generate recommendations for each crop
-    recommendations_raw = []
-    
+
+    yield_model = get_yield_model()
+    price_model = get_price_model()
+    crop_model = get_crop_recommendation_model()
+
+    yield_ml_ready = bool(getattr(yield_model, "_model", None) is not None and not yield_model.use_heuristic)
+    price_ml_ready = bool(price_model.model_loaded)
+    crop_ml_ready = bool(crop_model.model_loaded)
+
+    missing_models: List[str] = []
+    if not yield_ml_ready:
+        missing_models.append("yield_model")
+    if not price_ml_ready:
+        missing_models.append("price_prediction_lgb")
+    if not crop_ml_ready:
+        missing_models.append("crop_recommendation_rf")
+
+    if settings.is_ml_only_mode and missing_models:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "status": "source_unavailable",
+                "message": "ML-only mode requires all adaptive ML models.",
+                "source": "adaptive_recommendations",
+                "data_available": False,
+                "missing_models": missing_models,
+                "missing_features": [],
+            },
+        )
+
+    logger.info(f"Evaluating %s crops after filtering", len(filtered_crops))
+
+    # Compute suitability using Fuzzy-TOPSIS for all candidates.
+    features_by_crop: Dict[str, Dict[str, Any]] = {}
+    built_features: Dict[str, Dict[str, Any]] = {}
     for crop in filtered_crops:
-        # Build features
         features = build_feature_vector(
             field_params=request.field_params,
             weather_params=request.weather_params,
@@ -435,22 +455,117 @@ async def get_adaptive_recommendations(
             crop=crop,
             historical_yield=request.historical_yield_avg,
         )
-        
-        # Calculate suitability
-        suitability = calculate_suitability(features, request.water_params)
-        
-        # Predict yield
-        predicted_yield = predict_yield(features, crop)
-        
-        # Predict price
-        predicted_price = predict_price(
-            crop=crop,
-            market_params=request.market_params,
-            weather_params=request.weather_params,
+        built_features[crop["crop_id"]] = features
+        features_by_crop[crop["crop_id"]] = {
+            "soil_suitability": features.get("soil_suitability", 0.0),
+            "water_coverage_ratio": features.get("water_coverage_ratio", 0.0),
+            "historical_yield_t_ha": features.get("historical_yield_avg", crop.get("typical_yield_t_ha", 0.0)),
+            "water_sensitivity": crop.get("water_sensitivity", "medium"),
+            "growth_duration_days": crop.get("growth_duration_days", 120),
+        }
+
+    suitability_scores = compute_fuzzy_topsis_scores(features_by_crop)
+    if not suitability_scores:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "status": "source_unavailable",
+                "message": "Suitability model could not score candidates.",
+                "source": "fuzzy_topsis",
+                "data_available": False,
+                "missing_models": [],
+                "missing_features": ["soil_suitability", "water_coverage_ratio", "historical_yield_t_ha"],
+            },
         )
-        
-        # Calculate financials
-        gross_revenue = predicted_yield * 1000 * predicted_price  # Convert t to kg
+
+    recommendations_raw = []
+    for crop in filtered_crops:
+        crop_id = crop["crop_id"]
+        features = built_features[crop_id]
+        suitability = float(suitability_scores.get(crop_id, 0.0))
+
+        predicted_yield: Optional[float]
+        if yield_ml_ready:
+            predicted_yield = yield_model.predict(
+                field_id=request.field_params.field_id or "adaptive-field",
+                crop_id=crop_id,
+                features=features,
+            )
+        else:
+            predicted_yield = None if settings.is_ml_only_mode else predict_yield(features, crop)
+
+        predicted_price: Optional[float]
+        if price_ml_ready:
+            predicted_price = price_model.predict(
+                crop_id=crop_id,
+                crop_name=crop.get("crop_name"),
+                location=request.field_params.location,
+                season=request.season,
+                weather_data={
+                    "temp_mean": request.weather_params.temp_mean_weekly,
+                    "precip_sum": request.weather_params.precip_weekly_sum,
+                    "radiation_sum": request.weather_params.radiation_weekly_sum,
+                    "et0_sum": request.weather_params.et0_weekly_sum,
+                    "temp_range": request.weather_params.temp_range_weekly,
+                },
+                field_data={
+                    "latitude": request.field_params.latitude,
+                    "longitude": request.field_params.longitude,
+                    "elevation": request.field_params.elevation,
+                },
+            )
+        else:
+            predicted_price = None if settings.is_ml_only_mode else predict_price(
+                crop=crop,
+                market_params=request.market_params,
+                weather_params=request.weather_params,
+            )
+
+        if settings.is_ml_only_mode and (predicted_yield is None or predicted_price is None):
+            continue
+        if predicted_yield is None or predicted_price is None:
+            continue
+
+        climate_score = min(1.0, max(0.0, (request.weather_params.season_avg_temp - 10.0) / 35.0))
+        water_sensitivity_encoded = {"low": 0.0, "medium": 1.0, "high": 2.0}.get(
+            str(crop.get("water_sensitivity", "medium")).lower(),
+            1.0,
+        )
+        soil_type_encoded = {
+            "clay": 0.0,
+            "clay loam": 1.0,
+            "loam": 2.0,
+            "sandy loam": 3.0,
+            "sandy clay": 4.0,
+            "silty loam": 5.0,
+            "red loam": 6.0,
+        }.get(str(request.field_params.soil_type).lower(), 2.0)
+        season_encoded = 0.0 if "maha" in request.season.lower() else 1.0
+        terrain_type_encoded = 0.0 if request.field_params.elevation < 200 else (1.0 if request.field_params.elevation < 600 else 2.0)
+
+        classifier_vector = np.array([
+            features.get("soil_suitability", 0.0),
+            features.get("water_coverage_ratio", 0.0),
+            features.get("soil_ph", 6.5),
+            features.get("soil_ec", 1.0),
+            features.get("season_avg_temp", 28.0),
+            features.get("season_rainfall_mm", 250.0),
+            float(crop.get("growth_duration_days", 120)),
+            climate_score,
+            0.0,  # price_zscore unavailable in this endpoint context
+            features.get("historical_yield_avg", crop.get("typical_yield_t_ha", 0.0)),
+            water_sensitivity_encoded,
+            terrain_type_encoded,
+            soil_type_encoded,
+            season_encoded,
+            request.field_params.latitude,
+            request.field_params.longitude,
+        ], dtype=float)
+        crop_classifier_confidence = 0.75
+        if crop_ml_ready:
+            _, crop_classifier_confidence = crop_model.predict_single(classifier_vector)
+
+        gross_revenue = float(predicted_yield) * 1000.0 * float(predicted_price)
         production_cost = estimate_production_cost(
             crop=crop,
             field_params=request.field_params,
@@ -458,8 +573,7 @@ async def get_adaptive_recommendations(
         )
         profit = gross_revenue - production_cost
         roi = (profit / production_cost * 100) if production_cost > 0 else 0
-        
-        # Calculate risk
+
         risk_level, risk_factors = calculate_risk(
             features=features,
             crop=crop,
@@ -467,35 +581,32 @@ async def get_adaptive_recommendations(
             water_params=request.water_params,
             market_params=request.market_params,
         )
-        
-        # Apply profit filter if specified
+
         if request.crop_filters.min_profit_per_ha and profit < request.crop_filters.min_profit_per_ha:
             continue
-        
-        # Apply risk filter if specified
         if request.crop_filters.max_risk_level:
             risk_order = {'low': 1, 'medium': 2, 'high': 3}
             if risk_order.get(risk_level, 3) > risk_order.get(request.crop_filters.max_risk_level, 3):
                 continue
-        
-        # Calculate combined score
+
         combined_score = (
             request.suitability_weight * suitability +
-            request.profitability_weight * min(1.0, profit / 500000)  # Normalize profit
+            request.profitability_weight * min(1.0, profit / 500000.0)
         )
-        
+
         recommendations_raw.append({
             'crop': crop,
             'suitability': suitability,
             'combined_score': combined_score,
-            'predicted_yield': predicted_yield,
-            'predicted_price': predicted_price,
+            'predicted_yield': float(predicted_yield),
+            'predicted_price': float(predicted_price),
             'gross_revenue': gross_revenue,
             'production_cost': production_cost,
             'profit': profit,
             'roi': roi,
             'risk_level': risk_level,
             'risk_factors': risk_factors,
+            'model_confidence': float(crop_classifier_confidence),
         })
     
     # Sort by combined score
@@ -543,7 +654,7 @@ async def get_adaptive_recommendations(
             growth_duration_days=crop['growth_duration_days'],
             water_sensitivity=crop['water_sensitivity'],
             rationale=rationale,
-            confidence=0.85 if rec['suitability'] > 0.6 else 0.70,
+            confidence=round(float(rec.get("model_confidence", 0.75)), 3),
         ))
     
     # Calculate aggregates
@@ -577,6 +688,12 @@ async def get_adaptive_recommendations(
         total_crops_evaluated=len(filtered_crops),
         average_suitability=round(avg_suitability, 3),
         best_profit_per_ha=best_profit,
+        models_used=[
+            "Fuzzy-TOPSIS (Suitability)",
+            "Yield Model (ML)" if yield_ml_ready else "Yield Model (Deterministic Fallback)",
+            "LightGBM (Price Prediction)" if price_ml_ready else "Price Model (Deterministic Fallback)",
+            "RandomForest (Crop Recommendation Confidence)" if crop_ml_ready else "Crop Recommendation (Unavailable)",
+        ],
         processing_time_ms=round(processing_time, 1),
     )
 

@@ -19,6 +19,8 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import numpy as np
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 # Try to import joblib and pandas (optional for model loading)
@@ -43,7 +45,11 @@ class WaterManagementModel:
     This model predicts the next-day main canal water release (MCM) based on
     reservoir conditions, inflows, rainfall, and historical patterns.
     """
-    
+
+    MODEL_NAME = "HistGradientBoostingRegressor"
+    MODEL_VERSION = "1.0.0"
+    INPUT_CONTRACT_VERSION = "v1"
+
     # Feature columns expected by the trained model
     FEATURE_COLUMNS = [
         'water_level_mmsl', 'total_storage_mcm', 'active_storage_mcm',
@@ -67,6 +73,19 @@ class WaterManagementModel:
     DEFAULT_RELEASE_THRESHOLD_MCM = 0.5
     DEFAULT_MIN_SAFE_LEVEL_MMSL = 80.0
     DEFAULT_MAX_SAFE_LEVEL_MMSL = 95.0
+    REQUIRED_BASE_FIELDS = (
+        "water_level_mmsl",
+        "total_storage_mcm",
+        "active_storage_mcm",
+        "inflow_mcm",
+        "rain_mm",
+        "main_canals_mcm",
+        "lb_main_canal_mcm",
+        "rb_main_canal_mcm",
+        "evap_mm",
+        "spillway_mcm",
+        "wind_speed_ms",
+    )
     
     def __init__(self, model_path: Optional[str] = None):
         """
@@ -144,6 +163,18 @@ class WaterManagementModel:
         for col in self.FEATURE_COLUMNS:
             features.append(data.get(col, np.nan))
         return np.array([features])
+
+    def _validate_input_contract(self, data: Dict[str, float]) -> List[str]:
+        """Return missing or invalid fields for ML-only contract validation."""
+        missing: List[str] = []
+        for field in self.REQUIRED_BASE_FIELDS:
+            value = data.get(field)
+            if value is None:
+                missing.append(field)
+                continue
+            if isinstance(value, float) and np.isnan(value):
+                missing.append(field)
+        return missing
     
     def _fallback_prediction(self, data: Dict[str, float]) -> float:
         """
@@ -207,7 +238,19 @@ class WaterManagementModel:
             data['dow'] = now.weekday()
         if 'dayofyear' not in data:
             data['dayofyear'] = now.timetuple().tm_yday
-        
+
+        if settings.is_ml_only_mode:
+            if self.model is None:
+                raise RuntimeError(
+                    "ML-only mode is enabled and water-management model artifact is unavailable."
+                )
+            missing = self._validate_input_contract(data)
+            if missing:
+                raise ValueError(
+                    "Missing required features for water-management prediction: "
+                    + ", ".join(missing)
+                )
+
         # Use trained model if available
         if self.model is not None:
             try:
@@ -216,17 +259,33 @@ class WaterManagementModel:
                 return {
                     "predicted_release_mcm": round(float(prediction), 4),
                     "confidence": 0.85,  # Estimated from training R2
-                    "model_used": "HistGradientBoostingRegressor"
+                    "model_used": self.MODEL_NAME,
+                    "model_name": self.MODEL_NAME,
+                    "model_version": self.MODEL_VERSION,
+                    "input_contract_version": self.INPUT_CONTRACT_VERSION,
+                    "features_used_count": len(self.FEATURE_COLUMNS),
+                    "data_available": True,
                 }
             except Exception as e:
                 logger.error(f"Model prediction failed: {e}")
+                if settings.is_ml_only_mode:
+                    raise
         
         # Fallback prediction
+        if settings.is_ml_only_mode:
+            raise RuntimeError(
+                "ML-only mode is enabled and fallback prediction is disabled."
+            )
         prediction = self._fallback_prediction(data)
         return {
             "predicted_release_mcm": round(prediction, 4),
             "confidence": 0.60,
-            "model_used": "rule_based_fallback"
+            "model_used": "rule_based_fallback",
+            "model_name": "rule_based_fallback",
+            "model_version": "n/a",
+            "input_contract_version": self.INPUT_CONTRACT_VERSION,
+            "features_used_count": len(self.REQUIRED_BASE_FIELDS),
+            "data_available": True,
         }
     
     def decide_actuation(

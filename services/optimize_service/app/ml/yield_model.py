@@ -14,11 +14,12 @@ Can be replaced with trained ML model in future for better accuracy.
 """
 
 import logging
-import numpy as np
 from typing import Dict, Any, Optional
-from pathlib import Path
+
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 class YieldModel:
@@ -106,6 +107,10 @@ class YieldModel:
         Returns:
             Predicted yield in tonnes per hectare
         """
+        if settings.is_ml_only_mode and (self._model is None or self.use_heuristic):
+            raise RuntimeError(
+                "ML-only mode is enabled and yield ML model artifact is unavailable."
+            )
         if self.use_heuristic:
             return self._predict_heuristic(field_id, crop_id, features)
         else:
@@ -197,10 +202,6 @@ class YieldModel:
                 # Weighted average: 70% heuristic, 30% historical
                 predicted_yield = 0.7 * predicted_yield + 0.3 * historical_yield_avg
 
-            # Add small random variation (±5%) to simulate natural variability
-            variation = np.random.uniform(0.95, 1.05)
-            predicted_yield *= variation
-
             # Ensure reasonable bounds (0.5 to 12 tonnes/ha)
             predicted_yield = max(0.5, min(12.0, predicted_yield))
 
@@ -247,6 +248,8 @@ class YieldModel:
         except Exception as e:
             logger.error(f"ML yield prediction failed: {e}")
             # Fallback to heuristic
+            if settings.is_ml_only_mode:
+                return None
             return self._predict_heuristic(field_id, crop_id, features)
 
     def _prepare_features(self, features: Dict[str, Any]) -> list:

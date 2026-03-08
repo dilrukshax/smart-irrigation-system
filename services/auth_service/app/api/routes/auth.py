@@ -43,11 +43,12 @@ async def register(
     user_data: UserCreate,
     db: AsyncSession = Depends(get_db_session),
 ):
+    registration_roles = ["user", "farmer"] if user_data.role == "farmer" else ["user"]
     user = User(
         username=user_data.username.lower().strip(),
         hashed_password=hash_password(user_data.password),
         email=user_data.email.lower().strip() if user_data.email else None,
-        roles=["user"],
+        roles=registration_roles,
     )
     db.add(user)
     try:
@@ -129,4 +130,3 @@ async def refresh_token(
 )
 async def get_me(current_user: User = Depends(get_current_user)):
     return get_user_response(current_user)
-

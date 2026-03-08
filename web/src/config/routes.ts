@@ -2,14 +2,32 @@ export const ROUTES = {
   // Public
   LOGIN: '/login',
   REGISTER: '/register',
+  LANDING: '/landing',
+  PUBLIC: {
+    HOME: '/',
+    ABOUT: '/about-us',
+    RESEARCH: '/research',
+    PARAMETERS: '/data-parameters',
+    ANALYTICS: '/analytics',
+    CONTACT: '/contact-us',
+  },
 
   // Dashboard
-  HOME: '/',
+  HOME: '/dashboard',
   DASHBOARD: '/dashboard',
+
+  // Farmer
+  FARMER: {
+    ROOT: '/farmer',
+    LANDING: '/farmer/landing',
+    LOGIN: '/farmer/login',
+    REGISTER: '/farmer/register',
+  },
 
   // Admin
   ADMIN: {
     ROOT: '/admin',
+    LOGIN: '/admin/login',
     USERS: '/admin/users',
   },
 

@@ -7,6 +7,16 @@ import Home from '@/pages/Home';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import NotFound from '@/pages/NotFound';
+import FarmerPortal from '@/pages/FarmerPortal';
+import FarmerLanding from '@/pages/FarmerLanding';
+import FarmerLogin from '@/pages/FarmerLogin';
+import FarmerRegister from '@/pages/FarmerRegister';
+import AdminLogin from '@/pages/AdminLogin';
+import AboutUs from '@/pages/AboutUs';
+import ResearchTopics from '@/pages/ResearchTopics';
+import DataParameters from '@/pages/DataParameters';
+import AnalyticsCenter from '@/pages/AnalyticsCenter';
+import ContactUs from '@/pages/ContactUs';
 
 // Admin Pages
 import AdminUserList from '@/pages/admin/AdminUserList';
@@ -39,6 +49,17 @@ function App() {
       {/* Auth Routes - Public only (redirect if logged in) */}
       <Route element={<AuthLayout />}>
         <Route element={<PublicRoute />}>
+          <Route path="/" element={<FarmerLanding />} />
+          <Route path="/landing" element={<FarmerLanding />} />
+          <Route path="/farmer/landing" element={<FarmerLanding />} />
+          <Route path="/about-us" element={<AboutUs />} />
+          <Route path="/research" element={<ResearchTopics />} />
+          <Route path="/data-parameters" element={<DataParameters />} />
+          <Route path="/analytics" element={<AnalyticsCenter />} />
+          <Route path="/contact-us" element={<ContactUs />} />
+          <Route path="/farmer/login" element={<FarmerLogin />} />
+          <Route path="/farmer/register" element={<FarmerRegister />} />
+          <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
         </Route>
@@ -47,7 +68,8 @@ function App() {
       {/* Main App Routes - Protected */}
       <Route element={<ProtectedRoute />}>
         <Route element={<MainLayout />}>
-          <Route path="/" element={<Home />} />
+          <Route path="/dashboard" element={<Home />} />
+          <Route path="/farmer" element={<FarmerPortal />} />
 
           {/* F1 - Irrigation Routes */}
           <Route path="/irrigation" element={<IrrigationDashboard />} />

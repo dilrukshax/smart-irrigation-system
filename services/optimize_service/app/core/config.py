@@ -75,6 +75,7 @@ class Settings(BaseSettings):
 
     # Runtime behavior
     strict_live_data: Optional[bool] = None
+    ml_only_mode: Optional[bool] = None
     
     # Model configuration - tells Pydantic where to load settings from
     model_config = SettingsConfigDict(
@@ -87,9 +88,16 @@ class Settings(BaseSettings):
     @property
     def is_strict_live_data(self) -> bool:
         """Resolve strict mode with environment-aware default."""
+        if self.is_ml_only_mode:
+            return True
         if self.strict_live_data is not None:
             return bool(self.strict_live_data)
         return self.app_env.lower() not in {"development", "dev", "local", "test"}
+
+    @property
+    def is_ml_only_mode(self) -> bool:
+        """Global ML-only flag that hard-disables all non-ML fallbacks."""
+        return bool(self.ml_only_mode)
     
     @property
     def database_url(self) -> str:

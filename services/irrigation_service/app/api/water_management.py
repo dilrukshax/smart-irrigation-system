@@ -26,6 +26,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/water-management", tags=["Water Management"])
 
 
+def _ml_only_unavailable_detail(message: str, *, missing_models: Optional[list] = None, missing_features: Optional[list] = None) -> dict:
+    return {
+        "status": "source_unavailable",
+        "message": message,
+        "source": "water_management_model",
+        "data_available": False,
+        "missing_models": missing_models or [],
+        "missing_features": missing_features or [],
+    }
+
+
 # ============ Request/Response Schemas ============
 
 class ReservoirData(BaseModel):
@@ -62,6 +73,10 @@ class PredictionResponse(BaseModel):
     predicted_release_mcm: float
     confidence: float
     model_used: str
+    model_name: Optional[str] = None
+    model_version: Optional[str] = None
+    input_contract_version: Optional[str] = None
+    features_used_count: Optional[int] = None
     status: str = "ok"
     source: str = "observed"
     is_live: bool = True
@@ -296,6 +311,9 @@ _load_state()
 @router.get("/status")
 async def get_water_management_status():
     """Get water management service status."""
+    missing_models = []
+    if water_management_model.model is None:
+        missing_models.append("water_management_hgbr")
     return {
         "service": "Smart Water Management",
         "status": "running",
@@ -304,6 +322,11 @@ async def get_water_management_status():
         "timestamp": datetime.now().isoformat(),
         "manual_override_active": _current_state["manual_override_active"],
         "strict_live_data": settings.is_strict_live_data,
+        "ml_only_mode": settings.is_ml_only_mode,
+        "required_models": ["water_management_hgbr"],
+        "loaded_models": [] if missing_models else ["water_management_hgbr"],
+        "missing_models": missing_models,
+        "dependencies": {"joblib": True, "numpy": True},
     }
 
 
@@ -363,7 +386,7 @@ async def ingest_reservoir_data(data: ReservoirData):
 
 
 @router.post("/predict", response_model=PredictionResponse)
-async def predict_water_release(data: ReservoirData):
+async def predict_water_release(data: ReservoirDataWithLags):
     """
     Predict next-day irrigation water release.
     
@@ -373,7 +396,21 @@ async def predict_water_release(data: ReservoirData):
     if not water_management_model.is_ready:
         water_management_model.load_model()
     
-    prediction = water_management_model.predict_release(data.model_dump())
+    try:
+        prediction = water_management_model.predict_release(data.model_dump())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=_ml_only_unavailable_detail(str(exc)),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=_ml_only_unavailable_detail(
+                str(exc),
+                missing_models=["water_management_hgbr"] if water_management_model.model is None else [],
+            ),
+        )
     
     logger.info(
         f"Water release prediction: {prediction['predicted_release_mcm']:.3f} MCM "
@@ -393,7 +430,7 @@ async def predict_water_release(data: ReservoirData):
 
 @router.post("/decide", response_model=DecisionResponse)
 async def get_control_decision(
-    data: ReservoirData,
+    data: ReservoirDataWithLags,
     thresholds: Optional[ThresholdConfig] = None
 ):
     """
@@ -415,7 +452,21 @@ async def get_control_decision(
         )
     
     # Get prediction first
-    prediction = water_management_model.predict_release(data.model_dump())
+    try:
+        prediction = water_management_model.predict_release(data.model_dump())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=_ml_only_unavailable_detail(str(exc)),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=_ml_only_unavailable_detail(
+                str(exc),
+                missing_models=["water_management_hgbr"] if water_management_model.model is None else [],
+            ),
+        )
     
     # Get decision with custom thresholds if provided
     threshold_params = thresholds.model_dump() if thresholds else {}
@@ -452,7 +503,21 @@ async def get_recommendation(data: ReservoirDataWithLags):
     if not water_management_model.is_ready:
         water_management_model.load_model()
     
-    recommendation = water_management_model.get_recommendation(data.model_dump())
+    try:
+        recommendation = water_management_model.get_recommendation(data.model_dump())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=_ml_only_unavailable_detail(str(exc)),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=_ml_only_unavailable_detail(
+                str(exc),
+                missing_models=["water_management_hgbr"] if water_management_model.model is None else [],
+            ),
+        )
     
     # Update historical data
     water_management_model.update_historical_data(data.model_dump())
@@ -519,6 +584,15 @@ async def get_auto_recommendation():
             },
         )
     else:
+        if settings.is_ml_only_mode:
+            raise HTTPException(
+                status_code=503,
+                detail=_ml_only_unavailable_detail(
+                    "ML-only mode requires live reservoir ingest data; simulated source is disabled.",
+                    missing_models=["water_management_hgbr"] if water_management_model.model is None else [],
+                    missing_features=["reservoir_snapshot"],
+                ),
+            )
         data = get_simulated_reservoir_data()
         contract = _build_data_contract(
             source="simulated",
@@ -527,7 +601,21 @@ async def get_auto_recommendation():
         )
     
     # Get recommendation
-    recommendation = water_management_model.get_recommendation(data)
+    try:
+        recommendation = water_management_model.get_recommendation(data)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=_ml_only_unavailable_detail(str(exc)),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=_ml_only_unavailable_detail(
+                str(exc),
+                missing_models=["water_management_hgbr"] if water_management_model.model is None else [],
+            ),
+        )
     
     # Update historical data
     water_management_model.update_historical_data(data)

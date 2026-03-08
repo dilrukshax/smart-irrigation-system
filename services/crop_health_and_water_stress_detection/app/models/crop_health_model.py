@@ -95,6 +95,9 @@ class CropHealthModel:
         self.img_size = settings.IMG_SIZE
         self.model_path = settings.MODEL_PATH
         self.class_labels = CLASS_LABELS
+        self.model_name = "MobileNetV2"
+        self.model_version = "1.0.0"
+        self.input_contract_version = "v1"
         
     def load_model(self) -> bool:
         """
@@ -211,7 +214,12 @@ class CropHealthModel:
             "color": health_info["color"],
             "risk_level": health_info["risk_level"],
             "recommendation": recommendation,
-            "model_used": self.loaded
+            "model_used": self.loaded,
+            "model_name": self.model_name,
+            "model_version": self.model_version,
+            "input_contract_version": self.input_contract_version,
+            "features_used_count": self.img_size * self.img_size * 3,
+            "data_available": True,
         }
     
     def _extract_disease_name(self, class_label: str) -> str:

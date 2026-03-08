@@ -1,7 +1,34 @@
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { Box, Container, Typography } from '@mui/material';
+import { ROUTES } from '@config/routes';
 
 export default function AuthLayout() {
+  const location = useLocation();
+  const fullPagePublicRoutes = new Set([
+    ROUTES.PUBLIC.HOME,
+    ROUTES.LANDING,
+    ROUTES.FARMER.LANDING,
+    ROUTES.PUBLIC.ABOUT,
+    ROUTES.PUBLIC.RESEARCH,
+    ROUTES.PUBLIC.PARAMETERS,
+    ROUTES.PUBLIC.ANALYTICS,
+    ROUTES.PUBLIC.CONTACT,
+  ]);
+  const isLandingRoute = fullPagePublicRoutes.has(location.pathname);
+
+  if (isLandingRoute) {
+    return (
+      <Box
+        sx={{
+          minHeight: '100vh',
+          bgcolor: 'background.default',
+        }}
+      >
+        <Outlet />
+      </Box>
+    );
+  }
+
   return (
     <Box
       sx={{

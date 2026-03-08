@@ -49,6 +49,25 @@ async def lifespan(app: FastAPI):
     # Initialize forecasting system with historical data
     forecasting_system.initialize_historical_data()
     logger.info("Forecasting system initialized with historical data")
+
+    dependencies = {
+        "tensorflow": bool(ADVANCED_ML_AVAILABLE),
+        "numpy": True,
+        "sklearn": True,
+    }
+    required_models = {
+        "baseline_linear_regression": "builtin",
+    }
+    loaded_models = ["baseline_linear_regression"]
+    missing_models = []
+
+    app.state.model_readiness = {
+        "ml_only_mode": settings.is_ml_only_mode,
+        "required_models": required_models,
+        "loaded_models": loaded_models,
+        "missing_models": missing_models,
+        "dependencies": dependencies,
+    }
     
     yield
     

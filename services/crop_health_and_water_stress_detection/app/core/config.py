@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     ENVIRONMENT: str = "development"
     STRICT_LIVE_DATA: Optional[bool] = None
+    ML_ONLY_MODE: Optional[bool] = None
     
     # Server
     HOST: str = "0.0.0.0"
@@ -61,9 +62,16 @@ class Settings(BaseSettings):
 
     @property
     def is_strict_live_data(self) -> bool:
+        if self.is_ml_only_mode:
+            return True
         if self.STRICT_LIVE_DATA is not None:
             return bool(self.STRICT_LIVE_DATA)
         return self.ENVIRONMENT.lower() not in {"development", "dev", "local", "test"}
+
+    @property
+    def is_ml_only_mode(self) -> bool:
+        """Global ML-only flag that hard-disables all non-ML fallbacks."""
+        return bool(self.ML_ONLY_MODE)
 
 
 @lru_cache()

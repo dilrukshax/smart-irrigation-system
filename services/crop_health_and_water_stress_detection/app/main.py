@@ -39,7 +39,24 @@ async def lifespan(app: FastAPI):
     logger.info("Loading crop health prediction model...")
     model = get_model()
     model_loaded = model.load_model()
-    
+
+    required_models = {"crop_health_mobilenet": model.model_path}
+    loaded_models = ["crop_health_mobilenet"] if model_loaded else []
+    missing_models = [] if model_loaded else ["crop_health_mobilenet"]
+
+    if settings.is_ml_only_mode and not model_loaded:
+        raise RuntimeError(
+            "ML-only mode is enabled and crop-health model artifact is missing."
+        )
+
+    app.state.model_readiness = {
+        "ml_only_mode": settings.is_ml_only_mode,
+        "required_models": required_models,
+        "loaded_models": loaded_models,
+        "missing_models": missing_models,
+        "dependencies": {"tensorflow": True, "pillow": True},
+    }
+
     if model_loaded:
         logger.info("✅ Model loaded successfully")
     else:
@@ -108,11 +125,18 @@ app.include_router(prediction.router)
 async def health_check():
     """Health check endpoint for service monitoring."""
     model = get_model()
+    readiness = getattr(app.state, "model_readiness", {})
+    ready = (not settings.is_ml_only_mode) or model.loaded
     return {
-        "status": "healthy",
+        "status": "healthy" if ready else "source_unavailable",
         "service": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "model_loaded": model.loaded
+        "model_loaded": model.loaded,
+        "ml_only_mode": settings.is_ml_only_mode,
+        "required_models": readiness.get("required_models", {}),
+        "loaded_models": readiness.get("loaded_models", []),
+        "missing_models": readiness.get("missing_models", []),
+        "data_available": ready,
     }
 
 

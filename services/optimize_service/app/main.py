@@ -12,6 +12,7 @@ The service provides:
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -93,9 +94,55 @@ async def lifespan(app: FastAPI):
         logger.info("ML Models initialization complete")
         logger.info("=" * 60)
 
+        required_models = {
+            "price_prediction_lgb": str(price_model.model_path),
+            "crop_recommendation_rf": str(Path(crop_model.model_path).resolve()),
+            "yield_model": "external_joblib_required_for_ml_only",
+        }
+        loaded_models = []
+        missing_models = []
+
+        if price_model.model_loaded:
+            loaded_models.append("price_prediction_lgb")
+        else:
+            missing_models.append("price_prediction_lgb")
+
+        if crop_model.model_loaded:
+            loaded_models.append("crop_recommendation_rf")
+        else:
+            missing_models.append("crop_recommendation_rf")
+
+        if getattr(yield_model, "_model", None) is not None and not yield_model.use_heuristic:
+            loaded_models.append("yield_model")
+        else:
+            missing_models.append("yield_model")
+
+        if settings.is_ml_only_mode and missing_models:
+            raise RuntimeError(
+                "ML-only mode requires all optimization model artifacts. Missing: "
+                + ", ".join(missing_models)
+            )
+
+        app.state.model_readiness = {
+            "ml_only_mode": settings.is_ml_only_mode,
+            "required_models": required_models,
+            "loaded_models": loaded_models,
+            "missing_models": missing_models,
+            "dependencies": {"joblib": True, "numpy": True, "sklearn": True},
+        }
+
     except Exception as e:
         logger.error(f"Error loading ML models: {e}")
+        if settings.is_ml_only_mode:
+            raise
         logger.warning("Service will continue with fallback predictions")
+        app.state.model_readiness = {
+            "ml_only_mode": settings.is_ml_only_mode,
+            "required_models": {},
+            "loaded_models": [],
+            "missing_models": ["price_prediction_lgb", "crop_recommendation_rf", "yield_model"],
+            "dependencies": {"joblib": True, "numpy": True, "sklearn": True},
+        }
 
     # Database connection check
     try:

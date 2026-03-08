@@ -48,6 +48,10 @@ class ForecastResponse(BaseModel):
     predictions: Optional[list] = None
     forecast_generated_at: Optional[float] = None
     message: Optional[str] = None
+    model_name: Optional[str] = None
+    model_version: Optional[str] = None
+    input_contract_version: Optional[str] = None
+    features_used_count: Optional[int] = None
     source: str = "observed"
     is_live: bool = True
     observed_at: Optional[float] = None
@@ -66,6 +70,10 @@ class RiskAssessmentResponse(BaseModel):
     alerts: list
     assessment_time: Optional[float] = None
     status: Optional[str] = None
+    model_name: Optional[str] = None
+    model_version: Optional[str] = None
+    input_contract_version: Optional[str] = None
+    features_used_count: Optional[int] = None
     source: str = "observed"
     is_live: bool = True
     observed_at: Optional[float] = None
@@ -118,12 +126,17 @@ def _build_data_contract(observed_at: Optional[float], data_available: bool) -> 
 @router.get("/status")
 async def get_status():
     """Service status endpoint."""
+    missing_models: list[str] = []
     return {
         "service": "Time-Series Forecasting Service",
         "status": "running",
         "data_points": forecasting_system.data_summary,
         "model_ready": forecasting_system.is_ready,
         "strict_live_data": settings.is_strict_live_data,
+        "ml_only_mode": settings.is_ml_only_mode,
+        "required_models": ["baseline_linear_regression"],
+        "loaded_models": ["baseline_linear_regression"],
+        "missing_models": missing_models,
         "timestamp": time.time(),
     }
 

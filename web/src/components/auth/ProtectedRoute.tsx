@@ -69,7 +69,7 @@ export function ProtectedRoute() {
 
   // Redirect to login if not authenticated
   if (!isAuthenticated) {
-    return <Navigate to={ROUTES.LOGIN} state={{ from: location }} replace />;
+    return <Navigate to="/" state={{ from: location }} replace />;
   }
 
   return <Outlet />;
@@ -90,7 +90,7 @@ export function AdminRoute() {
 
   // Redirect to login if not authenticated
   if (!isAuthenticated) {
-    return <Navigate to={ROUTES.LOGIN} state={{ from: location }} replace />;
+    return <Navigate to="/" state={{ from: location }} replace />;
   }
 
   // Show not authorized if not admin
@@ -120,7 +120,7 @@ export function RoleRoute({ allowedRoles }: RoleRouteProps) {
 
   // Redirect to login if not authenticated
   if (!isAuthenticated) {
-    return <Navigate to={ROUTES.LOGIN} state={{ from: location }} replace />;
+    return <Navigate to="/" state={{ from: location }} replace />;
   }
 
   // Check if user has any of the allowed roles
@@ -139,9 +139,14 @@ export function RoleRoute({ allowedRoles }: RoleRouteProps) {
  * Uses Outlet for nested routes
  */
 export function PublicRoute() {
-  const { isAuthenticated, isInitialized, isLoading } = useAuth();
+  const { isAuthenticated, isInitialized, isLoading, hasRole } = useAuth();
   const location = useLocation();
-  const from = (location.state as any)?.from?.pathname || ROUTES.HOME;
+  const defaultRoute = hasRole('admin')
+    ? ROUTES.ADMIN.USERS
+    : hasRole('farmer')
+    ? ROUTES.FARMER.ROOT
+    : ROUTES.HOME;
+  const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname || defaultRoute;
 
   // Show loading while initializing
   if (!isInitialized || isLoading) {

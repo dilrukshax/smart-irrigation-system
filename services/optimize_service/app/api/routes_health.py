@@ -8,7 +8,7 @@ The health endpoint is used by:
 - Monitoring systems to track service availability
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.core.config import get_settings
 
@@ -43,11 +43,12 @@ async def health_check() -> dict:
     return {
         "status": "ok",
         "service": settings.app_name,
+        "ml_only_mode": settings.is_ml_only_mode,
     }
 
 
 @router.get("/ready")
-async def readiness_check() -> dict:
+async def readiness_check(request: Request) -> dict:
     """
     Readiness check endpoint.
     
@@ -67,12 +68,21 @@ async def readiness_check() -> dict:
     # - Verify ML models are loaded
     # - Check external service availability
     
+    readiness = getattr(request.app.state, "model_readiness", {})
+    missing = readiness.get("missing_models", [])
+    models_ok = len(missing) == 0 or not settings.is_ml_only_mode
     return {
-        "status": "ready",
+        "status": "ready" if models_ok else "source_unavailable",
         "checks": {
             "database": "ok",  # Placeholder - implement real check later
-            "models": "ok",    # Placeholder - implement real check later
+            "models": "ok" if models_ok else "source_unavailable",
         },
+        "ml_only_mode": settings.is_ml_only_mode,
+        "required_models": readiness.get("required_models", {}),
+        "loaded_models": readiness.get("loaded_models", []),
+        "missing_models": missing,
+        "dependencies": readiness.get("dependencies", {}),
+        "data_available": models_ok,
     }
 
 

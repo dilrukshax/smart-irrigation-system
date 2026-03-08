@@ -2,13 +2,20 @@
 Smart Irrigation ML Model
 
 Provides machine learning-based irrigation predictions using
-a RandomForestClassifier trained on synthetic sensor data.
+a RandomForestClassifier loaded from disk for production inference.
 """
 
+from pathlib import Path
 import logging
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from typing import Dict, Any, Optional
+
+try:
+    import joblib
+    JOBLIB_AVAILABLE = True
+except Exception:
+    JOBLIB_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +27,44 @@ class SmartIrrigationSystem:
     Uses a RandomForestClassifier to predict irrigation needs
     based on soil moisture, temperature, humidity, and time of day.
     """
-    
-    def __init__(self):
+
+    MODEL_NAME = "RandomForestClassifier"
+    MODEL_VERSION = "1.1.0"
+    INPUT_CONTRACT_VERSION = "v1"
+    REQUIRED_FEATURES = ("soil_moisture", "temperature", "humidity", "hour_of_day")
+
+    def __init__(self, model_path: Optional[str] = None):
         self.model: Optional[RandomForestClassifier] = None
         self._is_trained = False
-    
-    def train_model(self):
+        self._model_path = model_path or str(
+            Path(__file__).resolve().parents[2] / "notebooks" / "irrigation_rf_model.joblib"
+        )
+
+    def load_model(self, model_path: Optional[str] = None) -> bool:
+        """Load model artifact from disk for inference."""
+        if not JOBLIB_AVAILABLE:
+            logger.error("joblib dependency not available for model loading.")
+            return False
+
+        model_file = Path(model_path or self._model_path)
+        if not model_file.exists():
+            logger.warning("Irrigation model artifact not found at %s", model_file)
+            return False
+
+        try:
+            loaded = joblib.load(str(model_file))
+            if not isinstance(loaded, RandomForestClassifier):
+                logger.error("Unexpected irrigation model type: %s", type(loaded).__name__)
+                return False
+            self.model = loaded
+            self._is_trained = True
+            logger.info("Irrigation model loaded from %s", model_file)
+            return True
+        except Exception as exc:
+            logger.error("Failed to load irrigation model: %s", exc)
+            return False
+
+    def train_model(self, save_path: Optional[str] = None):
         """
         Train the irrigation prediction model with synthetic data.
         
@@ -50,8 +89,42 @@ class SmartIrrigationSystem:
         self.model = RandomForestClassifier(n_estimators=10, random_state=42)
         self.model.fit(X, y)
         self._is_trained = True
+
+        if save_path and JOBLIB_AVAILABLE:
+            try:
+                joblib.dump(self.model, save_path)
+                logger.info("Saved irrigation model artifact at %s", save_path)
+            except Exception as exc:
+                logger.warning("Unable to save irrigation model artifact: %s", exc)
         
         logger.info(f"Model trained successfully with {n_samples} samples")
+
+    def _validate_input(
+        self,
+        *,
+        soil_moisture: float,
+        temperature: float,
+        humidity: float,
+        hour_of_day: int,
+    ) -> Dict[str, float]:
+        """Validate and normalize inference inputs."""
+        payload = {
+            "soil_moisture": float(soil_moisture),
+            "temperature": float(temperature),
+            "humidity": float(humidity),
+            "hour_of_day": int(hour_of_day),
+        }
+
+        if not 0.0 <= payload["soil_moisture"] <= 100.0:
+            raise ValueError("soil_moisture must be in range [0, 100]")
+        if not -20.0 <= payload["temperature"] <= 70.0:
+            raise ValueError("temperature must be in range [-20, 70]")
+        if not 0.0 <= payload["humidity"] <= 100.0:
+            raise ValueError("humidity must be in range [0, 100]")
+        if not 0 <= payload["hour_of_day"] <= 23:
+            raise ValueError("hour_of_day must be in range [0, 23]")
+
+        return payload
     
     def predict_irrigation_need(
         self,
@@ -77,12 +150,19 @@ class SmartIrrigationSystem:
         """
         if not self._is_trained or self.model is None:
             raise RuntimeError("Model not trained. Call train_model() first.")
-        
+
+        normalized = self._validate_input(
+            soil_moisture=soil_moisture,
+            temperature=temperature,
+            humidity=humidity,
+            hour_of_day=hour_of_day,
+        )
+
         features = np.array([[
-            soil_moisture,
-            temperature,
-            humidity,
-            hour_of_day
+            normalized["soil_moisture"],
+            normalized["temperature"],
+            normalized["humidity"],
+            normalized["hour_of_day"],
         ]])
         
         prediction = self.model.predict(features)[0]
@@ -92,12 +172,21 @@ class SmartIrrigationSystem:
             "irrigation_needed": bool(prediction),
             "confidence": round(float(confidence), 3),
             "recommendation": "WATER_ON" if prediction else "WATER_OFF",
+            "model_name": self.MODEL_NAME,
+            "model_version": self.MODEL_VERSION,
+            "input_contract_version": self.INPUT_CONTRACT_VERSION,
+            "features_used_count": len(self.REQUIRED_FEATURES),
+            "data_available": True,
         }
     
     @property
     def is_ready(self) -> bool:
         """Check if model is trained and ready for predictions."""
         return self._is_trained and self.model is not None
+
+    @property
+    def model_path(self) -> str:
+        return self._model_path
 
 
 # Singleton instance

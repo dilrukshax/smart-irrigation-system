@@ -28,15 +28,32 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   isInitialized: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<AuthUser>;
   logout: () => void;
-  register: (username: string, password: string, email?: string) => Promise<void>;
-  fetchCurrentUser: () => Promise<void>;
+  register: (
+    username: string,
+    password: string,
+    email?: string,
+    role?: 'user' | 'farmer'
+  ) => Promise<void>;
+  fetchCurrentUser: () => Promise<AuthUser | null>;
   hasRole: (role: string) => boolean;
   isAdmin: boolean;
+  isFarmer: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (typeof error === 'object' && error !== null) {
+    const maybeResponse = (error as { response?: { data?: { detail?: string } } }).response;
+    const detail = maybeResponse?.data?.detail;
+    if (typeof detail === 'string' && detail.trim().length > 0) {
+      return detail;
+    }
+  }
+  return fallback;
+};
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -51,24 +68,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!token) {
       setUser(null);
       setIsInitialized(true);
-      return;
+      return null;
     }
 
     try {
       setIsLoading(true);
       const userData = await authApi.getCurrentUser();
-      setUser({
+      const authUser: AuthUser = {
         id: userData.id,
         username: userData.username,
         email: userData.email,
         roles: userData.roles,
         is_active: userData.is_active,
-      });
+      };
+      setUser(authUser);
+      return authUser;
     } catch (error) {
       // Token is invalid or expired
       localStorage.removeItem(AUTH_TOKEN_KEY);
       localStorage.removeItem(REFRESH_TOKEN_KEY);
       setUser(null);
+      return null;
     } finally {
       setIsLoading(false);
       setIsInitialized(true);
@@ -95,17 +115,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(REFRESH_TOKEN_KEY, response.refresh_token);
 
       // Fetch full user data
-      await fetchCurrentUser();
-    } catch (error: any) {
+      const currentUser = await fetchCurrentUser();
+      if (!currentUser) {
+        throw new Error('Login succeeded but user profile could not be loaded.');
+      }
+      return currentUser;
+    } catch (error) {
       // Clear any existing tokens on failed login
       localStorage.removeItem(AUTH_TOKEN_KEY);
       localStorage.removeItem(REFRESH_TOKEN_KEY);
       setUser(null);
 
       // Re-throw with better error message
-      const message =
-        error.response?.data?.detail || 'Login failed. Please try again.';
-      throw new Error(message);
+      throw new Error(getErrorMessage(error, 'Login failed. Please try again.'));
     } finally {
       setIsLoading(false);
     }
@@ -115,15 +137,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * Register new user
    */
   const register = useCallback(
-    async (username: string, password: string, email?: string) => {
+    async (
+      username: string,
+      password: string,
+      email?: string,
+      role: 'user' | 'farmer' = 'user'
+    ) => {
       setIsLoading(true);
       try {
-        await authApi.register({ username, password, email });
+        await authApi.register({ username, password, email, role });
         // Don't auto-login, let user login manually
-      } catch (error: any) {
-        const message =
-          error.response?.data?.detail || 'Registration failed. Please try again.';
-        throw new Error(message);
+      } catch (error) {
+        throw new Error(getErrorMessage(error, 'Registration failed. Please try again.'));
       } finally {
         setIsLoading(false);
       }
@@ -155,6 +180,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * Check if user is admin
    */
   const isAdmin = user?.roles.includes('admin') ?? false;
+  const isFarmer = user?.roles.includes('farmer') ?? false;
 
   return (
     <AuthContext.Provider
@@ -169,6 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         fetchCurrentUser,
         hasRole,
         isAdmin,
+        isFarmer,
       }}
     >
       {children}

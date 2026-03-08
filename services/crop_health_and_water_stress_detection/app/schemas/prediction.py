@@ -17,6 +17,11 @@ class ImagePredictionResponse(BaseModel):
     risk_level: str = Field(..., description="Risk level (low/medium/high)")
     recommendation: str = Field(..., description="Recommended action")
     model_used: bool = Field(..., description="Whether trained model was used")
+    model_name: Optional[str] = Field(default=None, description="Model name")
+    model_version: Optional[str] = Field(default=None, description="Model version")
+    input_contract_version: Optional[str] = Field(default=None, description="Input contract version")
+    features_used_count: Optional[int] = Field(default=None, description="Count of features used during inference")
+    data_available: bool = Field(default=True, description="Whether inference data was available")
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Prediction timestamp")
 
 

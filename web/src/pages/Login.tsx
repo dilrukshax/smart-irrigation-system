@@ -12,18 +12,28 @@ import {
   CircularProgress,
 } from '@mui/material';
 import { useAuth } from '@contexts/AuthContext';
+import { useNotification } from '@contexts/NotificationContext';
 import { ROUTES } from '@config/routes';
+
+type AnnouncementLanguage = 'en' | 'si' | 'ta';
+
+const FARMER_LOGIN_ANNOUNCEMENTS: Record<AnnouncementLanguage, string> = {
+  en: 'New Farmer Portal is live. Check current field details, water budget, and run quick simulations.',
+  si: 'නව ගොවි ද්වාරය දැන් සජීවීයි. වත්මන් කෙත් තොරතුරු, ජල අයවැය සහ ඉක්මන් simulation පරීක්ෂා කරන්න.',
+  ta: 'புதிய விவசாயி போர்டல் இப்போது செயல்பாட்டில் உள்ளது. தற்போதைய புல தகவல்கள், நீர் பட்ஜெட் மற்றும் விரைவு simulation-களை பார்க்கவும்.',
+};
 
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const { login, isLoading } = useAuth();
+  const { showInfo } = useNotification();
   const navigate = useNavigate();
   const location = useLocation();
   
   // Get the page user was trying to access
-  const from = (location.state as any)?.from?.pathname || ROUTES.HOME;
+  const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,10 +45,30 @@ export default function Login() {
     }
 
     try {
-      await login(username, password);
-      navigate(from, { replace: true });
-    } catch (err: any) {
-      setError(err.message || 'Invalid credentials');
+      const authenticatedUser = await login(username, password);
+      const defaultRoute = authenticatedUser.roles.includes('farmer')
+        ? ROUTES.FARMER.ROOT
+        : ROUTES.HOME;
+      const nextRoute = from && from !== ROUTES.LOGIN ? from : defaultRoute;
+
+      if (authenticatedUser.roles.includes('farmer')) {
+        const toastKey = 'farmerPortalLoginAnnouncementShown';
+        if (localStorage.getItem(toastKey) !== 'true') {
+          const storedLanguage = localStorage.getItem('farmerPortalLanguage');
+          const language: AnnouncementLanguage =
+            storedLanguage === 'si' || storedLanguage === 'ta' ? storedLanguage : 'en';
+          showInfo(FARMER_LOGIN_ANNOUNCEMENTS[language]);
+          localStorage.setItem(toastKey, 'true');
+        }
+      }
+
+      navigate(nextRoute, { replace: true });
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message || 'Invalid credentials');
+        return;
+      }
+      setError('Invalid credentials');
     }
   };
 

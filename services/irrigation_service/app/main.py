@@ -12,6 +12,7 @@ based on soil moisture, temperature, humidity, and time of day.
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,14 +42,52 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Environment: {settings.environment}")
-    
-    # Initialize and train ML model
-    irrigation_model.train_model()
-    logger.info("Irrigation ML model initialized and ready")
-    
-    # Load Smart Water Management ML model
+
+    required_models = {
+        "irrigation_rf": irrigation_model.model_path,
+        "water_management_hgbr": str(
+            Path(__file__).resolve().parents[1] / "notebooks" / "smart_water_mgmt_release_predictor.joblib"
+        ),
+    }
+    loaded_models = []
+    missing_models = []
+
+    # Load primary irrigation model artifact.
+    if irrigation_model.load_model():
+        loaded_models.append("irrigation_rf")
+        logger.info("Irrigation ML model loaded and ready")
+    else:
+        missing_models.append("irrigation_rf")
+        if settings.is_ml_only_mode:
+            raise RuntimeError(
+                "ML-only mode is enabled and irrigation model artifact is missing."
+            )
+        irrigation_model.train_model()
+        logger.warning("Irrigation artifact missing; trained synthetic fallback (ML-only disabled).")
+
+    # Load smart water-management model artifact.
     water_management_model.load_model()
-    logger.info("Water Management ML model loaded and ready")
+    if water_management_model.model is not None:
+        loaded_models.append("water_management_hgbr")
+        logger.info("Water Management ML model loaded and ready")
+    else:
+        missing_models.append("water_management_hgbr")
+        if settings.is_ml_only_mode:
+            raise RuntimeError(
+                "ML-only mode is enabled and water-management model artifact is missing."
+            )
+        logger.warning("Water-management artifact missing; fallback remains enabled (ML-only disabled).")
+
+    app.state.model_readiness = {
+        "ml_only_mode": settings.is_ml_only_mode,
+        "required_models": required_models,
+        "loaded_models": loaded_models,
+        "missing_models": missing_models,
+        "dependencies": {
+            "joblib": True,
+            "sklearn": True,
+        },
+    }
     
     yield
     

@@ -365,7 +365,7 @@ def _fetch_forecast_adjustment() -> Dict[str, Any]:
     Returns adjustment as percent where 100 means no change.
     """
     default_payload = {
-        "adjustment_pct": 100.0,
+        "adjustment_pct": None if settings.is_ml_only_mode else 100.0,
         "overall_recommendation": "NORMAL",
         "net_water_balance_mm": 0.0,
         "alert": None,
@@ -402,9 +402,9 @@ def _fetch_forecast_adjustment() -> Dict[str, Any]:
 def _fetch_stress_summary(field_id: str) -> Dict[str, Any]:
     """Pull field stress priority from F2."""
     default_payload = {
-        "stress_index": 0.2,
-        "priority": "low",
-        "stress_penalty_factor": 0.05,
+        "stress_index": None if settings.is_ml_only_mode else 0.2,
+        "priority": "unknown" if settings.is_ml_only_mode else "low",
+        "stress_penalty_factor": None if settings.is_ml_only_mode else 0.05,
         "data_available": False,
     }
     try:
@@ -537,6 +537,30 @@ def _make_auto_control_decision(
 
     forecast = _fetch_forecast_adjustment()
     stress = _fetch_stress_summary(field_id)
+
+    if settings.is_ml_only_mode and (
+        not forecast.get("data_available") or not stress.get("data_available")
+    ):
+        current_valve = _valve_states.get(field_id, {"position_pct": 0})
+        return AutoControlDecision(
+            field_id=field_id,
+            timestamp=datetime.now().isoformat(),
+            water_level_pct=water_level,
+            soil_moisture_pct=soil_moisture,
+            water_level_min=config.water_level_min_pct,
+            water_level_max=config.water_level_max_pct,
+            soil_moisture_min=config.soil_moisture_min_pct,
+            soil_moisture_max=config.soil_moisture_max_pct,
+            action="HOLD",
+            valve_position_pct=current_valve.get("position_pct", 0),
+            reason="ML-only mode requires live forecast and crop-stress contexts.",
+            priority="high",
+            ml_prediction={
+                "forecast_adjustment_pct": None,
+                "stress_index": None,
+                "stress_priority": "unknown",
+            },
+        )
 
     # Forecast and stress influence threshold tuning.
     adjustment_pct = float(forecast.get("adjustment_pct") or 100.0)
@@ -797,6 +821,17 @@ async def get_field_status(field_id: str, use_simulated: bool = False):
     """
     if field_id not in _crop_fields:
         raise HTTPException(status_code=404, detail=f"Field '{field_id}' not found")
+
+    if settings.is_ml_only_mode and use_simulated:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status": "source_unavailable",
+                "message": "ML-only mode blocks simulated sensor input.",
+                "source": "crop_fields",
+                "data_available": False,
+            },
+        )
     
     config = _crop_fields[field_id]
     valve_state = _valve_states.get(field_id, {"status": "CLOSED", "position_pct": 0})
@@ -1052,6 +1087,17 @@ async def get_auto_decision(field_id: str, use_simulated: bool = False):
     """
     if field_id not in _crop_fields:
         raise HTTPException(status_code=404, detail=f"Field '{field_id}' not found")
+
+    if settings.is_ml_only_mode and use_simulated:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status": "source_unavailable",
+                "message": "ML-only mode blocks simulated sensor input.",
+                "source": "crop_fields",
+                "data_available": False,
+            },
+        )
     
     config = _crop_fields[field_id]
     

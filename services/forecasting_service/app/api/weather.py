@@ -14,6 +14,7 @@ from datetime import datetime
 import logging
 
 from ..integrations.weather_api import weather_client
+from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,8 @@ async def get_current_weather():
     """
     try:
         weather = await weather_client.get_current_weather()
+        if weather.get("status") == "source_unavailable":
+            raise HTTPException(status_code=503, detail=weather)
         return weather
     except Exception as e:
         logger.error(f"Error fetching current weather: {e}")
@@ -54,6 +57,8 @@ async def get_weather_forecast(
     """
     try:
         forecast = await weather_client.get_forecast(days)
+        if forecast.get("status") == "source_unavailable":
+            raise HTTPException(status_code=503, detail=forecast)
         return forecast
     except Exception as e:
         logger.error(f"Error fetching weather forecast: {e}")
@@ -77,6 +82,8 @@ async def get_historical_weather(
     """
     try:
         historical = await weather_client.get_historical(days)
+        if historical.get("status") == "source_unavailable":
+            raise HTTPException(status_code=503, detail=historical)
         return historical
     except Exception as e:
         logger.error(f"Error fetching historical weather: {e}")
@@ -94,6 +101,10 @@ async def get_irrigation_recommendation():
     try:
         current = await weather_client.get_current_weather()
         forecast = await weather_client.get_forecast(7)
+        if current.get("status") == "source_unavailable":
+            raise HTTPException(status_code=503, detail=current)
+        if forecast.get("status") == "source_unavailable":
+            raise HTTPException(status_code=503, detail=forecast)
         
         # Analyze conditions
         current_conditions = current.get("conditions", {})
@@ -140,6 +151,7 @@ async def get_irrigation_recommendation():
         return {
             "status": "success",
             "generated_at": datetime.now().isoformat(),
+            "ml_only_mode": settings.is_ml_only_mode,
             "current_conditions": {
                 "temperature_c": current_conditions.get("temperature_c"),
                 "humidity_percent": current_conditions.get("humidity_percent"),
@@ -177,6 +189,10 @@ async def get_weather_summary():
     try:
         current = await weather_client.get_current_weather()
         forecast = await weather_client.get_forecast(3)
+        if current.get("status") == "source_unavailable":
+            raise HTTPException(status_code=503, detail=current)
+        if forecast.get("status") == "source_unavailable":
+            raise HTTPException(status_code=503, detail=forecast)
         
         conditions = current.get("conditions", {})
         daily = forecast.get("daily", [])[:3]
@@ -184,6 +200,7 @@ async def get_weather_summary():
         return {
             "status": "success",
             "timestamp": datetime.now().isoformat(),
+            "ml_only_mode": settings.is_ml_only_mode,
             "current": {
                 "temperature_c": conditions.get("temperature_c"),
                 "humidity_percent": conditions.get("humidity_percent"),

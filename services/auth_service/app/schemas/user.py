@@ -3,7 +3,7 @@ Pydantic schemas for user management.
 """
 
 from pydantic import BaseModel, Field, EmailStr, field_validator
-from typing import List, Optional
+from typing import List, Optional, Literal
 from datetime import datetime
 
 
@@ -25,6 +25,10 @@ class UserCreate(BaseModel):
     email: Optional[str] = Field(
         None,
         description="Optional email address"
+    )
+    role: Literal["user", "farmer"] = Field(
+        default="user",
+        description="Public registration role"
     )
     
     @field_validator("username")
@@ -54,7 +58,8 @@ class UserCreate(BaseModel):
             "example": {
                 "username": "johndoe",
                 "password": "secretpassword123",
-                "email": "john@example.com"
+                "email": "john@example.com",
+                "role": "farmer"
             }
         }
 

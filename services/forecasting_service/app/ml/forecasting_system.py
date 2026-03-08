@@ -24,6 +24,10 @@ logger = logging.getLogger(__name__)
 class TimeSeriesForecastingSystem:
     """Forecasting system for water level prediction and risk assessment."""
 
+    MODEL_NAME = "LinearRegression"
+    MODEL_VERSION = "1.0.0"
+    INPUT_CONTRACT_VERSION = "v1"
+
     def __init__(self):
         self.water_level_data: List[Dict[str, Any]] = []
         self.rainfall_data: List[Dict[str, Any]] = []
@@ -169,6 +173,11 @@ class TimeSeriesForecastingSystem:
             return {
                 "status": "data_unavailable",
                 "message": "Need at least 24 observed points for forecasting",
+                "model_name": self.MODEL_NAME,
+                "model_version": self.MODEL_VERSION,
+                "input_contract_version": self.INPUT_CONTRACT_VERSION,
+                "features_used_count": 24,
+                "data_available": False,
             }
 
         recent_data = [d["water_level_percent"] for d in self.water_level_data[-24:]]
@@ -197,12 +206,25 @@ class TimeSeriesForecastingSystem:
             "current_level": current_level,
             "predictions": predictions,
             "forecast_generated_at": now,
+            "model_name": self.MODEL_NAME,
+            "model_version": self.MODEL_VERSION,
+            "input_contract_version": self.INPUT_CONTRACT_VERSION,
+            "features_used_count": 24,
+            "data_available": True,
         }
 
     def analyze_flood_risk(self) -> Dict[str, Any]:
         """Analyze flood and drought risk based on observed trends."""
         if len(self.water_level_data) < 10:
-            return {"status": "data_unavailable", "alerts": []}
+            return {
+                "status": "data_unavailable",
+                "alerts": [],
+                "model_name": self.MODEL_NAME,
+                "model_version": self.MODEL_VERSION,
+                "input_contract_version": self.INPUT_CONTRACT_VERSION,
+                "features_used_count": 10,
+                "data_available": False,
+            }
 
         current_level = float(self.water_level_data[-1]["water_level_percent"])
         recent_rainfall = float(sum([d["rainfall_mm"] for d in self.rainfall_data[-24:]]))
@@ -238,6 +260,11 @@ class TimeSeriesForecastingSystem:
             "level_trend": round(trend, 2),
             "alerts": alerts,
             "assessment_time": time.time(),
+            "model_name": self.MODEL_NAME,
+            "model_version": self.MODEL_VERSION,
+            "input_contract_version": self.INPUT_CONTRACT_VERSION,
+            "features_used_count": 10,
+            "data_available": True,
         }
 
     @property

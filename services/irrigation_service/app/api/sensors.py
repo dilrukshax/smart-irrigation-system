@@ -12,6 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core.config import settings
 from app.ml.irrigation_model import irrigation_model
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,11 @@ class IrrigationPrediction(BaseModel):
     irrigation_needed: bool
     confidence: float
     recommendation: str
+    model_name: Optional[str] = None
+    model_version: Optional[str] = None
+    input_contract_version: Optional[str] = None
+    features_used_count: Optional[int] = None
+    data_available: bool = True
 
 
 class SensorResponse(BaseModel):
@@ -82,6 +88,10 @@ async def get_status():
         "service": "Smart Irrigation Service",
         "status": "running",
         "model_ready": irrigation_model.is_ready,
+        "ml_only_mode": settings.is_ml_only_mode,
+        "required_models": ["irrigation_rf"],
+        "loaded_models": ["irrigation_rf"] if irrigation_model.is_ready else [],
+        "missing_models": [] if irrigation_model.is_ready else ["irrigation_rf"],
         "timestamp": time.time(),
     }
 
@@ -97,6 +107,18 @@ async def get_sensor_data():
         raise HTTPException(
             status_code=503,
             detail="ML model not initialized. Service is starting up.",
+        )
+
+    if settings.is_ml_only_mode:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "status": "source_unavailable",
+                "message": "ML-only mode requires live sensor stream; simulated sensor endpoint is disabled.",
+                "source": "sensor_stream",
+                "data_available": False,
+                "missing_features": ["soil_moisture", "temperature", "humidity", "hour_of_day"],
+            },
         )
     
     sensor_data = simulate_sensor_data()
@@ -129,6 +151,16 @@ async def get_sensor_data():
 @router.get("/sensors")
 async def list_sensors():
     """Canonical route for gateway compatibility."""
+    if settings.is_ml_only_mode:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "status": "source_unavailable",
+                "message": "ML-only mode requires live sensor registry.",
+                "source": "sensor_registry",
+                "data_available": False,
+            },
+        )
     return {
         "status": "ok",
         "source": "simulated",
@@ -148,6 +180,16 @@ async def list_sensors():
 @router.get("/sensors/{sensor_id}")
 async def get_sensor(sensor_id: str):
     """Canonical route for gateway compatibility."""
+    if settings.is_ml_only_mode:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "status": "source_unavailable",
+                "message": "ML-only mode requires live sensor registry.",
+                "source": "sensor_registry",
+                "data_available": False,
+            },
+        )
     return {
         "status": "ok",
         "source": "simulated",
@@ -209,4 +251,6 @@ async def predict_irrigation(sensor_data: SensorData):
     return {
         "input": sensor_data.model_dump(),
         "prediction": prediction,
+        "status": "ok",
+        "data_available": True,
     }
