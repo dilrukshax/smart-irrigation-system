@@ -21,7 +21,7 @@ from app.core.config import settings
 from app.core.logging_config import setup_logging
 from app.api.health import router as health_router
 from app.api.iot import router as iot_router
-from app.iot.influx_repo import influx_repo
+from app.iot.pg_repo import pg_repo
 from app.iot.mqtt_client import create_mqtt_client, get_mqtt_client
 from app.iot.service import iot_service
 from app.iot.schemas import TelemetryPayload
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 def handle_telemetry(payload: TelemetryPayload) -> None:
     """
     Callback for MQTT telemetry messages.
-    
+
     Processes incoming telemetry and stores in InfluxDB.
     """
     iot_service.process_telemetry(payload)
@@ -44,11 +44,11 @@ def handle_telemetry(payload: TelemetryPayload) -> None:
 async def lifespan(app: FastAPI):
     """
     Application lifespan manager.
-    
+
     On startup:
     - Connect to InfluxDB
     - Start MQTT subscriber in background
-    
+
     On shutdown:
     - Stop MQTT client
     - Disconnect from InfluxDB
@@ -56,41 +56,41 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Environment: {settings.environment}")
-    
-    # Connect to InfluxDB
-    influx_connected = influx_repo.connect()
-    if influx_connected:
-        logger.info("InfluxDB connection established")
+
+    # Connect to PostgreSQL (NeonDB)
+    pg_connected = pg_repo.connect()
+    if pg_connected:
+        logger.info("PostgreSQL (NeonDB) connection established")
     else:
-        logger.warning("InfluxDB connection failed - telemetry storage disabled")
-    
+        logger.warning("PostgreSQL connection failed - telemetry storage disabled")
+
     # Create and start MQTT client
     mqtt_client = create_mqtt_client(on_telemetry=handle_telemetry)
     mqtt_connected = mqtt_client.connect()
-    
+
+    # Always start the loop so paho's auto-reconnect fires even if initial connect failed
+    mqtt_client.start()
     if mqtt_connected:
-        # Start MQTT loop in background thread
-        mqtt_client.start()
         logger.info("MQTT subscriber started")
     else:
-        logger.warning("MQTT connection failed - will retry on reconnect")
-    
+        logger.warning("MQTT connection failed - auto-reconnect is active")
+
     logger.info(f"IoT Telemetry Service ready on port {settings.port}")
-    
+
     yield
-    
+
     # Shutdown
     logger.info(f"Shutting down {settings.app_name}...")
-    
+
     # Stop MQTT client
     mqtt = get_mqtt_client()
     if mqtt:
         mqtt.stop()
         logger.info("MQTT client stopped")
-    
-    # Disconnect from InfluxDB
-    influx_repo.disconnect()
-    logger.info("InfluxDB connection closed")
+
+    # Disconnect from PostgreSQL
+    pg_repo.disconnect()
+    logger.info("PostgreSQL connection closed")
 
 
 # Create FastAPI application
@@ -125,7 +125,7 @@ app.include_router(iot_router)
 async def root():
     """Root endpoint - service information."""
     mqtt = get_mqtt_client()
-    
+
     return {
         "service": settings.app_name,
         "version": settings.app_version,
@@ -141,7 +141,7 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     uvicorn.run(
         "app.main:app",
         host=settings.host,

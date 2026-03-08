@@ -1,19 +1,34 @@
 /**
  * IoT Telemetry API - ESP32 Sensor Data
- * 
+ *
  * API functions for IoT device telemetry ingestion and queries.
- * Endpoints accessed via gateway at /irrigation/iot/*
+ * Calls the IoT service directly at VITE_IOT_SERVICE_URL (default: http://localhost:8006)
  */
 
-import { apiClient } from './index';
+import axios from 'axios';
+import { AUTH_TOKEN_KEY } from '@config/constants';
 
-// IoT API Endpoints - via Gateway
+const IOT_BASE_URL = import.meta.env.VITE_IOT_SERVICE_URL || 'http://localhost:8006';
+
+// Dedicated IoT API client (direct to IoT service, bypasses gateway)
+const iotClient = axios.create({
+  baseURL: `${IOT_BASE_URL}/api/v1/iot`,
+  headers: { 'Content-Type': 'application/json' },
+});
+
+iotClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem('token');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+// IoT API Endpoints
 const IOT_ENDPOINTS = {
-  DEVICES: '/irrigation/iot/devices',
-  DEVICE_LATEST: (deviceId: string) => `/irrigation/iot/devices/${deviceId}/latest`,
-  DEVICE_RANGE: (deviceId: string) => `/irrigation/iot/devices/${deviceId}/range`,
-  DEVICE_CMD: (deviceId: string) => `/irrigation/iot/devices/${deviceId}/cmd`,
-  TELEMETRY: '/irrigation/iot/telemetry',
+  DEVICES: '/devices',
+  DEVICE_LATEST: (deviceId: string) => `/devices/${deviceId}/latest`,
+  DEVICE_RANGE: (deviceId: string) => `/devices/${deviceId}/range`,
+  DEVICE_CMD: (deviceId: string) => `/devices/${deviceId}/cmd`,
+  TELEMETRY: '/telemetry',
 };
 
 // Type Definitions
@@ -74,44 +89,19 @@ export interface TelemetryPayload {
 
 // IoT API functions
 export const iotApi = {
-  /**
-   * Get list of all known IoT devices
-   */
-  getDevices: () => 
-    apiClient.get<DeviceListResponse>(IOT_ENDPOINTS.DEVICES),
+  getDevices: () => iotClient.get<DeviceListResponse>(IOT_ENDPOINTS.DEVICES),
 
-  /**
-   * Get the latest telemetry reading for a device
-   */
   getLatest: (deviceId: string) =>
-    apiClient.get<TelemetryReading>(IOT_ENDPOINTS.DEVICE_LATEST(deviceId)),
+    iotClient.get<TelemetryReading>(IOT_ENDPOINTS.DEVICE_LATEST(deviceId)),
 
-  /**
-   * Get telemetry readings within a time range
-   * @param deviceId Device identifier
-   * @param from Start time (ISO8601 or epoch ms)
-   * @param to End time (ISO8601 or epoch ms)
-   * @param limit Maximum number of readings (default 100)
-   */
-  getRange: (
-    deviceId: string, 
-    from?: string, 
-    to?: string, 
-    limit?: number
-  ) =>
-    apiClient.get<TelemetryRangeResponse>(IOT_ENDPOINTS.DEVICE_RANGE(deviceId), {
+  getRange: (deviceId: string, from?: string, to?: string, limit?: number) =>
+    iotClient.get<TelemetryRangeResponse>(IOT_ENDPOINTS.DEVICE_RANGE(deviceId), {
       params: { from, to, limit },
     }),
 
-  /**
-   * Send a command to a device via MQTT
-   */
   sendCommand: (deviceId: string, command: DeviceCommand) =>
-    apiClient.post<DeviceCommandResponse>(IOT_ENDPOINTS.DEVICE_CMD(deviceId), command),
+    iotClient.post<DeviceCommandResponse>(IOT_ENDPOINTS.DEVICE_CMD(deviceId), command),
 
-  /**
-   * Manually ingest telemetry (for testing)
-   */
   ingestTelemetry: (payload: TelemetryPayload) =>
-    apiClient.post<TelemetryReading>(IOT_ENDPOINTS.TELEMETRY, payload),
+    iotClient.post<TelemetryReading>(IOT_ENDPOINTS.TELEMETRY, payload),
 };
