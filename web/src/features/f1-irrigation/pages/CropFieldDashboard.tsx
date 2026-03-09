@@ -235,7 +235,7 @@ function FieldCard({ field, status, isSelected, onSelect, onDelete, onRefresh }:
               </Typography>
               {status.last_real_data_time && (
                 <Typography variant="caption" color="text.disabled" display="block" sx={{ mt: 1 }}>
-                  Last data: {new Date(status.last_real_data_time).toLocaleString()}
+                  Last data: {formatUtcTimestamp(status.last_real_data_time)}
                 </Typography>
               )}
             </Box>
@@ -439,6 +439,14 @@ function FieldCard({ field, status, isSelected, onSelect, onDelete, onRefresh }:
       </CardActions>
     </Card>
   );
+}
+
+// Format a UTC timestamp string from the server for local display
+function formatUtcTimestamp(ts: string | undefined | null): string {
+  if (!ts) return 'N/A';
+  // Append 'Z' if no timezone info so JS treats it as UTC (not local time)
+  const utcStr = ts.endsWith('Z') || ts.includes('+') ? ts : ts + 'Z';
+  return new Date(utcStr).toLocaleString();
 }
 
 // Main Dashboard Component
@@ -836,7 +844,7 @@ export default function CropFieldDashboard() {
                       {selectedFieldStatus.last_real_data_time && (
                         <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
                           Last received:{' '}
-                          {new Date(selectedFieldStatus.last_real_data_time).toLocaleString()}
+                          {formatUtcTimestamp(selectedFieldStatus.last_real_data_time)}
                         </Typography>
                       )}
                     </Alert>
@@ -931,7 +939,7 @@ export default function CropFieldDashboard() {
                       <TableRow>
                         <TableCell>Last Reading</TableCell>
                         <TableCell align="right" colSpan={2}>
-                          {new Date(selectedFieldStatus.last_sensor_reading).toLocaleString()}
+                          {formatUtcTimestamp(selectedFieldStatus.last_sensor_reading)}
                         </TableCell>
                       </TableRow>
                     </TableBody>

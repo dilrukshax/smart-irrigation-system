@@ -116,7 +116,7 @@ services:
       retries: 3
 
   optimization-service:
-    build: ../../services/aca_o_service
+    build: ../../services/optimize_service
     environment:
       - ENVIRONMENT=development
       - DEBUG=true

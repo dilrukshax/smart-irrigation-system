@@ -12,7 +12,7 @@ import logging
 import os
 import math
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
 import httpx
@@ -266,10 +266,11 @@ async def _fetch_iot_sensor_data(device_id: str) -> Optional[IoTSensorData]:
             resp = await client.get(url)
         if resp.status_code == 200:
             data = resp.json()
-            logger.info(f"IoT pull OK for {device_id}: ts={data.get('timestamp')}, soil={data.get('soil_moisture_pct')}, water={data.get('water_level_pct')}")
+            ts_str = data.get("timestamp", "")
+            logger.info(f"IoT pull OK for {device_id}: ts={ts_str}, soil={data.get('soil_moisture_pct')}, water={data.get('water_level_pct')}")
             return IoTSensorData(
                 device_id=data["device_id"],
-                timestamp=data["timestamp"],
+                timestamp=ts_str,
                 soil_moisture_pct=float(data["soil_moisture_pct"]),
                 water_level_pct=float(data["water_level_pct"]),
                 soil_ao=data.get("soil_ao"),
@@ -282,6 +283,23 @@ async def _fetch_iot_sensor_data(device_id: str) -> Optional[IoTSensorData]:
     except Exception as e:
         logger.warning(f"IoT service unavailable for device {device_id}: {e}")
         return None
+
+
+async def _check_device_online(device_id: str) -> bool:
+    """Check the online status of a device from the IoT service device list."""
+    try:
+        url = f"{IOT_SERVICE_URL}/api/v1/iot/devices"
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(url)
+        if resp.status_code == 200:
+            data = resp.json()
+            for device in data.get("devices", []):
+                if device.get("device_id") == device_id:
+                    return bool(device.get("is_online", False))
+        return False
+    except Exception as e:
+        logger.warning(f"Could not check device online status: {e}")
+        return False
 
 
 def _get_simulated_sensor_data(field_id: str, config: CropFieldConfig) -> IoTSensorData:
@@ -528,6 +546,51 @@ async def delete_field(field_id: str):
     return {"status": "deleted", "field_id": field_id}
 
 
+@router.get("/debug/iot-fetch")
+async def debug_iot_fetch(device_id: str = "esp32-01"):
+    """Debug endpoint: directly call IoT fetch and return diagnosis."""
+    from datetime import datetime, timezone
+    result = {"device_id": device_id, "iot_url": IOT_SERVICE_URL}
+    try:
+        url = f"{IOT_SERVICE_URL}/api/v1/iot/devices/{device_id}/latest"
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url)
+        result["http_status"] = resp.status_code
+        result["raw_response"] = resp.json() if resp.status_code == 200 else resp.text
+        if resp.status_code == 200:
+            data = resp.json()
+            ts_str = data.get("timestamp", "")
+            result["ts_str"] = ts_str
+            try:
+                last_time = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+                last_time_naive = last_time.replace(tzinfo=None)
+                time_diff = (now_utc - last_time_naive).total_seconds()
+                result["now_utc"] = now_utc.isoformat()
+                result["last_time_naive"] = last_time_naive.isoformat()
+                result["time_diff_sec"] = round(time_diff, 2)
+                result["within_120s"] = abs(time_diff) <= 120
+            except Exception as e:
+                result["ts_parse_error"] = str(e)
+            try:
+                iot_obj = IoTSensorData(
+                    device_id=data["device_id"],
+                    timestamp=ts_str,
+                    soil_moisture_pct=float(data["soil_moisture_pct"]),
+                    water_level_pct=float(data["water_level_pct"]),
+                    soil_ao=data.get("soil_ao"),
+                    water_ao=data.get("water_ao"),
+                    rssi=data.get("rssi"),
+                )
+                result["iot_model_ok"] = True
+                result["iot_model"] = iot_obj.model_dump()
+            except Exception as e:
+                result["iot_model_error"] = str(e)
+    except Exception as e:
+        result["fetch_error"] = str(e)
+    return result
+
+
 @router.get("/fields/{field_id}/status", response_model=CropFieldStatus)
 async def get_field_status(field_id: str, use_simulated: bool = True):
     """
@@ -555,9 +618,14 @@ async def get_field_status(field_id: str, use_simulated: bool = True):
         iot_reading = await _fetch_iot_sensor_data(config.device_id)
         if iot_reading is not None:
             try:
-                last_time = datetime.fromisoformat(iot_reading.timestamp.replace("Z", "+00:00"))
-                # IoT service stores UTC timestamps; compare against UTC now
-                time_diff = (datetime.utcnow() - last_time.replace(tzinfo=None)).total_seconds()
+                ts_str = iot_reading.timestamp
+                last_time = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+                last_time_naive = last_time.replace(tzinfo=None)
+                time_diff = (now_utc - last_time_naive).total_seconds()
+                # Accept data if it arrived within the connection timeout window.
+                # Use abs() to tolerate small clock skew between IoT service and
+                # this service — if difference > timeout, device is considered offline.
                 if abs(time_diff) <= _sensor_connection_timeout_seconds:
                     sensor_connected = True
                     is_simulated = False
@@ -568,6 +636,12 @@ async def get_field_status(field_id: str, use_simulated: bool = True):
                     logger.info(
                         f"Live IoT data for {field_id} from device {config.device_id}: "
                         f"water={iot_reading.water_level_pct}%, soil={iot_reading.soil_moisture_pct}%"
+                        f" (age={time_diff:.1f}s)"
+                    )
+                else:
+                    logger.info(
+                        f"IoT data for {config.device_id} is stale: {time_diff:.1f}s old "
+                        f"(timestamp={ts_str}, now_utc={now_utc})"
                     )
             except Exception as e:
                 logger.warning(f"Could not parse IoT timestamp for {config.device_id}: {e}")
@@ -579,7 +653,8 @@ async def get_field_status(field_id: str, use_simulated: bool = True):
         if last_real_data_time:
             try:
                 last_time = datetime.fromisoformat(last_real_data_time.replace("Z", "+00:00"))
-                time_diff = (datetime.utcnow() - last_time.replace(tzinfo=None)).total_seconds()
+                now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+                time_diff = (now_utc - last_time.replace(tzinfo=None)).total_seconds()
                 if abs(time_diff) <= _sensor_connection_timeout_seconds:
                     sensor_connected = True
                     is_simulated = False
