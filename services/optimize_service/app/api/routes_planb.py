@@ -10,6 +10,7 @@ updated constraints while considering crops already planted.
 """
 
 import logging
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -17,6 +18,8 @@ from sqlalchemy.orm import Session
 
 from app.core.schemas import PlanBRequest, PlanBResponse
 from app.data.db import get_db
+from app.data.repositories import RunArtifactRepository
+from app.dependencies.auth import get_current_user_context
 from app.services.planb_service import PlanBService
 
 # Setup logging
@@ -34,6 +37,7 @@ router = APIRouter(
 async def recompute_plan(
     request: PlanBRequest,
     db: Annotated[Session, Depends(get_db)],
+    user_context: dict = Depends(get_current_user_context),
 ) -> PlanBResponse:
     """
     Recompute crop plan when constraints change mid-season (Plan B).
@@ -76,6 +80,7 @@ async def recompute_plan(
         }
     """
     logger.info(f"Plan B request for field={request.field_id}, season={request.season}")
+    del user_context
     
     if request.updated_quota_mm:
         logger.info(f"Updated water quota: {request.updated_quota_mm} mm")
@@ -85,6 +90,19 @@ async def recompute_plan(
     # Create service and recompute plan
     service = PlanBService()
     response = service.recompute_plan(request=request, db_session=db)
+    observed_at = datetime.utcnow()
+    RunArtifactRepository.save_artifact(
+        db,
+        run_type="planb",
+        field_id=request.field_id,
+        season=request.season,
+        request_payload=request.model_dump(),
+        response_payload=response.model_dump(),
+        status=response.status,
+        source=response.source,
+        data_available=response.data_available,
+        observed_at=observed_at,
+    )
     
     logger.info(f"Plan B generated: {response.message}")
     

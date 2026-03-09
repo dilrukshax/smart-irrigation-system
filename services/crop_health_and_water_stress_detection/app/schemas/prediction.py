@@ -21,7 +21,14 @@ class ImagePredictionResponse(BaseModel):
     model_version: Optional[str] = Field(default=None, description="Model version")
     input_contract_version: Optional[str] = Field(default=None, description="Input contract version")
     features_used_count: Optional[int] = Field(default=None, description="Count of features used during inference")
+    status: str = Field(default="ok", description="ok|stale|data_unavailable|analysis_pending|source_unavailable")
+    source: str = Field(default="crop_health_model")
+    is_live: bool = Field(default=True)
+    observed_at: Optional[str] = Field(default=None)
+    staleness_sec: Optional[float] = Field(default=0.0)
+    quality: str = Field(default="good")
     data_available: bool = Field(default=True, description="Whether inference data was available")
+    message: Optional[str] = Field(default=None)
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Prediction timestamp")
 
 

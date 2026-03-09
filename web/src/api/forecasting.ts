@@ -1,5 +1,39 @@
 import { apiClient } from './index';
 
+export type ForecastContractStatus =
+  | 'ok'
+  | 'stale'
+  | 'data_unavailable'
+  | 'analysis_pending'
+  | 'source_unavailable'
+  | string;
+
+export interface ForecastContract {
+  status: ForecastContractStatus;
+  source: string;
+  is_live: boolean;
+  observed_at?: string | number | null;
+  staleness_sec?: number | null;
+  quality: string;
+  data_available: boolean;
+  message?: string | null;
+}
+
+export interface ForecastStatusResponse extends ForecastContract {
+  service?: string;
+  models_trained?: boolean;
+  available_models?: string[];
+  data_points?: number | Record<string, number>;
+  features_engineered?: number;
+  strict_live_data?: boolean;
+  ml_only_mode?: boolean;
+  model_ready?: boolean;
+  required_models?: string[];
+  loaded_models?: string[];
+  missing_models?: string[];
+  timestamp?: number;
+}
+
 export interface ForecastPrediction {
   hour: number;
   predicted_water_level: number;
@@ -8,12 +42,25 @@ export interface ForecastPrediction {
   upper_bound?: number;
 }
 
-export interface ForecastResponse {
-  status: string;
-  model_used: string;
+export interface CurrentDataResponse extends ForecastContract {
+  current_data?: {
+    timestamp?: number;
+    water_level_percent?: number;
+    rainfall_mm?: number;
+    gate_opening_percent?: number;
+  } | null;
+  data_points_total: number;
+}
+
+export interface ForecastResponse extends ForecastContract {
+  model_used?: string;
   current_level: number;
   predictions: ForecastPrediction[];
-  forecast_generated_at: number;
+  forecast_generated_at?: number;
+  model_name?: string;
+  model_version?: string;
+  input_contract_version?: string;
+  features_used_count?: number;
   metrics?: {
     rmse: number;
     mae: number;
@@ -33,28 +80,26 @@ export interface ModelInfo {
   rank: number;
 }
 
-export interface ModelComparisonResponse {
-  status: string;
+export interface ModelComparisonResponse extends ForecastContract {
   models: ModelInfo[];
   best_model: string;
 }
 
-export interface RiskAssessment {
+export interface RiskAssessment extends ForecastContract {
   current_water_level: number;
   flood_risk: string;
   drought_risk: string;
-  confidence: number;
+  confidence?: number;
   recent_rainfall_24h: number;
   level_trend: number;
-  predicted_max_24h: number;
-  predicted_min_24h: number;
+  predicted_max_24h?: number;
+  predicted_min_24h?: number;
   alerts: string[];
-  assessment_time: number;
-  model_metrics: any;
+  assessment_time?: number;
+  model_metrics?: any;
 }
 
-export interface TrainingStatus {
-  status: string;
+export interface TrainingStatus extends ForecastContract {
   message: string;
   data_points?: number;
   models_trained?: string[];
@@ -75,30 +120,30 @@ class ForecastingAPI {
   }
 
   // Basic forecasting endpoints
-  async getStatus() {
+  async getStatus(): Promise<ForecastStatusResponse> {
     const response = await apiClient.get(`${this.baseUrl}/status`);
     return response.data;
   }
 
-  async getCurrentData() {
+  async getCurrentData(): Promise<CurrentDataResponse> {
     const response = await apiClient.get(`${this.baseUrl}/current-data`);
     return response.data;
   }
 
-  async getBasicForecast(hours: number = 24) {
+  async getBasicForecast(hours: number = 24): Promise<ForecastResponse> {
     const response = await apiClient.get(`${this.baseUrl}/forecast`, {
       params: { hours }
     });
     return response.data;
   }
 
-  async getBasicRiskAssessment() {
+  async getBasicRiskAssessment(): Promise<RiskAssessment> {
     const response = await apiClient.get(`${this.baseUrl}/risk-assessment`);
     return response.data;
   }
 
   // Advanced ML endpoints
-  async getAdvancedStatus() {
+  async getAdvancedStatus(): Promise<ForecastStatusResponse> {
     const response = await apiClient.get(`${this.baseUrl}/v2/status`);
     return response.data;
   }
@@ -129,49 +174,49 @@ class ForecastingAPI {
     return response.data;
   }
 
-  async getModelAnalysis(modelName: string) {
+  async getModelAnalysis(modelName: string): Promise<Record<string, any>> {
     const response = await apiClient.get(`${this.baseUrl}/v2/model-analysis/${modelName}`);
     return response.data;
   }
 
-  async getFeatureImportance(model: string = 'rf') {
+  async getFeatureImportance(model: string = 'rf'): Promise<Record<string, any>> {
     const response = await apiClient.get(`${this.baseUrl}/v2/feature-importance`, {
       params: { model }
     });
     return response.data;
   }
 
-  async updateData() {
+  async updateData(): Promise<TrainingStatus> {
     const response = await apiClient.post(`${this.baseUrl}/v2/update-data`);
     return response.data;
   }
 
   // Weather API endpoints
-  async getCurrentWeather() {
+  async getCurrentWeather(): Promise<WeatherCurrent> {
     const response = await apiClient.get(`${this.baseUrl}/weather/current`);
     return response.data;
   }
 
-  async getWeatherForecast(days: number = 7) {
+  async getWeatherForecast(days: number = 7): Promise<WeatherForecast> {
     const response = await apiClient.get(`${this.baseUrl}/weather/forecast`, {
       params: { days }
     });
     return response.data;
   }
 
-  async getHistoricalWeather(days: number = 30) {
+  async getHistoricalWeather(days: number = 30): Promise<Record<string, any>> {
     const response = await apiClient.get(`${this.baseUrl}/weather/historical`, {
       params: { days }
     });
     return response.data;
   }
 
-  async getIrrigationRecommendation() {
+  async getIrrigationRecommendation(): Promise<IrrigationRecommendation> {
     const response = await apiClient.get(`${this.baseUrl}/weather/irrigation-recommendation`);
     return response.data;
   }
 
-  async getWeatherSummary() {
+  async getWeatherSummary(): Promise<Record<string, any>> {
     const response = await apiClient.get(`${this.baseUrl}/weather/summary`);
     return response.data;
   }
@@ -253,8 +298,14 @@ export interface WeatherConditions {
 }
 
 export interface WeatherCurrent {
-  status: string;
+  status: ForecastContractStatus;
   source: string;
+  is_live: boolean;
+  observed_at?: string | null;
+  staleness_sec?: number | null;
+  quality: string;
+  data_available: boolean;
+  message?: string | null;
   timestamp: string;
   conditions: WeatherConditions;
   irrigation_impact: {
@@ -275,9 +326,7 @@ export interface WeatherForecastDay {
   evapotranspiration_mm: number;
 }
 
-export interface WeatherForecast {
-  status: string;
-  source: string;
+export interface WeatherForecast extends ForecastContract {
   forecast_days: number;
   daily: WeatherForecastDay[];
   summary: {
@@ -286,6 +335,33 @@ export interface WeatherForecast {
     rainy_days_count: number;
     irrigation_recommendation: string;
   };
+}
+
+export interface IrrigationRecommendation extends ForecastContract {
+  generated_at?: string;
+  ml_only_mode?: boolean;
+  current_conditions?: {
+    temperature_c?: number;
+    humidity_percent?: number;
+    current_rain_mm?: number;
+    immediate_impact?: string;
+  };
+  weekly_outlook?: {
+    total_expected_rain_mm?: number;
+    total_expected_evapotranspiration_mm?: number;
+    net_water_balance_mm?: number;
+    rainy_days_expected?: number;
+    average_irrigation_adjustment_percent?: number;
+  };
+  overall_recommendation?: string;
+  daily_schedule?: Array<{
+    date?: string;
+    expected_rain_mm?: number;
+    expected_evapotranspiration_mm?: number;
+    water_balance_mm?: number;
+    recommendation?: string;
+    irrigation_percent?: number;
+  }>;
 }
 
 export interface AnomalyResult {
@@ -325,6 +401,25 @@ export interface DailyPattern {
   trough_hour: number;
   trough_value: number;
   daily_range: number;
+}
+
+export function getForecastApiErrorMessage(error: any, fallback: string): string {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === 'string' && detail.trim().length > 0) {
+    return detail;
+  }
+  if (detail && typeof detail === 'object') {
+    if (typeof detail.message === 'string' && detail.message.trim().length > 0) {
+      return detail.message;
+    }
+  }
+  if (typeof error?.response?.data?.message === 'string' && error.response.data.message.trim().length > 0) {
+    return error.response.data.message;
+  }
+  if (typeof error?.message === 'string' && error.message.trim().length > 0) {
+    return error.message;
+  }
+  return fallback;
 }
 
 export const forecastingAPI = new ForecastingAPI();

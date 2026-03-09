@@ -8,9 +8,13 @@ import logging
 from typing import Optional, List
 from datetime import datetime
 
-from fastapi import APIRouter, Query, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Query, HTTPException, BackgroundTasks, Depends
 from pydantic import BaseModel, Field
 
+from app.core.contracts import build_contract
+from app.db.repository import add_training_run
+from app.db.session import session_scope
+from app.dependencies.auth import require_admin
 from app.ml.forecasting_system import forecasting_system
 from app.ml import ADVANCED_ML_AVAILABLE
 
@@ -22,7 +26,11 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v2", tags=["Advanced Forecast"])
+router = APIRouter(
+    prefix="/api/v2",
+    tags=["Advanced Forecast"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 # ============ Schemas ============
@@ -58,6 +66,13 @@ class AdvancedForecastResponse(BaseModel):
     predictions: List[PredictionPoint]
     forecast_generated_at: float
     metrics: Optional[dict] = None
+    source: str = "forecasting_service"
+    is_live: bool = True
+    observed_at: Optional[str] = None
+    staleness_sec: Optional[float] = None
+    quality: str = "good"
+    data_available: bool = True
+    message: Optional[str] = None
 
 
 class ModelComparisonResponse(BaseModel):
@@ -66,10 +81,17 @@ class ModelComparisonResponse(BaseModel):
     models: List[ModelInfo]
     best_model: str
     message: Optional[str] = None
+    source: str = "forecasting_service"
+    is_live: bool = True
+    observed_at: Optional[str] = None
+    staleness_sec: Optional[float] = None
+    quality: str = "good"
+    data_available: bool = True
 
 
 class RiskAssessmentAdvanced(BaseModel):
     """Advanced risk assessment with ML predictions."""
+    status: str
     current_water_level: float
     flood_risk: str
     drought_risk: str
@@ -81,6 +103,13 @@ class RiskAssessmentAdvanced(BaseModel):
     alerts: List[str]
     assessment_time: float
     model_metrics: dict
+    source: str = "forecasting_service"
+    is_live: bool = True
+    observed_at: Optional[str] = None
+    staleness_sec: Optional[float] = None
+    quality: str = "good"
+    data_available: bool = True
+    message: Optional[str] = None
 
 
 class TrainingStatus(BaseModel):
@@ -91,6 +120,12 @@ class TrainingStatus(BaseModel):
     models_trained: Optional[List[str]] = None
     best_model: Optional[str] = None
     training_time: Optional[float] = None
+    source: str = "forecasting_service"
+    is_live: bool = True
+    observed_at: Optional[str] = None
+    staleness_sec: Optional[float] = None
+    quality: str = "good"
+    data_available: bool = True
 
 
 class FeatureImportance(BaseModel):
@@ -104,6 +139,46 @@ class ModelAnalysis(BaseModel):
     model_name: str
     metrics: ModelMetrics
     feature_importance: List[FeatureImportance]
+    status: str = "ok"
+    source: str = "forecasting_service"
+    is_live: bool = True
+    observed_at: Optional[str] = None
+    staleness_sec: Optional[float] = None
+    quality: str = "good"
+    data_available: bool = True
+    message: Optional[str] = None
+
+
+def _contract_payload(
+    *,
+    raw_status: str,
+    data_available: bool,
+    message: Optional[str] = None,
+) -> dict:
+    return build_contract(
+        source="forecasting_service",
+        observed_at=datetime.utcnow().isoformat(),
+        data_available=data_available,
+        raw_status=raw_status,
+        message=message,
+        stale_after_sec=1800,
+    )
+
+
+def _source_unavailable_detail(message: str) -> dict:
+    return _contract_payload(
+        raw_status="source_unavailable",
+        data_available=False,
+        message=message,
+    )
+
+
+def _analysis_pending_detail(message: str) -> dict:
+    return _contract_payload(
+        raw_status="analysis_pending",
+        data_available=False,
+        message=message,
+    )
 
 
 # ============ Routes ============
@@ -117,25 +192,46 @@ async def get_advanced_status():
         System status with model information
     """
     if not ADVANCED_ML_AVAILABLE or advanced_forecasting is None:
+        contract = _source_unavailable_detail(
+            "TensorFlow not installed. Advanced ML features unavailable. Use basic forecasting endpoints (/api/v1)."
+        )
         return {
             "service": "Advanced ML Forecasting System",
-            "status": "unavailable",
+            "status": contract["status"],
             "models_trained": False,
             "available_models": [],
             "data_points": 0,
             "features_engineered": 0,
             "timestamp": datetime.now().timestamp(),
-            "message": "TensorFlow not installed. Advanced ML features unavailable. Use basic forecasting endpoints (/api/v1)."
+            "message": contract["message"],
+            "source": contract["source"],
+            "is_live": contract["is_live"],
+            "observed_at": contract["observed_at"],
+            "staleness_sec": contract["staleness_sec"],
+            "quality": contract["quality"],
+            "data_available": contract["data_available"],
         }
-    
+
+    contract = _contract_payload(
+        raw_status="ok" if advanced_forecasting.is_trained else "analysis_pending",
+        data_available=bool(advanced_forecasting.is_trained),
+        message=None if advanced_forecasting.is_trained else "Models not trained yet",
+    )
     return {
         "service": "Advanced ML Forecasting System",
-        "status": "running",
+        "status": contract["status"],
         "models_trained": advanced_forecasting.is_trained,
         "available_models": list(advanced_forecasting.metrics.keys()) if advanced_forecasting.metrics else [],
         "data_points": len(advanced_forecasting.df) if advanced_forecasting.df is not None else 0,
         "features_engineered": len(advanced_forecasting.feature_cols),
         "timestamp": datetime.now().timestamp(),
+        "source": contract["source"],
+        "is_live": contract["is_live"],
+        "observed_at": contract["observed_at"],
+        "staleness_sec": contract["staleness_sec"],
+        "quality": contract["quality"],
+        "data_available": contract["data_available"],
+        "message": contract["message"],
     }
 
 
@@ -156,7 +252,9 @@ async def train_models(background_tasks: BackgroundTasks):
     if not ADVANCED_ML_AVAILABLE or advanced_forecasting is None:
         raise HTTPException(
             status_code=503,
-            detail="Advanced ML features unavailable. TensorFlow not installed."
+            detail=_source_unavailable_detail(
+                "Advanced ML features unavailable. TensorFlow not installed."
+            ),
         )
     
     try:
@@ -164,7 +262,9 @@ async def train_models(background_tasks: BackgroundTasks):
         if not forecasting_system.is_ready:
             raise HTTPException(
                 status_code=400,
-                detail="No historical data available. Initialize basic forecasting first."
+                detail=_analysis_pending_detail(
+                    "No historical data available. Initialize basic forecasting first."
+                ),
             )
         
         # Prepare data for advanced system
@@ -186,15 +286,38 @@ async def train_models(background_tasks: BackgroundTasks):
         # Get best model
         best_model = min(metrics.items(), key=lambda x: x[1]['rmse'])[0]
         
+        contract = _contract_payload(
+            raw_status="ok",
+            data_available=True,
+            message="All models trained successfully",
+        )
+        async with session_scope() as session:
+            await add_training_run(
+                session,
+                status=contract["status"],
+                message=contract["message"],
+                data_points=len(historical_data),
+                models_trained=list(metrics.keys()),
+                best_model=best_model,
+                metrics=metrics,
+            )
+
         return TrainingStatus(
-            status="success",
+            status=contract["status"],
             message="All models trained successfully",
             data_points=len(historical_data),
             models_trained=list(metrics.keys()),
             best_model=best_model,
-            training_time=datetime.now().timestamp()
+            training_time=datetime.now().timestamp(),
+            source=contract["source"],
+            is_live=contract["is_live"],
+            observed_at=contract["observed_at"],
+            staleness_sec=contract["staleness_sec"],
+            quality=contract["quality"],
+            data_available=contract["data_available"],
         )
-    
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error training models: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -220,13 +343,17 @@ async def get_advanced_forecast(
     if not ADVANCED_ML_AVAILABLE or advanced_forecasting is None:
         raise HTTPException(
             status_code=503,
-            detail="Advanced ML features unavailable. TensorFlow not installed."
+            detail=_source_unavailable_detail(
+                "Advanced ML features unavailable. TensorFlow not installed."
+            ),
         )
     
     if not advanced_forecasting.is_trained:
         raise HTTPException(
             status_code=503,
-            detail="Models not trained. Call /api/v2/train first."
+            detail=_analysis_pending_detail(
+                "Models not trained. Call /api/v2/train first."
+            ),
         )
     
     try:
@@ -241,7 +368,11 @@ async def get_advanced_forecast(
             f"(current: {forecast['current_level']}%)"
         )
         
-        return AdvancedForecastResponse(**forecast)
+        contract = _contract_payload(
+            raw_status="ok",
+            data_available=True,
+        )
+        return AdvancedForecastResponse(**forecast, **contract)
     
     except Exception as e:
         logger.error(f"Error generating forecast: {e}")
@@ -259,17 +390,22 @@ async def get_model_comparison():
     if not ADVANCED_ML_AVAILABLE or advanced_forecasting is None:
         raise HTTPException(
             status_code=503,
-            detail="Advanced ML features unavailable. TensorFlow not installed."
+            detail=_source_unavailable_detail(
+                "Advanced ML features unavailable. TensorFlow not installed."
+            ),
         )
     
     if not advanced_forecasting.is_trained:
         raise HTTPException(
             status_code=503,
-            detail="Models not trained. Call /api/v2/train first."
+            detail=_analysis_pending_detail(
+                "Models not trained. Call /api/v2/train first."
+            ),
         )
     
     comparison = advanced_forecasting.get_model_comparison()
-    return ModelComparisonResponse(**comparison)
+    contract = _contract_payload(raw_status="ok", data_available=True)
+    return ModelComparisonResponse(**comparison, **contract)
 
 
 @router.get("/risk-assessment", response_model=RiskAssessmentAdvanced)
@@ -289,13 +425,17 @@ async def get_advanced_risk_assessment():
     if not ADVANCED_ML_AVAILABLE or advanced_forecasting is None:
         raise HTTPException(
             status_code=503,
-            detail="Advanced ML features unavailable. TensorFlow not installed."
+            detail=_source_unavailable_detail(
+                "Advanced ML features unavailable. TensorFlow not installed."
+            ),
         )
     
     if not advanced_forecasting.is_trained:
         raise HTTPException(
             status_code=503,
-            detail="Models not trained. Call /api/v2/train first."
+            detail=_analysis_pending_detail(
+                "Models not trained. Call /api/v2/train first."
+            ),
         )
     
     try:
@@ -306,7 +446,8 @@ async def get_advanced_risk_assessment():
             for alert in risk_analysis['alerts']:
                 logger.warning(f"RISK ALERT: {alert}")
         
-        return RiskAssessmentAdvanced(**risk_analysis)
+        contract = _contract_payload(raw_status="ok", data_available=True)
+        return RiskAssessmentAdvanced(**risk_analysis, status=contract["status"], **contract)
     
     except Exception as e:
         logger.error(f"Error analyzing risk: {e}")
@@ -323,13 +464,15 @@ async def get_model_analysis(model_name: str):
     if not ADVANCED_ML_AVAILABLE or advanced_forecasting is None:
         raise HTTPException(
             status_code=503,
-            detail="Advanced ML features unavailable. TensorFlow not installed."
+            detail=_source_unavailable_detail(
+                "Advanced ML features unavailable. TensorFlow not installed."
+            ),
         )
     
     if not advanced_forecasting.is_trained:
         raise HTTPException(
             status_code=503,
-            detail="Models not trained."
+            detail=_analysis_pending_detail("Models not trained."),
         )
     
     # Format model name
@@ -362,10 +505,19 @@ async def get_model_analysis(model_name: str):
             })
         feature_importance.sort(key=lambda x: x['importance'], reverse=True)
     
+    contract = _contract_payload(raw_status="ok", data_available=True)
     return ModelAnalysis(
         model_name=model_name_formatted,
         metrics=ModelMetrics(**metrics),
-        feature_importance=feature_importance[:15]  # Top 15 features
+        feature_importance=feature_importance[:15],  # Top 15 features
+        status=contract["status"],
+        source=contract["source"],
+        is_live=contract["is_live"],
+        observed_at=contract["observed_at"],
+        staleness_sec=contract["staleness_sec"],
+        quality=contract["quality"],
+        data_available=contract["data_available"],
+        message=contract["message"],
     )
 
 
@@ -383,13 +535,15 @@ async def get_feature_importance(model: str = Query('rf', description="Model: rf
     if not ADVANCED_ML_AVAILABLE or advanced_forecasting is None:
         raise HTTPException(
             status_code=503,
-            detail="Advanced ML features unavailable. TensorFlow not installed."
+            detail=_source_unavailable_detail(
+                "Advanced ML features unavailable. TensorFlow not installed."
+            ),
         )
     
     if not advanced_forecasting.is_trained:
         raise HTTPException(
             status_code=503,
-            detail="Models not trained."
+            detail=_analysis_pending_detail("Models not trained."),
         )
     
     if model.lower() == 'rf' and advanced_forecasting.rf_model:
@@ -410,8 +564,9 @@ async def get_feature_importance(model: str = Query('rf', description="Model: rf
     # Sort by importance
     feature_importance.sort(key=lambda x: x.importance, reverse=True)
     
+    contract = _contract_payload(raw_status="ok", data_available=True)
     return {
-        'status': 'success',
+        **contract,
         'model': model.upper(),
         'features': feature_importance[:20]  # Top 20
     }
@@ -427,14 +582,16 @@ async def update_historical_data():
     if not ADVANCED_ML_AVAILABLE or advanced_forecasting is None:
         raise HTTPException(
             status_code=503,
-            detail="Advanced ML features unavailable. TensorFlow not installed."
+            detail=_source_unavailable_detail(
+                "Advanced ML features unavailable. TensorFlow not installed."
+            ),
         )
     
     try:
         if not forecasting_system.is_ready:
             raise HTTPException(
                 status_code=400,
-                detail="No data available in basic forecasting system"
+                detail=_analysis_pending_detail("No data available in basic forecasting system"),
             )
         
         # Collect all historical data
@@ -453,20 +610,27 @@ async def update_historical_data():
         # Retrain if sufficient data
         if len(historical_data) >= 100:
             metrics = advanced_forecasting.train_models(test_size=0.2)
+            contract = _contract_payload(
+                raw_status="ok",
+                data_available=True,
+                message="Data updated and models retrained",
+            )
             return {
-                'status': 'success',
+                **contract,
                 'message': 'Data updated and models retrained',
                 'data_points': len(historical_data),
                 'models': list(metrics.keys())
             }
         else:
+            contract = _analysis_pending_detail("Data updated but not enough for retraining")
             return {
-                'status': 'success',
+                **contract,
                 'message': 'Data updated but not enough for retraining',
                 'data_points': len(historical_data),
                 'required': 100
             }
-    
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error updating data: {e}")
         raise HTTPException(status_code=500, detail=str(e))

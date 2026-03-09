@@ -13,6 +13,9 @@ from typing import Optional
 from datetime import datetime
 import logging
 
+from ..core.contracts import build_contract
+from ..db.repository import add_irrigation_recommendation_artifact, add_weather_artifact
+from ..db.session import session_scope
 from ..integrations.weather_api import weather_client
 from ..core.config import settings
 
@@ -33,10 +36,32 @@ async def get_current_weather():
         weather = await weather_client.get_current_weather()
         if weather.get("status") == "source_unavailable":
             raise HTTPException(status_code=503, detail=weather)
+        async with session_scope() as session:
+            await add_weather_artifact(
+                session,
+                kind="current",
+                payload=weather,
+                status=str(weather.get("status") or "ok"),
+                source=str(weather.get("source") or "unknown"),
+                observed_at=weather.get("observed_at") or weather.get("timestamp"),
+            )
         return weather
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching current weather: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch weather data: {str(e)}")
+        timestamp = datetime.utcnow().isoformat()
+        raise HTTPException(
+            status_code=500,
+            detail=build_contract(
+                source="forecasting_service",
+                observed_at=timestamp,
+                data_available=False,
+                raw_status="source_unavailable",
+                message=f"Failed to fetch weather data: {str(e)}",
+                stale_after_sec=900,
+            ),
+        )
 
 
 @router.get("/forecast")
@@ -59,10 +84,32 @@ async def get_weather_forecast(
         forecast = await weather_client.get_forecast(days)
         if forecast.get("status") == "source_unavailable":
             raise HTTPException(status_code=503, detail=forecast)
+        async with session_scope() as session:
+            await add_weather_artifact(
+                session,
+                kind="forecast",
+                payload=forecast,
+                status=str(forecast.get("status") or "ok"),
+                source=str(forecast.get("source") or "unknown"),
+                observed_at=forecast.get("observed_at") or forecast.get("generated_at"),
+            )
         return forecast
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching weather forecast: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch forecast: {str(e)}")
+        timestamp = datetime.utcnow().isoformat()
+        raise HTTPException(
+            status_code=500,
+            detail=build_contract(
+                source="forecasting_service",
+                observed_at=timestamp,
+                data_available=False,
+                raw_status="source_unavailable",
+                message=f"Failed to fetch forecast: {str(e)}",
+                stale_after_sec=900,
+            ),
+        )
 
 
 @router.get("/historical")
@@ -84,10 +131,32 @@ async def get_historical_weather(
         historical = await weather_client.get_historical(days)
         if historical.get("status") == "source_unavailable":
             raise HTTPException(status_code=503, detail=historical)
+        async with session_scope() as session:
+            await add_weather_artifact(
+                session,
+                kind="historical",
+                payload=historical,
+                status=str(historical.get("status") or "ok"),
+                source=str(historical.get("source") or "unknown"),
+                observed_at=historical.get("observed_at") or historical.get("generated_at"),
+            )
         return historical
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching historical weather: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch historical data: {str(e)}")
+        timestamp = datetime.utcnow().isoformat()
+        raise HTTPException(
+            status_code=500,
+            detail=build_contract(
+                source="forecasting_service",
+                observed_at=timestamp,
+                data_available=False,
+                raw_status="source_unavailable",
+                message=f"Failed to fetch historical data: {str(e)}",
+                stale_after_sec=900,
+            ),
+        )
 
 
 @router.get("/irrigation-recommendation")
@@ -148,8 +217,21 @@ async def get_irrigation_recommendation():
         total_evap = sum(d.get("expected_evapotranspiration_mm", 0) for d in daily_recommendations)
         avg_irrigation = sum(d.get("irrigation_percent", 100) for d in daily_recommendations) / max(len(daily_recommendations), 1)
         
-        return {
-            "status": "success",
+        source = "simulated" if (
+            str(current.get("source") or "").lower() == "simulated"
+            or str(forecast.get("source") or "").lower() == "simulated"
+        ) else "forecasting_service"
+        raw_status = "stale" if source == "simulated" else "ok"
+        generated_at = datetime.utcnow().isoformat()
+        contract = build_contract(
+            source=source,
+            observed_at=generated_at,
+            data_available=True,
+            raw_status=raw_status,
+            stale_after_sec=900,
+        )
+
+        response_payload = {
             "generated_at": datetime.now().isoformat(),
             "ml_only_mode": settings.is_ml_only_mode,
             "current_conditions": {
@@ -171,11 +253,34 @@ async def get_irrigation_recommendation():
                 "Recommendations are based on predicted rainfall and evapotranspiration",
                 "Consider soil moisture readings for fine-tuning",
                 "Update recommendations as forecasts change"
-            ]
+            ],
+            **contract,
         }
+        async with session_scope() as session:
+            await add_irrigation_recommendation_artifact(
+                session,
+                payload=response_payload,
+                status=response_payload["status"],
+                source=response_payload["source"],
+                observed_at=response_payload.get("observed_at") or response_payload.get("generated_at"),
+            )
+        return response_payload
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error generating irrigation recommendation: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to generate recommendation: {str(e)}")
+        timestamp = datetime.utcnow().isoformat()
+        raise HTTPException(
+            status_code=500,
+            detail=build_contract(
+                source="forecasting_service",
+                observed_at=timestamp,
+                data_available=False,
+                raw_status="source_unavailable",
+                message=f"Failed to generate recommendation: {str(e)}",
+                stale_after_sec=900,
+            ),
+        )
 
 
 @router.get("/summary")
@@ -197,8 +302,21 @@ async def get_weather_summary():
         conditions = current.get("conditions", {})
         daily = forecast.get("daily", [])[:3]
         
-        return {
-            "status": "success",
+        source = "simulated" if (
+            str(current.get("source") or "").lower() == "simulated"
+            or str(forecast.get("source") or "").lower() == "simulated"
+        ) else "forecasting_service"
+        raw_status = "stale" if source == "simulated" else "ok"
+        generated_at = datetime.utcnow().isoformat()
+        contract = build_contract(
+            source=source,
+            observed_at=generated_at,
+            data_available=True,
+            raw_status=raw_status,
+            stale_after_sec=900,
+        )
+
+        response_payload = {
             "timestamp": datetime.now().isoformat(),
             "ml_only_mode": settings.is_ml_only_mode,
             "current": {
@@ -219,8 +337,32 @@ async def get_weather_summary():
                 for d in daily
             ],
             "irrigation_impact": current.get("irrigation_impact", {}),
-            "data_source": current.get("source", "unknown")
+            "data_source": current.get("source", "unknown"),
+            **contract,
         }
+        async with session_scope() as session:
+            await add_weather_artifact(
+                session,
+                kind="summary",
+                payload=response_payload,
+                status=response_payload["status"],
+                source=response_payload["source"],
+                observed_at=response_payload.get("observed_at") or response_payload.get("timestamp"),
+            )
+        return response_payload
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching weather summary: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch summary: {str(e)}")
+        timestamp = datetime.utcnow().isoformat()
+        raise HTTPException(
+            status_code=500,
+            detail=build_contract(
+                source="forecasting_service",
+                observed_at=timestamp,
+                data_available=False,
+                raw_status="source_unavailable",
+                message=f"Failed to fetch summary: {str(e)}",
+                stale_after_sec=900,
+            ),
+        )

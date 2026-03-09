@@ -18,6 +18,7 @@ import random
 import httpx
 
 from app.core.config import settings
+from app.core.contracts import build_contract
 
 logger = logging.getLogger(__name__)
 
@@ -59,25 +60,29 @@ class WeatherAPIClient:
         observed_at: Optional[str] = None,
     ) -> Dict[str, Any]:
         observed = observed_at or payload.get("timestamp") or payload.get("generated_at")
-        payload["source"] = source
-        payload["is_live"] = bool(data_available and source != "simulated")
-        payload["observed_at"] = observed
-        payload["staleness_sec"] = 0.0 if payload["is_live"] else None
-        payload["quality"] = "good" if payload["is_live"] else "unknown"
-        payload["data_available"] = data_available
+        contract = build_contract(
+            source=source,
+            observed_at=observed,
+            data_available=data_available,
+            raw_status=payload.get("status"),
+            message=payload.get("message"),
+            stale_after_sec=900,
+        )
+        payload.update(contract)
         return payload
 
     def _source_unavailable(self, message: str) -> Dict[str, Any]:
+        timestamp = datetime.utcnow().isoformat()
         return {
-            "status": "source_unavailable",
-            "message": message,
-            "source": "unavailable",
-            "is_live": False,
-            "observed_at": None,
-            "staleness_sec": None,
-            "quality": "unknown",
-            "data_available": False,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": timestamp,
+            **build_contract(
+                source="unavailable",
+                observed_at=timestamp,
+                data_available=False,
+                raw_status="source_unavailable",
+                message=message,
+                stale_after_sec=900,
+            ),
         }
     
     async def get_current_weather(self) -> Dict[str, Any]:

@@ -39,8 +39,9 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import InfoIcon from '@mui/icons-material/Info';
 import WarningIcon from '@mui/icons-material/Warning';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { acaoApi } from '../../../api/f4-acao.api';
+import { getFreshnessView } from '../../../utils/dataFreshness';
 import {
   AdaptiveParams,
   AdaptiveResponse,
@@ -68,6 +69,15 @@ export default function AdaptiveRecommendations() {
   const [activeTab, setActiveTab] = useState(0);
   const [results, setResults] = useState<AdaptiveResponse | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const resultsFreshness = results ? getFreshnessView(results as any) : null;
+
+  const cropsQuery = useQuery({
+    queryKey: ['adaptive-available-crops'],
+    queryFn: acaoApi.getAvailableCrops,
+    staleTime: 5 * 60 * 1000,
+  });
+  const availableCrops = cropsQuery.data?.crops ?? [];
+  const availableCropCount = cropsQuery.data?.total ?? availableCrops.length;
 
   // Mutation for getting recommendations
   const recommendationMutation = useMutation({
@@ -534,10 +544,16 @@ export default function AdaptiveRecommendations() {
               {/* Crop Filters Tab */}
               <TabPanel value={activeTab} index={4}>
                 <Stack spacing={2.5}>
+                  {cropsQuery.isError && (
+                    <Alert severity="warning">
+                      Crop catalog could not be loaded. Using all crops by default.
+                    </Alert>
+                  )}
+
                   {/* Number of Recommendations */}
                   <Box>
                     <Typography variant="body2" gutterBottom>
-                      Top N Recommendations: <strong>{params.top_n}</strong> (out of 30 crops)
+                      Top N Recommendations: <strong>{params.top_n}</strong> (out of {availableCropCount || 0} crops)
                     </Typography>
                     <Slider
                       value={params.top_n}
@@ -549,6 +565,34 @@ export default function AdaptiveRecommendations() {
                       marks={[{value: 1, label: '1'}, {value: 10, label: '10'}, {value: 20, label: '20'}]}
                     />
                   </Box>
+
+                  {/* Crop Selection */}
+                  <FormControl fullWidth size="small" disabled={cropsQuery.isLoading}>
+                    <InputLabel>Crop Selection</InputLabel>
+                    <Select
+                      multiple
+                      value={params.crop_filters.crop_ids || []}
+                      label="Crop Selection"
+                      renderValue={(selected) => {
+                        const selectedIds = selected as string[];
+                        if (!selectedIds.length) return 'All crops';
+                        return availableCrops
+                          .filter((crop) => selectedIds.includes(crop.crop_id))
+                          .map((crop) => crop.crop_name)
+                          .join(', ');
+                      }}
+                      onChange={(e) => {
+                        const selectedIds = e.target.value as string[];
+                        updateCropFilter('crop_ids', selectedIds.length ? selectedIds : undefined);
+                      }}
+                    >
+                      {availableCrops.map((crop) => (
+                        <MenuItem key={crop.crop_id} value={crop.crop_id}>
+                          {crop.crop_name}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
 
                   {/* Water Sensitivity Filter */}
                   <FormControl fullWidth size="small">
@@ -742,6 +786,17 @@ export default function AdaptiveRecommendations() {
           {/* Results */}
           {results && !recommendationMutation.isPending && (
             <>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="h6">Adaptive Output Status</Typography>
+                {resultsFreshness && (
+                  <Chip label={resultsFreshness.label} color={resultsFreshness.color} size="small" />
+                )}
+              </Box>
+              {results.message && results.status && results.status !== 'ok' && (
+                <Alert severity={results.status === 'stale' ? 'warning' : 'info'} sx={{ mb: 2 }}>
+                  {results.message}
+                </Alert>
+              )}
               {/* Summary Stats */}
               <Paper sx={{ p: 2, mb: 3 }}>
                 <Grid container spacing={2}>

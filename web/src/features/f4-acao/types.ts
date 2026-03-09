@@ -159,6 +159,13 @@ export interface AdaptiveInputSummary {
 export interface AdaptiveResponse {
   success: boolean;
   message: string;
+  status?: 'ok' | 'stale' | 'data_unavailable' | 'analysis_pending' | 'source_unavailable';
+  source?: string;
+  is_live?: boolean;
+  observed_at?: string | null;
+  staleness_sec?: number | null;
+  quality?: string;
+  data_available?: boolean;
   input_summary: AdaptiveInputSummary;
   recommendations: AdaptiveCropResult[];
   total_crops_evaluated: number;

@@ -34,7 +34,7 @@ import {
   Line,
   Area,
 } from 'recharts';
-import forecastingAPI, { WeatherCurrent, WeatherForecast } from '../../../api/forecasting';
+import forecastingAPI, { type IrrigationRecommendation, getForecastApiErrorMessage, type WeatherCurrent, type WeatherForecast } from '../../../api/forecasting';
 
 interface WeatherDashboardProps {
   compact?: boolean;
@@ -44,25 +44,61 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ compact = false }) 
   const theme = useTheme();
   const [currentWeather, setCurrentWeather] = useState<WeatherCurrent | null>(null);
   const [forecast, setForecast] = useState<WeatherForecast | null>(null);
-  const [irrigationRec, setIrrigationRec] = useState<any>(null);
+  const [irrigationRec, setIrrigationRec] = useState<IrrigationRecommendation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notices, setNotices] = useState<string[]>([]);
 
   const fetchWeatherData = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setNotices([]);
     try {
-      const [current, forecastData, irrigation] = await Promise.all([
+      const [currentResult, forecastResult, irrigationResult] = await Promise.allSettled([
         forecastingAPI.getCurrentWeather(),
         forecastingAPI.getWeatherForecast(7),
         forecastingAPI.getIrrigationRecommendation(),
       ]);
-      setCurrentWeather(current);
-      setForecast(forecastData);
-      setIrrigationRec(irrigation);
+
+      const nextNotices: string[] = [];
+
+      if (currentResult.status === 'fulfilled') {
+        setCurrentWeather(currentResult.value);
+        if (currentResult.value.status !== 'ok') {
+          nextNotices.push(`Current weather is ${currentResult.value.status} (${currentResult.value.source}).`);
+        }
+      } else {
+        setCurrentWeather(null);
+        nextNotices.push('Current weather is unavailable.');
+      }
+
+      if (forecastResult.status === 'fulfilled') {
+        setForecast(forecastResult.value);
+        if (forecastResult.value.status !== 'ok') {
+          nextNotices.push(`Weather forecast is ${forecastResult.value.status} (${forecastResult.value.source}).`);
+        }
+      } else {
+        setForecast(null);
+        nextNotices.push('Weather forecast is unavailable.');
+      }
+
+      if (irrigationResult.status === 'fulfilled') {
+        setIrrigationRec(irrigationResult.value);
+        if (irrigationResult.value.status !== 'ok') {
+          nextNotices.push(`Irrigation recommendation is ${irrigationResult.value.status} (${irrigationResult.value.source}).`);
+        }
+      } else {
+        setIrrigationRec(null);
+        nextNotices.push('Irrigation recommendation is unavailable.');
+      }
+
+      if (currentResult.status === 'rejected' && forecastResult.status === 'rejected' && irrigationResult.status === 'rejected') {
+        setError('All weather sources are unavailable right now.');
+      }
+      setNotices(nextNotices);
     } catch (err: any) {
       console.error('Error fetching weather:', err);
-      setError(err.message || 'Failed to fetch weather data');
+      setError(getForecastApiErrorMessage(err, 'Failed to fetch weather data'));
     } finally {
       setLoading(false);
     }
@@ -93,6 +129,21 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ compact = false }) 
     return 'success';
   };
 
+  const getStatusColor = (status?: string) => {
+    switch (status) {
+      case 'ok':
+        return 'success';
+      case 'stale':
+      case 'analysis_pending':
+        return 'warning';
+      case 'source_unavailable':
+      case 'data_unavailable':
+        return 'error';
+      default:
+        return 'default';
+    }
+  };
+
   const getEvaporationColor = (risk: string) => {
     switch (risk) {
       case 'HIGH': return theme.palette.error.main;
@@ -107,14 +158,6 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ compact = false }) 
       <Box display="flex" justifyContent="center" alignItems="center" minHeight={200}>
         <CircularProgress />
       </Box>
-    );
-  }
-
-  if (error) {
-    return (
-      <Alert severity="warning" sx={{ mb: 2 }}>
-        {error}. Weather data may be temporarily unavailable.
-      </Alert>
     );
   }
 
@@ -134,6 +177,7 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ compact = false }) 
     waterBalance: day.water_balance_mm,
     irrigationPercent: day.irrigation_percent,
   })) || [];
+  const netWaterBalance = irrigationRec?.weekly_outlook?.net_water_balance_mm ?? 0;
 
   if (compact) {
     // Compact view for dashboard widget
@@ -148,10 +192,22 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ compact = false }) 
               <RefreshIcon />
             </IconButton>
           </Box>
+
+          {error && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+          )}
+
+          {notices[0] && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              {notices[0]}
+            </Alert>
+          )}
           
           {currentWeather && (
             <Box display="flex" alignItems="center" gap={2}>
-              {getWeatherIcon(currentWeather.conditions.weather_description)}
+              {getWeatherIcon(currentWeather.conditions.weather_description || 'clear')}
               <Box>
                 <Typography variant="h4" fontWeight="bold">
                   {currentWeather.conditions.temperature_c}°C
@@ -173,6 +229,12 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ compact = false }) 
             </Box>
           )}
 
+          {!currentWeather && (
+            <Typography variant="body2" color="text.secondary">
+              Current weather is not available.
+            </Typography>
+          )}
+
           <Divider sx={{ my: 2 }} />
 
           <Box>
@@ -184,6 +246,12 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ compact = false }) 
               label={currentWeather?.irrigation_impact.recommendation || 'Normal'}
               color={getRecommendationColor(currentWeather?.irrigation_impact.recommendation || '')}
               size="small"
+            />
+            <Chip
+              label={currentWeather?.status || 'unknown'}
+              color={getStatusColor(currentWeather?.status) as any}
+              size="small"
+              sx={{ ml: 1 }}
             />
           </Box>
         </CardContent>
@@ -202,6 +270,18 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ compact = false }) 
           <RefreshIcon />
         </IconButton>
       </Box>
+
+      {error && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
+      {notices.map((notice, index) => (
+        <Alert key={`${notice}-${index}`} severity="info" sx={{ mb: 2 }}>
+          {notice}
+        </Alert>
+      ))}
 
       <Grid container spacing={3}>
         {/* Current Weather Card */}
@@ -289,11 +369,22 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ compact = false }) 
                   </Box>
 
                   <Box mt={2}>
-                    <Typography variant="caption" color="text.secondary">
-                      Data source: {currentWeather.source}
-                    </Typography>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Typography variant="caption" color="text.secondary">
+                        Data source: {currentWeather.source}
+                      </Typography>
+                      <Chip
+                        label={currentWeather.status}
+                        size="small"
+                        color={getStatusColor(currentWeather.status) as any}
+                      />
+                    </Box>
                   </Box>
                 </>
+              )}
+
+              {!currentWeather && (
+                <Alert severity="warning">Current weather data is unavailable.</Alert>
               )}
             </CardContent>
           </Card>
@@ -301,11 +392,20 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ compact = false }) 
 
         {/* 7-Day Forecast Chart */}
         <Grid item xs={12} md={8}>
-          <Card elevation={3} sx={{ height: '100%' }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom fontWeight="bold">
-                7-Day Forecast
-              </Typography>
+            <Card elevation={3} sx={{ height: '100%' }}>
+              <CardContent>
+                <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+                  <Typography variant="h6" gutterBottom fontWeight="bold">
+                    7-Day Forecast
+                  </Typography>
+                  {forecast && (
+                    <Chip
+                      label={forecast.status}
+                      size="small"
+                      color={getStatusColor(forecast.status) as any}
+                    />
+                  )}
+                </Box>
               
               <ResponsiveContainer width="100%" height={300}>
                 <ComposedChart data={forecastChartData}>
@@ -364,15 +464,24 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ compact = false }) 
         <Grid item xs={12} md={6}>
           <Card elevation={3}>
             <CardContent>
-              <Typography variant="h6" gutterBottom fontWeight="bold">
-                <IrrigationIcon sx={{ verticalAlign: 'middle', mr: 1 }} />
-                Irrigation Recommendation
-              </Typography>
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+                <Typography variant="h6" gutterBottom fontWeight="bold">
+                  <IrrigationIcon sx={{ verticalAlign: 'middle', mr: 1 }} />
+                  Irrigation Recommendation
+                </Typography>
+                {irrigationRec && (
+                  <Chip
+                    label={irrigationRec.status}
+                    size="small"
+                    color={getStatusColor(irrigationRec.status) as any}
+                  />
+                )}
+              </Box>
 
               {irrigationRec && (
                 <>
                   <Alert 
-                    severity={getRecommendationColor(irrigationRec.overall_recommendation) as any}
+                    severity={getRecommendationColor(irrigationRec.overall_recommendation || '') as any}
                     sx={{ mb: 2 }}
                   >
                     <Typography variant="subtitle1" fontWeight="bold">
@@ -393,10 +502,10 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ compact = false }) 
                       <Typography variant="body2" color="text.secondary">Net Water Balance</Typography>
                       <Typography 
                         variant="h6"
-                        color={irrigationRec.weekly_outlook?.net_water_balance_mm > 0 ? 'success.main' : 'warning.main'}
+                        color={netWaterBalance > 0 ? 'success.main' : 'warning.main'}
                       >
-                        {irrigationRec.weekly_outlook?.net_water_balance_mm > 0 ? '+' : ''}
-                        {irrigationRec.weekly_outlook?.net_water_balance_mm} mm
+                        {netWaterBalance > 0 ? '+' : ''}
+                        {netWaterBalance} mm
                       </Typography>
                     </Grid>
                     <Grid item xs={6}>
@@ -405,6 +514,10 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ compact = false }) 
                     </Grid>
                   </Grid>
                 </>
+              )}
+
+              {!irrigationRec && (
+                <Alert severity="warning">Irrigation recommendation data is unavailable.</Alert>
               )}
             </CardContent>
           </Card>

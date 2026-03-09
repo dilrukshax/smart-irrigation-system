@@ -11,6 +11,7 @@ The service provides:
 """
 
 import logging
+import csv
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from app.api.routes_health import router as health_router
 from app.api.routes_recommendations import router as recommendations_router
 from app.api.routes_planb import router as planb_router
 from app.api.routes_supply import router as supply_router
+from app.api.routes_internal import router as internal_router
 
 # Import core modules
 from app.core.config import get_settings
@@ -34,6 +36,78 @@ settings = get_settings()
 # Setup logging
 setup_logging()
 logger = logging.getLogger(__name__)
+
+
+def _safe_float(value: object) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(value: object) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def _seed_crop_catalog_if_empty() -> None:
+    """Idempotently seed crop catalog from CSV when DB catalog is empty."""
+    try:
+        from app.data.db import SessionLocal
+        from app.data.models_orm import Crop
+    except Exception as exc:  # pragma: no cover - defensive import path
+        logger.warning("Unable to import DB models for crop bootstrap: %s", exc)
+        return
+
+    data_path = Path(__file__).resolve().parents[1] / "data" / "crops.csv"
+    if not data_path.exists():
+        logger.warning("Crop seed file not found: %s", data_path)
+        return
+
+    db = SessionLocal()
+    try:
+        existing = db.query(Crop).count()
+        if existing > 0:
+            logger.info("Crop catalog already populated (%s rows); bootstrap skipped", existing)
+            return
+
+        inserted = 0
+        with data_path.open("r", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                crop_id = str(row.get("crop_id") or "").strip()
+                if not crop_id:
+                    continue
+                db.add(
+                    Crop(
+                        id=crop_id,
+                        name=row.get("crop_name") or crop_id,
+                        category=row.get("category"),
+                        water_sensitivity=row.get("water_sensitivity"),
+                        growth_duration_days=_safe_int(row.get("growth_duration_days")),
+                        base_yield_t_per_ha=_safe_float(
+                            row.get("base_yield_t_per_ha") or row.get("typical_yield_t_ha")
+                        ),
+                        water_requirement_mm=_safe_float(row.get("water_requirement_mm")),
+                        ph_min=_safe_float(row.get("ph_min")),
+                        ph_max=_safe_float(row.get("ph_max")),
+                        ec_max=_safe_float(row.get("ec_max")),
+                    )
+                )
+                inserted += 1
+
+        db.commit()
+        logger.info("Crop catalog bootstrap inserted %s rows from %s", inserted, data_path)
+    except Exception as exc:
+        db.rollback()
+        logger.warning("Crop catalog bootstrap failed: %s", exc)
+    finally:
+        db.close()
 
 
 @asynccontextmanager
@@ -151,6 +225,8 @@ async def lifespan(app: FastAPI):
             logger.info("✓ Database connection verified")
     except Exception as e:
         logger.warning(f"⚠ Database connection failed: {e}")
+    else:
+        _seed_crop_catalog_if_empty()
 
     logger.info(f"✓ {settings.app_name} is ready to accept requests")
 
@@ -198,6 +274,7 @@ app.include_router(health_router)
 app.include_router(recommendations_router)
 app.include_router(planb_router)
 app.include_router(supply_router)
+app.include_router(internal_router)
 
 # Import and include demo router (for testing without database)
 from app.api.routes_demo import router as demo_router

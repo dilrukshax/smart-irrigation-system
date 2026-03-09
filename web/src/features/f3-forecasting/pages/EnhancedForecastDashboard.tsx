@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Typography,
   Tabs,
   Tab,
   Paper,
+  Alert,
   useTheme,
   useMediaQuery,
 } from '@mui/material';
@@ -17,6 +18,7 @@ import {
 } from '@mui/icons-material';
 import ForecastDashboard from './ForecastDashboard';
 import { WeatherDashboard, AnomalyVisualization, ModelPerformanceCharts } from '../components';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -32,12 +34,19 @@ const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => (
 
 const EnhancedForecastDashboard: React.FC = () => {
   const theme = useTheme();
+  const { isAdmin } = useAuth();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [tabValue, setTabValue] = useState(0);
 
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
   };
+
+  useEffect(() => {
+    if (!isAdmin && [1, 3, 4].includes(tabValue)) {
+      setTabValue(2);
+    }
+  }, [isAdmin, tabValue]);
 
   return (
     <Box>
@@ -49,6 +58,12 @@ const EnhancedForecastDashboard: React.FC = () => {
           Comprehensive forecasting, weather intelligence, and anomaly detection for your irrigation system
         </Typography>
       </Box>
+
+      {!isAdmin && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          Admin-only controls are hidden for your role. You can still view weather and irrigation recommendation flows.
+        </Alert>
+      )}
 
       <Paper elevation={0} sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
         <Tabs
@@ -74,6 +89,7 @@ const EnhancedForecastDashboard: React.FC = () => {
             icon={<TimelineIcon />}
             label="Forecast"
             iconPosition="start"
+            disabled={!isAdmin}
             sx={{ minWidth: isMobile ? 'auto' : 150 }}
           />
           <Tab
@@ -86,12 +102,14 @@ const EnhancedForecastDashboard: React.FC = () => {
             icon={<AnomalyIcon />}
             label="Anomaly Detection"
             iconPosition="start"
+            disabled={!isAdmin}
             sx={{ minWidth: isMobile ? 'auto' : 150 }}
           />
           <Tab
             icon={<PerformanceIcon />}
             label="Model Analysis"
             iconPosition="start"
+            disabled={!isAdmin}
             sx={{ minWidth: isMobile ? 'auto' : 150 }}
           />
         </Tabs>
@@ -106,9 +124,11 @@ const EnhancedForecastDashboard: React.FC = () => {
           </Box>
           
           {/* Model Performance Widget */}
-          <Box>
-            <ModelPerformanceCharts compact />
-          </Box>
+          {isAdmin && (
+            <Box>
+              <ModelPerformanceCharts compact />
+            </Box>
+          )}
           
           {/* Quick Stats Card */}
           <Box>
@@ -132,10 +152,10 @@ const EnhancedForecastDashboard: React.FC = () => {
                   ✅ Weather API: Connected
                 </Typography>
                 <Typography variant="body2" sx={{ opacity: 0.9, mb: 1 }}>
-                  ✅ ML Models: Ready
+                  {isAdmin ? '✅ ML Models: Ready' : '🔒 ML Models: Admin only'}
                 </Typography>
                 <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                  ✅ Anomaly Detection: Active
+                  {isAdmin ? '✅ Anomaly Detection: Active' : '🔒 Anomaly Detection: Admin only'}
                 </Typography>
               </Box>
               <Box sx={{ mt: 3 }}>
@@ -154,10 +174,10 @@ const EnhancedForecastDashboard: React.FC = () => {
           </Typography>
           <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' } }}>
             {[
-              { icon: <TimelineIcon />, title: 'Water Level Forecast', desc: '72-hour predictions', tab: 1 },
+              ...(isAdmin ? [{ icon: <TimelineIcon />, title: 'Water Level Forecast', desc: '72-hour predictions', tab: 1 }] : []),
               { icon: <WeatherIcon />, title: 'Weather Intelligence', desc: '7-day forecast & irrigation', tab: 2 },
-              { icon: <AnomalyIcon />, title: 'Anomaly Detection', desc: 'Multi-method analysis', tab: 3 },
-              { icon: <PerformanceIcon />, title: 'Model Performance', desc: 'Compare ML models', tab: 4 },
+              ...(isAdmin ? [{ icon: <AnomalyIcon />, title: 'Anomaly Detection', desc: 'Multi-method analysis', tab: 3 }] : []),
+              ...(isAdmin ? [{ icon: <PerformanceIcon />, title: 'Model Performance', desc: 'Compare ML models', tab: 4 }] : []),
             ].map((item, index) => (
               <Paper
                 key={index}

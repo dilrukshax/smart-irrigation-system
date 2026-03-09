@@ -242,7 +242,7 @@ export function useHomepageResearchData() {
       const forecastPayload = advancedForecast || basicForecast;
       const forecastRecord =
         forecastPayload && typeof forecastPayload === 'object'
-          ? (forecastPayload as Record<string, unknown>)
+          ? (forecastPayload as unknown as Record<string, unknown>)
           : null;
       const predictionRows =
         forecastRecord && Array.isArray(forecastRecord.predictions)

@@ -1,4 +1,4 @@
-import { Box, Typography, Grid, Card, CardContent, Paper, Chip, LinearProgress, Button, Alert, CircularProgress, Tabs, Tab } from '@mui/material';
+import { Box, Typography, Grid, Card, CardContent, Paper, Chip, Button, Alert, CircularProgress, Tabs, Tab } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { Line, Bar } from 'react-chartjs-2';
 import {
@@ -13,10 +13,11 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { forecastingAPI, type ForecastResponse, type ModelComparisonResponse, type RiskAssessment } from '../../../api/forecasting';
+import { forecastingAPI, type ForecastResponse, type ForecastStatusResponse, getForecastApiErrorMessage, type ModelComparisonResponse, type RiskAssessment } from '../../../api/forecasting';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ModelTrainingIcon from '@mui/icons-material/ModelTraining';
 import TimelineIcon from '@mui/icons-material/Timeline';
+import { useAuth } from '@/contexts/AuthContext';
 
 // Register Chart.js components
 ChartJS.register(
@@ -32,13 +33,14 @@ ChartJS.register(
 );
 
 export default function ForecastDashboard() {
+  const { isAdmin } = useAuth();
   const [tabValue, setTabValue] = useState(0);
   const [loading, setLoading] = useState(true);
   const [training, setTraining] = useState(false);
   const [forecast, setForecast] = useState<ForecastResponse | null>(null);
   const [riskAssessment, setRiskAssessment] = useState<RiskAssessment | null>(null);
   const [modelComparison, setModelComparison] = useState<ModelComparisonResponse | null>(null);
-  const [systemStatus, setSystemStatus] = useState<any>(null);
+  const [systemStatus, setSystemStatus] = useState<ForecastStatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = async () => {
@@ -46,56 +48,65 @@ export default function ForecastDashboard() {
       setLoading(true);
       setError(null);
 
-      // Check if ML models are trained
-      const status = await forecastingAPI.getAdvancedStatus();
-      setSystemStatus(status);
+      if (!isAdmin) {
+        const status = await forecastingAPI.getStatus();
+        setSystemStatus(status);
+        setForecast(null);
+        setRiskAssessment(null);
+        setModelComparison(null);
+        return;
+      }
 
-      if (status.models_trained) {
-        // Fetch ML predictions
+      const advancedStatus = await forecastingAPI.getAdvancedStatus();
+      setSystemStatus(advancedStatus);
+
+      const canUseAdvanced = advancedStatus.models_trained && advancedStatus.status === 'ok' && advancedStatus.data_available;
+      if (canUseAdvanced) {
         const [forecastData, riskData, comparisonData] = await Promise.all([
           forecastingAPI.getAdvancedForecast(72, 'best', true),
           forecastingAPI.getAdvancedRiskAssessment(),
-          forecastingAPI.getModelComparison()
+          forecastingAPI.getModelComparison(),
         ]);
-
         setForecast(forecastData);
         setRiskAssessment(riskData);
         setModelComparison(comparisonData);
-      } else {
-        // Use basic forecasting as fallback
-        const basicForecast = await forecastingAPI.getBasicForecast(24);
-        const basicRisk = await forecastingAPI.getBasicRiskAssessment();
-        
-        setForecast(basicForecast as any);
-        setRiskAssessment(basicRisk as any);
+        return;
       }
+
+      const [basicForecast, basicRisk] = await Promise.all([
+        forecastingAPI.getBasicForecast(24),
+        forecastingAPI.getBasicRiskAssessment(),
+      ]);
+      setForecast(basicForecast);
+      setRiskAssessment(basicRisk);
+      setModelComparison(null);
     } catch (err: any) {
       console.error('Error fetching forecast data:', err);
-      setError(err.response?.data?.detail || 'Failed to load forecast data');
+      setError(getForecastApiErrorMessage(err, 'Failed to load forecast data'));
     } finally {
       setLoading(false);
     }
   };
 
   const handleTrainModels = async () => {
+    if (!isAdmin) {
+      return;
+    }
     try {
       setTraining(true);
       setError(null);
       
       const result = await forecastingAPI.trainModels();
       
-      if (result.status === 'success') {
+      if (result.status === 'ok') {
         // Refresh data after training
         await fetchData();
+      } else {
+        setError(result.message || 'Model training did not complete successfully');
       }
     } catch (err: any) {
       console.error('Error training models:', err);
-      // Handle 503 (TensorFlow not available) gracefully
-      if (err.response?.status === 503) {
-        setError('Advanced ML features unavailable. TensorFlow is not installed on the server. Please contact your administrator to install TensorFlow, or use basic forecasting features.');
-      } else {
-        setError(err.response?.data?.detail || 'Failed to train models');
-      }
+      setError(getForecastApiErrorMessage(err, 'Failed to train models'));
     } finally {
       setTraining(false);
     }
@@ -107,7 +118,22 @@ export default function ForecastDashboard() {
     // Auto-refresh every 5 minutes
     const interval = setInterval(fetchData, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isAdmin]);
+
+  const getStatusSeverity = (status?: string) => {
+    switch (status) {
+      case 'ok':
+        return 'success';
+      case 'stale':
+      case 'analysis_pending':
+        return 'warning';
+      case 'source_unavailable':
+      case 'data_unavailable':
+        return 'error';
+      default:
+        return 'info';
+    }
+  };
 
   // Prepare chart data
   const forecastChartData = forecast ? {
@@ -190,19 +216,23 @@ export default function ForecastDashboard() {
             🌊 Advanced Forecasting Dashboard
           </Typography>
           <Typography variant="body1" color="text.secondary">
-            ML-powered time-series forecasts with multi-model ensemble
+            {isAdmin
+              ? 'ML-powered time-series forecasts with multi-model ensemble'
+              : 'Forecast administration requires admin role; weather intelligence remains available for all users'}
           </Typography>
         </Box>
         <Box display="flex" gap={2}>
-          <Button
-            variant="contained"
-            color="primary"
-            startIcon={training ? <CircularProgress size={20} /> : <ModelTrainingIcon />}
-            onClick={handleTrainModels}
-            disabled={training || systemStatus?.status === 'unavailable'}
-          >
-            {training ? 'Training...' : systemStatus?.models_trained ? 'Retrain ML' : 'Train ML'}
-          </Button>
+          {isAdmin && (
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={training ? <CircularProgress size={20} /> : <ModelTrainingIcon />}
+              onClick={handleTrainModels}
+              disabled={training || systemStatus?.status === 'source_unavailable'}
+            >
+              {training ? 'Training...' : systemStatus?.models_trained ? 'Retrain ML' : 'Train ML'}
+            </Button>
+          )}
           <Button
             variant="outlined"
             startIcon={<RefreshIcon />}
@@ -220,20 +250,28 @@ export default function ForecastDashboard() {
         </Alert>
       )}
 
+      {!isAdmin && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          Admin access is required for forecast generation, risk assessment, model comparison, and model training.
+        </Alert>
+      )}
+
       {systemStatus && (
-        <Alert severity={systemStatus.models_trained ? 'success' : systemStatus.status === 'unavailable' ? 'warning' : 'info'} sx={{ mb: 3 }}>
-          {systemStatus.status === 'unavailable'
-            ? '⚠️ Advanced ML features unavailable. TensorFlow is not installed on the server. Using basic linear forecasting.'
-            : systemStatus.models_trained
-              ? `✓ ML Models Active: ${systemStatus.available_models.join(', ')} | Data Points: ${systemStatus.data_points}`
-              : '⚠️ Using basic linear forecasting. Train ML models for advanced predictions.'}
+        <Alert severity={getStatusSeverity(systemStatus.status) as any} sx={{ mb: 3 }}>
+          {systemStatus.status === 'source_unavailable'
+            ? systemStatus.message || 'Advanced ML status is currently unavailable.'
+            : systemStatus.status === 'analysis_pending'
+              ? (systemStatus.message || 'Advanced models are not trained yet; basic forecasting remains active.')
+              : systemStatus.models_trained
+                ? `ML models active: ${(systemStatus.available_models || []).join(', ') || 'N/A'} | Data Points: ${typeof systemStatus.data_points === 'number' ? systemStatus.data_points : 'N/A'}`
+                : (systemStatus.message || 'Forecasting service is online.')}
         </Alert>
       )}
 
       <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ mb: 3 }}>
         <Tab label="Forecast" icon={<TimelineIcon />} iconPosition="start" />
-        <Tab label="Risk Assessment" />
-        <Tab label="Model Comparison" disabled={!systemStatus?.models_trained} />
+        <Tab label="Risk Assessment" disabled={!isAdmin} />
+        <Tab label="Model Comparison" disabled={!isAdmin || !systemStatus?.models_trained} />
       </Tabs>
 
       {/* Tab 0: Forecast */}
@@ -250,7 +288,7 @@ export default function ForecastDashboard() {
                     {forecast.current_level.toFixed(1)}%
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    Model: {forecast.model_used}
+                    Model: {forecast.model_used || forecast.model_name || 'baseline'}
                   </Typography>
                 </CardContent>
               </Card>
@@ -340,6 +378,14 @@ export default function ForecastDashboard() {
             )}
           </Paper>
         </>
+      )}
+
+      {tabValue === 0 && !forecast && (
+        <Alert severity="info">
+          {isAdmin
+            ? 'No forecast data is currently available from the forecasting service.'
+            : 'Forecast generation endpoints are admin-only. Use the Weather tab for farmer forecast consumption.'}
+        </Alert>
       )}
 
       {/* Tab 1: Risk Assessment */}

@@ -30,8 +30,11 @@ class Settings(BaseSettings):
     strict_live_data: Optional[bool] = None
     ml_only_mode: Optional[bool] = None
 
-    # Local persistence for ingested observations
-    time_series_store_path: str = "/tmp/forecasting_timeseries_store.json"
+    # Cross-service URLs
+    auth_service_url: str = "http://auth_service:8001"
+
+    # Database
+    database_url: str = "postgresql://aca_o_user:aca_o_password@postgres:5432/aca_o_db"
     
     model_config = SettingsConfigDict(
         env_file=".env",

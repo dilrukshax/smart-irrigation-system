@@ -23,6 +23,7 @@ import {
 import { useMutation } from '@tanstack/react-query';
 import { acaoApi, type ScenarioEvaluationResponse } from '../../../api/f4-acao.api';
 import { getFreshnessView } from '../../../utils/dataFreshness';
+import { useAuth } from '../../../contexts/AuthContext';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import AgricultureIcon from '@mui/icons-material/Agriculture';
@@ -72,6 +73,7 @@ const SCENARIOS: Scenario[] = [
 ];
 
 export default function Scenarios() {
+  const { isAdmin } = useAuth();
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, ScenarioEvaluationResponse>>({});
   const [globalError, setGlobalError] = useState<string | null>(null);
@@ -87,6 +89,10 @@ export default function Scenarios() {
   });
 
   const handleRunScenario = async (scenario: Scenario) => {
+    if (!isAdmin) {
+      setGlobalError('Admin role required to run scenario evaluations.');
+      return;
+    }
     setGlobalError(null);
     setSelectedScenario(scenario.id);
     try {
@@ -98,6 +104,10 @@ export default function Scenarios() {
   };
 
   const handleCompareAll = async () => {
+    if (!isAdmin) {
+      setGlobalError('Admin role required to run scenario evaluations.');
+      return;
+    }
     setGlobalError(null);
     const settled = await Promise.allSettled(SCENARIOS.map((scenario) => acaoApi.evaluateScenario({
       scenario_name: scenario.name,
@@ -143,6 +153,11 @@ export default function Scenarios() {
       <Typography variant="body1" color="text.secondary" paragraph>
         Backend scenario evaluation using live optimization context
       </Typography>
+      {!isAdmin && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Scenario evaluation is admin-only. You can view existing results but cannot run new scenarios.
+        </Alert>
+      )}
 
       <Grid container spacing={3} sx={{ mb: 4 }}>
         {SCENARIOS.map((scenario) => {
@@ -185,7 +200,7 @@ export default function Scenarios() {
                     sx={{ mt: 2 }}
                     startIcon={<AgricultureIcon />}
                     onClick={() => handleRunScenario(scenario)}
-                    disabled={scenarioMutation.isPending}
+                    disabled={scenarioMutation.isPending || !isAdmin}
                   >
                     {selectedScenario === scenario.id && scenarioMutation.isPending ? 'Running...' : 'Run Scenario'}
                   </Button>
@@ -202,7 +217,7 @@ export default function Scenarios() {
           size="large"
           startIcon={<CompareArrowsIcon />}
           onClick={handleCompareAll}
-          disabled={scenarioMutation.isPending}
+          disabled={scenarioMutation.isPending || !isAdmin}
         >
           {scenarioMutation.isPending ? <CircularProgress size={22} /> : 'Compare All Scenarios'}
         </Button>

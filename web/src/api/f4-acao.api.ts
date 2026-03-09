@@ -57,6 +57,28 @@ export interface ScenarioEvaluationResponse extends DataContract {
   };
 }
 
+export interface RecommendationsListResponse extends DataContract {
+  data: Array<Record<string, any>>;
+  season: string;
+  count: number;
+}
+
+export interface PlanBResponse extends DataContract {
+  field_id: string;
+  season: string;
+  message: string;
+  adjusted_plan: Array<Record<string, any>>;
+}
+
+export interface WaterBudgetResponse extends DataContract {
+  data: {
+    crops: Array<{ crop_name: string; water_usage: number; waterUsed?: number }>;
+    quota?: number | null;
+    total_usage: number;
+    totalWaterUsage?: number;
+  };
+}
+
 // Adaptive Recommendation Types
 export interface FieldParameters {
   field_id?: string;
@@ -151,7 +173,7 @@ export interface InputParameterSummary {
   crops_evaluated: number;
 }
 
-export interface AdaptiveRecommendationResponse {
+export interface AdaptiveRecommendationResponse extends DataContract {
   success: boolean;
   message: string;
   input_summary: InputParameterSummary;
@@ -180,6 +202,11 @@ export interface CropInfo {
   growth_duration_days: number;
 }
 
+export interface AvailableCropsResponse extends DataContract {
+  crops: CropInfo[];
+  total: number;
+}
+
 // ACA-O (Optimization) API endpoints
 const ENDPOINTS = {
   RECOMMENDATIONS: '/optimization/recommendations',
@@ -202,11 +229,11 @@ export const acaoApi = {
 
   // Get all recommendations
   getRecommendations: () =>
-    apiClient.get(ENDPOINTS.RECOMMENDATIONS).then((r) => r.data),
+    apiClient.get<RecommendationsListResponse>(ENDPOINTS.RECOMMENDATIONS).then((r) => r.data),
 
   // Get field-specific recommendations
   getFieldRecommendations: (fieldId: string) =>
-    apiClient.get(ENDPOINTS.FIELD_RECOMMENDATIONS(fieldId)).then((r) => r.data),
+    apiClient.get<RecommendationsListResponse>(ENDPOINTS.FIELD_RECOMMENDATIONS(fieldId)).then((r) => r.data),
 
   // Run optimization
   runOptimization: (params: OptimizationRequest) =>
@@ -226,7 +253,7 @@ export const acaoApi = {
     updatedQuotaMm?: number,
     updatedPrices?: Record<string, number>
   ) =>
-    apiClient.post(ENDPOINTS.PLANB, {
+    apiClient.post<PlanBResponse>(ENDPOINTS.PLANB, {
       field_id: fieldId,
       season,
       updated_quota_mm: updatedQuotaMm,
@@ -235,7 +262,7 @@ export const acaoApi = {
 
   // Get water budget
   getWaterBudget: (params?: { season?: string }) =>
-    apiClient.get(ENDPOINTS.WATER_BUDGET, { params }).then((r) => r.data),
+    apiClient.get<WaterBudgetResponse>(ENDPOINTS.WATER_BUDGET, { params }).then((r) => r.data),
 
   // Get supply data
   getSupplyData: () => apiClient.get(ENDPOINTS.SUPPLY).then((r) => r.data),
@@ -252,5 +279,5 @@ export const acaoApi = {
 
   // Get available crops for filtering
   getAvailableCrops: () =>
-    apiClient.get<{ crops: CropInfo[]; total: number }>(ENDPOINTS.ADAPTIVE_CROPS),
+    apiClient.get<AvailableCropsResponse>(ENDPOINTS.ADAPTIVE_CROPS).then((r) => r.data),
 };

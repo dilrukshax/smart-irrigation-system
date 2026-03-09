@@ -205,6 +205,11 @@ export interface CropFieldStatus {
   staleness_sec?: number | null;
   quality?: string;
   data_available?: boolean;
+  message?: string | null;
+  manual_request_required?: boolean;
+  manual_request_id?: string | null;
+  manual_request_status?: string | null;
+  manual_request_reason?: string | null;
 }
 
 export interface IoTSensorData {
@@ -254,4 +259,92 @@ export interface AutoControlDecision {
   staleness_sec?: number | null;
   quality?: string;
   data_available?: boolean;
+  message?: string | null;
+  manual_request_required?: boolean;
+  manual_request_id?: string | null;
+  manual_request_status?: string | null;
+  manual_request_reason?: string | null;
+}
+
+export interface DataContract {
+  status: 'ok' | 'stale' | 'data_unavailable' | 'analysis_pending' | 'source_unavailable';
+  source?: string;
+  is_live?: boolean;
+  observed_at?: string | null;
+  staleness_sec?: number | null;
+  quality?: string;
+  data_available?: boolean;
+  message?: string | null;
+}
+
+export interface ManualRequestCreate {
+  requested_action: 'OPEN' | 'CLOSE';
+  requested_position_pct: number;
+  reason: string;
+}
+
+export interface ManualRequestReview {
+  decision: 'APPROVE' | 'REJECT';
+  note?: string;
+}
+
+export interface ManualRequestAuditItem {
+  audit_id: string;
+  request_id: string;
+  event_type: string;
+  actor_id?: string | null;
+  actor_roles?: string[] | null;
+  detail?: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface ManualRequestItem {
+  request_id: string;
+  field_id: string;
+  requested_action: 'OPEN' | 'CLOSE';
+  requested_position_pct: number;
+  reason: string;
+  source_decision?: Record<string, unknown> | null;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  created_by?: string | null;
+  reviewed_by?: string | null;
+  review_note?: string | null;
+  reviewed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  audit?: ManualRequestAuditItem[];
+}
+
+export interface UnifiedF1Section extends DataContract {
+  field_status?: CropFieldStatus | null;
+  auto_decision?: AutoControlDecision | null;
+  controls?: Record<string, string>;
+}
+
+export interface UnifiedF2Section extends DataContract {
+  stress_summary?: Record<string, unknown> | null;
+}
+
+export interface UnifiedF3Section extends DataContract {
+  weather_summary?: Record<string, unknown> | null;
+  irrigation_recommendation?: Record<string, unknown> | null;
+}
+
+export interface UnifiedF4Section extends DataContract {
+  recommendations?: Record<string, unknown> | null;
+  optimization_context?: Record<string, unknown> | null;
+  actions?: Record<string, string>;
+}
+
+export interface UnifiedFieldProfile extends DataContract {
+  field_id: string;
+  generated_at: string;
+  partial_failure: boolean;
+  errors: string[];
+  sections: {
+    f1: UnifiedF1Section;
+    f2: UnifiedF2Section;
+    f3: UnifiedF3Section;
+    f4: UnifiedF4Section;
+  };
 }

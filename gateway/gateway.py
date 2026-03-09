@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # Service URLs - Local Development
 SERVICES = {
     "auth": "http://127.0.0.1:8001",
-    "irrigation": "http://127.0.0.1:19002",
+    "irrigation": "http://127.0.0.1:8002",
     "crop_health": "http://127.0.0.1:8007",
     "forecasting": "http://127.0.0.1:8003",
     "optimization": "http://127.0.0.1:8004",

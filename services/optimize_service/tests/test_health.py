@@ -69,12 +69,9 @@ class TestHealthEndpoint:
         response = client.get("/health")
         data = response.json()
         
-        expected = {
-            "status": "ok",
-            "service": "aca-o-service",
-        }
-        
-        assert data == expected
+        assert data.get("status") == "ok"
+        assert data.get("service") == "aca-o-service"
+        assert isinstance(data.get("ml_only_mode"), bool)
     
     def test_health_check_content_type(self):
         """

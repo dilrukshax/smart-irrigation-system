@@ -299,6 +299,26 @@ class FeatureBuilder:
             irrigation_resp.raise_for_status()
             irrigation = irrigation_resp.json()
 
+            weather_status = str(weather.get("status") or "ok").lower()
+            irrigation_status = str(irrigation.get("status") or "ok").lower()
+            weather_available = bool(
+                weather.get(
+                    "data_available",
+                    weather_status not in {"source_unavailable", "data_unavailable", "analysis_pending"},
+                )
+            )
+            irrigation_available = bool(
+                irrigation.get(
+                    "data_available",
+                    irrigation_status not in {"source_unavailable", "data_unavailable", "analysis_pending"},
+                )
+            )
+            weather_unavailable = weather_status in {"source_unavailable", "data_unavailable", "analysis_pending"} or not weather_available
+            irrigation_unavailable = irrigation_status in {"source_unavailable", "data_unavailable", "analysis_pending"} or not irrigation_available
+
+            if strict_live_data and (weather_unavailable or irrigation_unavailable):
+                return default_payload
+
             daily = weather.get("daily", [])
             eto_curve = [
                 float(d.get("evapotranspiration_mm"))
@@ -327,6 +347,11 @@ class FeatureBuilder:
             ):
                 return default_payload
 
+            source_value = "forecasting_service"
+            if str(weather.get("source") or "").lower() == "simulated" or str(irrigation.get("source") or "").lower() == "simulated":
+                source_value = "simulated"
+            status_value = "stale" if source_value == "simulated" else "ok"
+
             return {
                 "season": season,
                 "avg_temp_c": float(avg_temp if avg_temp is not None else 28.0),
@@ -336,8 +361,8 @@ class FeatureBuilder:
                 "rainfall_mm": rain_curve or ([0.0] * 5 if not strict_live_data else []),
                 "forecast_adjustment_pct": float(adjustment_pct if adjustment_pct is not None else 100.0),
                 "data_available": True,
-                "status": "ok",
-                "source": "forecasting_service",
+                "status": status_value,
+                "source": source_value,
             }
         except Exception as exc:
             logger.warning("Climate forecast integration unavailable: %s", exc)
@@ -346,6 +371,7 @@ class FeatureBuilder:
     def _get_irrigation_context(self, field_id: str) -> Dict[str, Any]:
         """Fetch field water status from the irrigation service (F1)."""
         strict_live_data = settings.is_strict_live_data
+        unavailable_statuses = {"data_unavailable", "source_unavailable", "analysis_pending"}
         default_payload = {
             "water_level_pct": None,
             "soil_moisture_pct": None,
@@ -363,23 +389,29 @@ class FeatureBuilder:
             response.raise_for_status()
             payload = response.json()
             status_value = str(payload.get("status") or "ok").lower()
-            if strict_live_data and (
-                payload.get("data_available") is False
-                or status_value in {"data_unavailable", "source_unavailable", "analysis_pending"}
-            ):
+            source_value = str(payload.get("source") or "irrigation_service")
+            payload_available = bool(
+                payload.get(
+                    "data_available",
+                    status_value not in unavailable_statuses,
+                )
+            )
+            if strict_live_data and (not payload_available or status_value in unavailable_statuses):
                 return default_payload
 
             water_level = payload.get("current_water_level_pct")
             soil_moisture = payload.get("current_soil_moisture_pct")
-            if strict_live_data and (water_level is None or soil_moisture is None):
+            metrics_available = water_level is not None and soil_moisture is not None
+            if strict_live_data and not metrics_available:
                 return default_payload
+            effective_available = bool(payload_available and metrics_available)
             return {
                 "water_level_pct": float(water_level or 0.0),
                 "soil_moisture_pct": float(soil_moisture or 0.0),
                 "sensor_connected": bool(payload.get("sensor_connected")),
-                "data_available": True,
-                "status": "ok",
-                "source": "irrigation_service",
+                "data_available": effective_available,
+                "status": status_value if status_value in {"ok", "stale", *unavailable_statuses} else ("ok" if effective_available else "data_unavailable"),
+                "source": source_value,
             }
         except Exception as exc:
             logger.warning("Irrigation context unavailable for %s: %s", field_id, exc)
@@ -388,6 +420,7 @@ class FeatureBuilder:
     def _get_stress_context(self, field_id: str) -> Dict[str, Any]:
         """Fetch field-level stress summary from the crop-health service (F2)."""
         strict_live_data = settings.is_strict_live_data
+        unavailable_statuses = {"data_unavailable", "source_unavailable", "analysis_pending"}
         default_payload = {
             "stress_index": None,
             "stress_priority": "unknown",
@@ -404,23 +437,29 @@ class FeatureBuilder:
             response.raise_for_status()
             payload = response.json()
             status_value = str(payload.get("status") or "ok").lower()
-            if strict_live_data and (
-                payload.get("data_available") is False
-                or status_value in {"data_unavailable", "source_unavailable", "analysis_pending"}
-            ):
+            source_value = str(payload.get("source") or "crop_health_service")
+            payload_available = bool(
+                payload.get(
+                    "data_available",
+                    status_value not in unavailable_statuses,
+                )
+            )
+            if strict_live_data and (not payload_available or status_value in unavailable_statuses):
                 return default_payload
 
             stress_index = payload.get("stress_index")
             penalty = payload.get("stress_penalty_factor")
-            if strict_live_data and (stress_index is None or penalty is None):
+            metrics_available = stress_index is not None and penalty is not None
+            if strict_live_data and not metrics_available:
                 return default_payload
+            effective_available = bool(payload_available and metrics_available)
             return {
                 "stress_index": float(stress_index or 0.0),
                 "stress_priority": payload.get("priority") or "low",
                 "stress_penalty_factor": float(penalty or 0.0),
-                "data_available": True,
-                "status": "ok",
-                "source": "crop_health_service",
+                "data_available": effective_available,
+                "status": status_value if status_value in {"ok", "stale", *unavailable_statuses} else ("ok" if effective_available else "analysis_pending"),
+                "source": source_value,
             }
         except Exception as exc:
             logger.warning("Stress context unavailable for %s: %s", field_id, exc)

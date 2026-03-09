@@ -23,7 +23,8 @@ from app.core.logging_config import setup_logging
 from app.api.health import router as health_router
 from app.api.sensors import router as sensors_router
 from app.api.water_management import router as water_management_router
-from app.api.crop_fields import router as crop_fields_router
+from app.api.crop_fields import ensure_default_field_seed, router as crop_fields_router
+from app.db.session import close_db, init_db
 from app.ml.irrigation_model import irrigation_model
 from app.ml.water_management_model import water_management_model
 
@@ -43,6 +44,9 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Environment: {settings.environment}")
+    await init_db()
+    await ensure_default_field_seed()
+    logger.info("Irrigation DB initialized and default field ensured")
 
     # Initialize and train ML model
     irrigation_model.train_model()
@@ -55,6 +59,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    await close_db()
     logger.info(f"Shutting down {settings.app_name}...")
 
 

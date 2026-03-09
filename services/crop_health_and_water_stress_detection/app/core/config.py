@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # Event broker
     MQTT_BROKER: str = "mosquitto"
     MQTT_PORT: int = 1883
+
+    # Cross-service integrations
+    AUTH_SERVICE_URL: str = "http://auth_service:8001"
     
     # Model
     MODEL_PATH: str = os.path.join(

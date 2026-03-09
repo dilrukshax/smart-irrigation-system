@@ -465,6 +465,13 @@ if not _load_state():
 
 # ============ Helper Functions ============
 
+async def ensure_default_field_seed() -> None:
+    """Compatibility hook used by app startup to guarantee at least one field."""
+    if _crop_fields:
+        return
+    _initialize_default_rice_field()
+    _persist_state()
+
 async def _fetch_iot_sensor_data(device_id: str) -> Optional[IoTSensorData]:
     """
     Fetch the latest real sensor reading from the IoT service for a given device.

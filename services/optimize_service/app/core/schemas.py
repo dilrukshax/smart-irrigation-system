@@ -323,6 +323,16 @@ class AdaptiveRecommendationResponse(BaseModel):
     """
     success: bool = Field(..., description="Whether the request was successful")
     message: str = Field(..., description="Status message")
+    status: str = Field(
+        default="ok",
+        description="ok|stale|data_unavailable|analysis_pending|source_unavailable",
+    )
+    source: str = Field(default="optimization_service", description="Primary data source identifier")
+    is_live: bool = Field(default=True, description="Whether payload was produced from live observed inputs")
+    observed_at: Optional[str] = Field(default=None, description="ISO timestamp when payload context was observed")
+    staleness_sec: Optional[float] = Field(default=None, description="Estimated staleness in seconds")
+    quality: str = Field(default="good", description="Data quality label")
+    data_available: bool = Field(default=True, description="Whether adaptive recommendation data is available")
     
     # Input summary for verification
     input_summary: InputParameterSummary = Field(
@@ -462,7 +472,7 @@ class RecommendationResponse(BaseModel):
     source: str = Field(default="optimization_service", description="Primary data source identifier")
     is_live: bool = Field(default=True, description="Whether payload was produced from live observed inputs")
     observed_at: Optional[str] = Field(default=None, description="ISO timestamp when payload context was observed")
-    staleness_sec: Optional[int] = Field(default=None, description="Estimated staleness in seconds")
+    staleness_sec: Optional[float] = Field(default=None, description="Estimated staleness in seconds")
     quality: str = Field(default="good", description="Data quality label")
     data_available: bool = Field(default=True, description="Whether recommendation data is available")
     message: Optional[str] = Field(default=None, description="Human-readable status detail")
@@ -526,6 +536,16 @@ class PlanBResponse(BaseModel):
         ...,
         description="Adjusted crop recommendations",
     )
+    status: str = Field(
+        default="ok",
+        description="ok|stale|data_unavailable|analysis_pending|source_unavailable",
+    )
+    source: str = Field(default="optimization_service", description="Primary data source identifier")
+    is_live: bool = Field(default=True, description="Whether payload was produced from live observed inputs")
+    observed_at: Optional[str] = Field(default=None, description="ISO timestamp when payload context was observed")
+    staleness_sec: Optional[float] = Field(default=None, description="Estimated staleness in seconds")
+    quality: str = Field(default="good", description="Data quality label")
+    data_available: bool = Field(default=True, description="Whether Plan B data is available")
 
 
 # =============================================================================
@@ -586,6 +606,7 @@ class SupplyResponse(BaseModel):
     source: str = Field(default="optimization_service", description="Primary data source identifier")
     is_live: bool = Field(default=True, description="Whether payload was produced from live observed inputs")
     observed_at: Optional[str] = Field(default=None, description="ISO timestamp when payload context was observed")
-    staleness_sec: Optional[int] = Field(default=None, description="Estimated staleness in seconds")
+    staleness_sec: Optional[float] = Field(default=None, description="Estimated staleness in seconds")
     quality: str = Field(default="good", description="Data quality label")
     data_available: bool = Field(default=True, description="Whether supply data is available")
+    message: Optional[str] = Field(default=None, description="Human-readable status detail")

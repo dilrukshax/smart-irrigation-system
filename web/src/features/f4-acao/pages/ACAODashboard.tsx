@@ -51,11 +51,12 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82ca9d'
 
 // Helper function to prepare water budget data for chart
 function prepareWaterBudgetData(budgetData: any) {
-  if (!budgetData || !budgetData.crops) {
+  const root = budgetData?.data ?? budgetData;
+  if (!root || !root.crops) {
     return [];
   }
 
-  return (budgetData.crops || []).map((crop: any) => ({
+  return (root.crops || []).map((crop: any) => ({
     crop: crop.crop_name || crop.name || 'Unknown',
     waterUsed: crop.water_usage || crop.waterUsed || 0,
   }));
@@ -146,8 +147,11 @@ export default function ACAODashboard() {
   const optimizationFreshness = getFreshnessView(recommendationsData);
 
   // Calculate summary stats from real data
-  // Handle nested data structure from API response
-  const fieldsData = recommendationsData?.data?.data || recommendationsData?.data || [];
+  // Support both direct contract payloads and legacy nested wrappers.
+  const recommendationPayload: any = recommendationsData;
+  const fieldsData = Array.isArray(recommendationPayload?.data)
+    ? recommendationPayload.data
+    : (Array.isArray(recommendationPayload?.data?.data) ? recommendationPayload.data.data : []);
   const fields = Array.isArray(fieldsData) ? fieldsData : [];
   const fieldsCount = fields.length;
 

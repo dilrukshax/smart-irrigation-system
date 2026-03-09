@@ -36,12 +36,17 @@ class Settings(BaseSettings):
     # Cross-service URLs
     forecasting_service_url: str = "http://forecasting-service:8003"
     crop_health_service_url: str = "http://crop_health_and_water_stress_detection:8007"
+    optimization_service_url: str = "http://optimization_service:8004"
+    auth_service_url: str = "http://auth_service:8001"
+
+    # Database
+    database_url: str = "postgresql://aca_o_user:aca_o_password@postgres:5432/aca_o_db"
 
     # Event broker
     mqtt_broker: str = "mosquitto"
     mqtt_port: int = 1883
 
-    # Local state persistence (simple durable storage for runtime state)
+    # Local state persistence
     crop_fields_state_path: str = "/tmp/irrigation_crop_fields_state.json"
     water_management_state_path: str = "/tmp/irrigation_water_management_state.json"
     reservoir_snapshot_path: str = "/tmp/irrigation_reservoir_snapshot.json"

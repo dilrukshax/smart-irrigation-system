@@ -24,11 +24,12 @@ import {
 } from '@mui/material';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { acaoApi } from '../../../api/f4-acao.api';
+import { useAuth } from '../../../contexts/AuthContext';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import WarningIcon from '@mui/icons-material/Warning';
-import ErrorIcon from '@mui/icons-material/Error';
 
 export default function OptimizationPlanner() {
+  const { isAdmin } = useAuth();
   const [waterQuota, setWaterQuota] = useState(3000);
   const [minPaddy, setMinPaddy] = useState(150);
   const [riskTolerance, setRiskTolerance] = useState<'low' | 'medium' | 'high'>('medium');
@@ -53,9 +54,10 @@ export default function OptimizationPlanner() {
 
   // Calculate suitable crops based on constraints
   useEffect(() => {
-    if (!recommendationsData?.data) return;
-
-    const fieldsData = recommendationsData.data?.data || recommendationsData.data || [];
+    const recommendationPayload: any = recommendationsData;
+    const fieldsData = Array.isArray(recommendationPayload?.data)
+      ? recommendationPayload.data
+      : (Array.isArray(recommendationPayload?.data?.data) ? recommendationPayload.data.data : []);
     const fields = Array.isArray(fieldsData) ? fieldsData : [];
 
     // Aggregate all recommendations and filter by constraints
@@ -247,10 +249,15 @@ export default function OptimizationPlanner() {
               fullWidth
               sx={{ mt: 2 }}
               onClick={handleRunOptimization}
-              disabled={isLoading}
+              disabled={isLoading || !isAdmin}
             >
               {isLoading ? <CircularProgress size={24} /> : 'Run Optimization'}
             </Button>
+            {!isAdmin && (
+              <Alert severity="info" sx={{ mt: 2 }}>
+                Admin role required to run optimization.
+              </Alert>
+            )}
           </Paper>
         </Grid>
 

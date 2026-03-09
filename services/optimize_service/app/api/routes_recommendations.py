@@ -4,14 +4,16 @@ import logging
 from datetime import datetime
 from typing import Annotated, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.schemas import RecommendationRequest, RecommendationResponse
 from app.core.config import get_settings
+from app.core.contracts import build_contract
 from app.data.db import get_db
-from app.data.repositories import CropRepository, FieldRepository, RecommendationRepository
+from app.data.repositories import CropRepository, FieldRepository, RecommendationRepository, RunArtifactRepository
+from app.dependencies.auth import get_current_user_context, require_admin
 from app.optimization.constraints import OptimizationConstraints, OptimizationCropInput
 from app.optimization.optimizer import Optimizer
 from app.services.recommendation_service import RecommendationService
@@ -38,28 +40,13 @@ class ScenarioEvaluationRequest(BaseModel):
     max_risk_level: str = Field(default="high")
 
 
-def _build_data_contract(
-    *,
-    status: str,
-    data_available: bool,
-    quality: str,
-    message: Optional[str] = None,
-) -> Dict[str, object]:
-    return {
-        "status": status,
-        "source": "optimization_service",
-        "is_live": data_available,
-        "observed_at": datetime.utcnow().isoformat(),
-        "staleness_sec": 0 if data_available else None,
-        "quality": quality,
-        "data_available": data_available,
-        "message": message,
-    }
-
-
 def _risk_level_to_score(risk: Optional[str]) -> int:
     mapping = {"low": 1, "medium": 2, "high": 3, "critical": 4}
     return mapping.get((risk or "medium").lower(), 2)
+
+
+def _is_admin(user_context: Dict[str, object]) -> bool:
+    return "admin" in (user_context.get("roles") or [])
 
 
 def _merge_latest_recommendations(
@@ -276,46 +263,50 @@ def _run_optimization_from_rows(
 @router.get("/")
 async def list_recommendations(
     db: Annotated[Session, Depends(get_db)],
+    user_context: Dict[str, object] = Depends(get_current_user_context),
     season: str = Query(default="Maha-2025"),
     field_id: Optional[str] = Query(default=None),
     scheme_id: Optional[str] = Query(default=None),
     refresh: bool = Query(default=False),
 ):
     """List latest per-field recommendations for dashboards."""
-    strict_live_data = settings.is_strict_live_data
     if refresh:
+        if not _is_admin(user_context):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin privileges required for recommendation refresh.",
+            )
         _generate_for_fields(db=db, season=season, field_id=field_id)
 
     data = _merge_latest_recommendations(db=db, season=season, scheme_id=scheme_id)
 
     if field_id:
         data = [row for row in data if row.get("field_id") == field_id]
-        if not data:
-            _generate_for_fields(db=db, season=season, field_id=field_id)
-            data = _merge_latest_recommendations(db=db, season=season, scheme_id=scheme_id)
-            data = [row for row in data if row.get("field_id") == field_id]
 
-    if not data:
-        _generate_for_fields(db=db, season=season)
-        data = _merge_latest_recommendations(db=db, season=season, scheme_id=scheme_id)
-        if field_id:
-            data = [row for row in data if row.get("field_id") == field_id]
     data_available = bool(data)
-    status = "ok" if data_available else "data_unavailable"
-    quality = "good" if data_available else "unavailable"
-    contract = _build_data_contract(
-        status=status,
+    observed_at = datetime.utcnow()
+    contract = build_contract(
+        source="optimization_service",
+        observed_at=observed_at.isoformat(),
         data_available=data_available,
-        quality=quality,
+        raw_status="ok" if data_available else "data_unavailable",
         message=(
             "Latest optimization recommendations loaded."
             if data_available
-            else (
-                "No live recommendations available."
-                if strict_live_data
-                else "No recommendations available."
-            )
+            else "No persisted recommendations available."
         ),
+    )
+    RunArtifactRepository.save_artifact(
+        db,
+        run_type="recommendation_list",
+        field_id=field_id,
+        season=season,
+        request_payload={"season": season, "field_id": field_id, "scheme_id": scheme_id, "refresh": refresh},
+        response_payload={"data": data, "season": season, "count": len(data), **contract},
+        status=str(contract.get("status") or "data_unavailable"),
+        source=str(contract.get("source") or "optimization_service"),
+        data_available=bool(contract.get("data_available")),
+        observed_at=observed_at,
     )
     return {"data": data, "season": season, "count": len(data), **contract}
 
@@ -325,8 +316,10 @@ async def list_recommendations(
 async def get_recommendations(
     request: RecommendationRequest,
     db: Annotated[Session, Depends(get_db)],
+    user_context: Dict[str, object] = Depends(get_current_user_context),
 ) -> RecommendationResponse:
     """Generate recommendations for one field and persist output."""
+    del user_context
     logger.info(
         "Received recommendation request for field=%s season=%s",
         request.field_id,
@@ -340,8 +333,10 @@ async def get_recommendations(
 async def get_recommendations_batch(
     requests: List[RecommendationRequest],
     db: Annotated[Session, Depends(get_db)],
+    user_context: Dict[str, object] = Depends(get_current_user_context),
 ) -> List[RecommendationResponse]:
     """Generate recommendations for multiple fields in one call."""
+    del user_context
     service = RecommendationService()
     return [service.get_recommendations(request=req, db_session=db) for req in requests]
 
@@ -350,25 +345,42 @@ async def get_recommendations_batch(
 async def optimize_recommendations(
     request: OptimizationPlannerRequest,
     db: Annotated[Session, Depends(get_db)],
+    admin_context: Dict[str, object] = Depends(require_admin),
 ):
     """Run area/water constrained optimization across latest recommendations."""
+    del admin_context
     strict_live_data = settings.is_strict_live_data
+    observed_at = datetime.utcnow()
     latest = _merge_latest_recommendations(db=db, season=request.season, scheme_id=None)
     if not latest:
         _generate_for_fields(db=db, season=request.season)
         latest = _merge_latest_recommendations(db=db, season=request.season, scheme_id=None)
     if not latest:
-        contract = _build_data_contract(
-            status="data_unavailable",
+        contract = build_contract(
+            source="optimization_service",
+            observed_at=observed_at.isoformat(),
             data_available=False,
-            quality="unavailable",
+            raw_status="data_unavailable",
             message=(
                 "No live recommendation context available for optimization."
                 if strict_live_data
                 else "No recommendation context available for optimization."
             ),
         )
-        return {"data": {"status": "data_unavailable", "message": contract["message"], "allocation": []}, **contract}
+        payload = {"data": {"status": "data_unavailable", "message": contract["message"], "allocation": []}, **contract}
+        RunArtifactRepository.save_artifact(
+            db,
+            run_type="optimize",
+            field_id=None,
+            season=request.season,
+            request_payload=request.model_dump(),
+            response_payload=payload,
+            status=str(contract.get("status") or "data_unavailable"),
+            source=str(contract.get("source") or "optimization_service"),
+            data_available=bool(contract.get("data_available")),
+            observed_at=observed_at,
+        )
+        return payload
 
     optimized = _run_optimization_from_rows(
         db=db,
@@ -376,13 +388,27 @@ async def optimize_recommendations(
         water_quota=float(request.waterQuota),
         constraints=request.constraints,
     )
-    contract = _build_data_contract(
-        status=str(optimized.get("status") or "data_unavailable"),
+    contract = build_contract(
+        source="optimization_service",
+        observed_at=observed_at.isoformat(),
         data_available=bool(optimized.get("allocation")),
-        quality="good" if optimized.get("allocation") else "unavailable",
+        raw_status=str(optimized.get("status") or "data_unavailable"),
         message=str(optimized.get("message") or "Optimization evaluation completed."),
     )
-    return {"data": optimized, **contract}
+    payload = {"data": optimized, **contract}
+    RunArtifactRepository.save_artifact(
+        db,
+        run_type="optimize",
+        field_id=None,
+        season=request.season,
+        request_payload=request.model_dump(),
+        response_payload=payload,
+        status=str(contract.get("status") or "data_unavailable"),
+        source=str(contract.get("source") or "optimization_service"),
+        data_available=bool(contract.get("data_available")),
+        observed_at=observed_at,
+    )
+    return payload
 
 
 @router.post("/scenario-evaluate")
@@ -390,22 +416,39 @@ async def optimize_recommendations(
 async def evaluate_scenario(
     request: ScenarioEvaluationRequest,
     db: Annotated[Session, Depends(get_db)],
+    admin_context: Dict[str, object] = Depends(require_admin),
 ):
     """Evaluate a what-if scenario fully on the backend using live upstream context."""
+    del admin_context
     strict_live_data = settings.is_strict_live_data
+    observed_at = datetime.utcnow()
     fields = FieldRepository.list_fields(db)
     if request.field_ids:
         allowed = set(request.field_ids)
         fields = [f for f in fields if str(f.get("id")) in allowed]
 
     if not fields:
-        contract = _build_data_contract(
-            status="data_unavailable",
+        contract = build_contract(
+            source="optimization_service",
+            observed_at=observed_at.isoformat(),
             data_available=False,
-            quality="unavailable",
+            raw_status="data_unavailable",
             message="No fields available for scenario evaluation.",
         )
-        return {"data": {"status": "data_unavailable", "allocation": [], "fields_evaluated": 0}, **contract}
+        payload = {"data": {"status": "data_unavailable", "allocation": [], "fields_evaluated": 0}, **contract}
+        RunArtifactRepository.save_artifact(
+            db,
+            run_type="scenario_evaluate",
+            field_id=None,
+            season=request.season,
+            request_payload=request.model_dump(),
+            response_payload=payload,
+            status=str(contract.get("status") or "data_unavailable"),
+            source=str(contract.get("source") or "optimization_service"),
+            data_available=bool(contract.get("data_available")),
+            observed_at=observed_at,
+        )
+        return payload
 
     scenario_payload: Dict[str, object] = {}
     if request.water_quota_mm is not None:
@@ -456,13 +499,14 @@ async def evaluate_scenario(
             water_quota = float(sum(quotas))
     if water_quota is None:
         if strict_live_data:
-            contract = _build_data_contract(
-                status="data_unavailable",
+            contract = build_contract(
+                source="optimization_service",
+                observed_at=observed_at.isoformat(),
                 data_available=False,
-                quality="unavailable",
+                raw_status="data_unavailable",
                 message="Strict live-data mode requires explicit scenario quota or persisted field water availability.",
             )
-            return {
+            payload = {
                 "data": {
                     "status": "data_unavailable",
                     "allocation": [],
@@ -472,6 +516,19 @@ async def evaluate_scenario(
                 },
                 **contract,
             }
+            RunArtifactRepository.save_artifact(
+                db,
+                run_type="scenario_evaluate",
+                field_id=None,
+                season=request.season,
+                request_payload=request.model_dump(),
+                response_payload=payload,
+                status=str(contract.get("status") or "data_unavailable"),
+                source=str(contract.get("source") or "optimization_service"),
+                data_available=bool(contract.get("data_available")),
+                observed_at=observed_at,
+            )
+            return payload
         water_quota = 3000.0
 
     constraints = {
@@ -491,14 +548,27 @@ async def evaluate_scenario(
     optimized["fields_with_data"] = len(rows)
     optimized["failures"] = failures
 
-    contract = _build_data_contract(
-        status=str(optimized.get("status") or "data_unavailable"),
+    scenario_status = str(optimized.get("status") or "data_unavailable")
+    if optimized.get("allocation") and failures and scenario_status == "ok":
+        scenario_status = "stale"
+    contract = build_contract(
+        source="optimization_service",
+        observed_at=observed_at.isoformat(),
         data_available=bool(optimized.get("allocation")),
-        quality=(
-            "partial"
-            if optimized.get("allocation") and failures
-            else ("good" if optimized.get("allocation") else "unavailable")
-        ),
+        raw_status=scenario_status,
         message=str(optimized.get("message") or "Scenario evaluation completed."),
     )
-    return {"data": optimized, **contract}
+    payload = {"data": optimized, **contract}
+    RunArtifactRepository.save_artifact(
+        db,
+        run_type="scenario_evaluate",
+        field_id=None,
+        season=request.season,
+        request_payload=request.model_dump(),
+        response_payload=payload,
+        status=str(contract.get("status") or "data_unavailable"),
+        source=str(contract.get("source") or "optimization_service"),
+        data_available=bool(contract.get("data_available")),
+        observed_at=observed_at,
+    )
+    return payload

@@ -81,6 +81,34 @@ def test_optimization_route_contract(mock_request):
 
 
 @patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_optimization_planb_contract(mock_request):
+    mock_request.return_value = _response({"status": "ok"})
+
+    resp = client.post(
+        "/api/v1/optimization/planb",
+        json={"field_id": "FIELD-001", "season": "Maha-2026"},
+    )
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8004/f4/planb"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_optimization_planb_alias_contract(mock_request):
+    mock_request.return_value = _response({"status": "ok"})
+
+    resp = client.post(
+        "/api/v1/optimization/planb/generate",
+        json={"field_id": "FIELD-001", "season": "Maha-2026"},
+    )
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8004/f4/planb"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
 def test_iot_route_contract(mock_request):
     mock_request.return_value = _response({"count": 0})
 
@@ -100,3 +128,92 @@ def test_crop_health_route_contract(mock_request):
     assert resp.status_code == 200
     _, kwargs = mock_request.call_args
     assert kwargs["url"] == "http://127.0.0.1:8007/api/v1/crop-health/zones"
+
+
+@patch.object(_gateway.http_client, "get", new_callable=AsyncMock)
+def test_unified_field_profile_contract_success(mock_get):
+    mock_get.side_effect = [
+        _response({"field_id": "field-rice-01", "status": "ok", "source": "iot", "data_available": True}),
+        _response({"field_id": "field-rice-01", "status": "ok", "source": "decision", "data_available": True}),
+        _response({"field_id": "field-rice-01", "status": "ok", "source": "analysis-artifact", "data_available": True}),
+        _response({"status": "success", "timestamp": "2026-03-09T00:00:00Z"}),
+        _response({"status": "success", "generated_at": "2026-03-09T00:00:00Z"}),
+        _response({"status": "ok", "data": [{"field_id": "field-rice-01"}], "data_available": True}),
+        _response({"status": "ok", "data": {"water_budget": []}, "data_available": True}),
+    ]
+
+    resp = client.get("/api/v1/irrigation/fields/field-rice-01/profile")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["field_id"] == "field-rice-01"
+    assert payload["partial_failure"] is False
+    assert payload["sections"]["f1"]["status"] in {"ok", "stale"}
+    assert payload["sections"]["f2"]["status"] == "ok"
+    assert payload["sections"]["f3"]["status"] in {"ok", "stale"}
+    assert payload["sections"]["f4"]["status"] in {"ok", "stale"}
+
+    called_urls = [
+        kwargs.get("url") or (args[0] if args else None)
+        for args, kwargs in mock_get.call_args_list
+    ]
+    assert "http://127.0.0.1:8002/api/v1/crop-fields/fields/field-rice-01/status" in called_urls
+    assert "http://127.0.0.1:8007/api/v1/crop-health/fields/field-rice-01/stress-summary" in called_urls
+    assert "http://127.0.0.1:8003/api/weather/summary" in called_urls
+    assert "http://127.0.0.1:8004/f4/recommendations" in called_urls
+
+
+@patch.object(_gateway.http_client, "get", new_callable=AsyncMock)
+def test_unified_field_profile_partial_failure(mock_get):
+    mock_get.side_effect = [
+        _response({"field_id": "field-rice-01", "status": "ok", "source": "iot", "data_available": True}),
+        _response({"field_id": "field-rice-01", "status": "ok", "source": "decision", "data_available": True}),
+        _response({"detail": "missing artifact"}, status_code=503),
+        _response({"status": "success"}),
+        _response({"status": "success"}),
+        _response({"status": "ok", "data": [], "data_available": True}),
+        _response({"detail": "timeout"}, status_code=504),
+    ]
+
+    resp = client.get("/api/v1/irrigation/fields/field-rice-01/profile")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["partial_failure"] is True
+    assert payload["sections"]["f2"]["status"] == "source_unavailable"
+    assert payload["sections"]["f4"]["status"] in {"stale", "source_unavailable"}
+    assert len(payload["errors"]) >= 1
+
+
+@patch.object(_gateway.http_client, "get", new_callable=AsyncMock)
+def test_unified_field_profile_marks_f3_stale_when_simulated(mock_get):
+    mock_get.side_effect = [
+        _response({"field_id": "field-rice-01", "status": "ok", "source": "iot_sensors", "data_available": True}),
+        _response({"field_id": "field-rice-01", "status": "ok", "source": "decision", "data_available": True}),
+        _response({"field_id": "field-rice-01", "status": "ok", "source": "analysis-artifact", "data_available": True}),
+        _response(
+            {
+                "status": "stale",
+                "source": "simulated",
+                "data_available": True,
+                "observed_at": "2026-03-09T00:00:00Z",
+            }
+        ),
+        _response(
+            {
+                "status": "stale",
+                "source": "simulated",
+                "data_available": True,
+                "observed_at": "2026-03-09T00:00:00Z",
+            }
+        ),
+        _response({"status": "ok", "data": [{"field_id": "field-rice-01"}], "data_available": True}),
+        _response({"status": "ok", "data": {"water_budget": []}, "data_available": True}),
+    ]
+
+    resp = client.get("/api/v1/irrigation/fields/field-rice-01/profile")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["sections"]["f3"]["status"] == "stale"
+    assert payload["status"] in {"stale", "ok"}

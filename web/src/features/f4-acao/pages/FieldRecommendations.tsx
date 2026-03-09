@@ -25,6 +25,7 @@ import GrassIcon from '@mui/icons-material/Grass';
 import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
 import { useQuery } from '@tanstack/react-query';
 import { acaoApi } from '../../../api/f4-acao.api';
+import { getFreshnessView } from '../../../utils/dataFreshness';
 
 export default function FieldRecommendations() {
   // Fetch recommendations from API
@@ -53,9 +54,13 @@ export default function FieldRecommendations() {
   }
 
   // Transform API response to match component structure
-  // Handle nested data structure from API response
-  const fieldsData = recommendationsData?.data?.data || recommendationsData?.data || [];
+  // Support both direct contract payloads and legacy nested wrappers.
+  const recommendationPayload: any = recommendationsData;
+  const fieldsData = Array.isArray(recommendationPayload?.data)
+    ? recommendationPayload.data
+    : (Array.isArray(recommendationPayload?.data?.data) ? recommendationPayload.data.data : []);
   const fields = Array.isArray(fieldsData) ? fieldsData : [];
+  const freshness = getFreshnessView(recommendationsData as any);
 
   return (
     <Box>
@@ -65,6 +70,12 @@ export default function FieldRecommendations() {
       <Typography variant="body1" color="text.secondary" paragraph>
         AI-generated recommendations using Random Forest, LightGBM, and Fuzzy-TOPSIS models
       </Typography>
+      <Chip label={freshness.label} color={freshness.color} size="small" sx={{ mb: 2 }} />
+      {recommendationsData?.message && recommendationsData?.status && recommendationsData.status !== 'ok' && (
+        <Alert severity={recommendationsData.status === 'stale' ? 'warning' : 'info'} sx={{ mb: 2 }}>
+          {recommendationsData.message}
+        </Alert>
+      )}
 
       {fields.length === 0 && (
         <Alert severity="info">

@@ -20,6 +20,8 @@ from app.core.logging_config import setup_logging
 from app.api.health import router as health_router
 from app.api.forecast import router as forecast_router
 from app.ml import forecasting_system, ADVANCED_ML_AVAILABLE
+from app.db.repository import list_recent_observations
+from app.db.session import close_db, init_db, session_scope
 
 # Only import advanced features if TensorFlow is available
 if ADVANCED_ML_AVAILABLE:
@@ -46,9 +48,11 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Environment: {settings.environment}")
     
-    # Initialize forecasting system with historical data
-    forecasting_system.initialize_historical_data()
-    logger.info("Forecasting system initialized with historical data")
+    await init_db()
+    async with session_scope() as session:
+        observations = await list_recent_observations(session, limit=10000)
+    forecasting_system.initialize_historical_data(observations)
+    logger.info("Forecasting DB initialized and runtime state hydrated")
 
     dependencies = {
         "tensorflow": bool(ADVANCED_ML_AVAILABLE),
@@ -72,6 +76,7 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
+    await close_db()
     logger.info(f"Shutting down {settings.app_name}...")
 
 

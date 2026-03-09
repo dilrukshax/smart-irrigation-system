@@ -37,8 +37,9 @@ from app.ml.inference import (
 )
 from app.optimization.constraints import OptimizationCropInput, OptimizationConstraints
 from app.optimization.optimizer import Optimizer
-from app.data.repositories import FieldRepository, RecommendationRepository
+from app.data.repositories import FieldRepository, RecommendationRepository, RunArtifactRepository
 from app.core.config import get_settings
+from app.core.contracts import build_contract
 
 try:
     import paho.mqtt.client as mqtt
@@ -94,7 +95,51 @@ class RecommendationService:
         """
         logger.info(f"Generating recommendations for field={request.field_id}")
         strict_live_data = settings.is_strict_live_data
-        observed_at = datetime.utcnow().isoformat()
+        observed_at_dt = datetime.utcnow()
+        observed_at = observed_at_dt.isoformat()
+
+        def _response(
+            *,
+            raw_status: str,
+            data_available: bool,
+            message: str,
+            recommendations: Optional[List[CropOption]] = None,
+        ) -> RecommendationResponse:
+            contract = build_contract(
+                source="optimization_service",
+                observed_at=observed_at,
+                data_available=data_available,
+                raw_status=raw_status,
+                message=message,
+            )
+            response = RecommendationResponse(
+                field_id=request.field_id,
+                season=request.season,
+                recommendations=recommendations or [],
+                **contract,
+            )
+
+            # Persist recommendation payloads for downstream Plan-B/supply aggregation.
+            RecommendationRepository.save_recommendation(
+                db_session=db_session,
+                field_id=request.field_id,
+                season=request.season,
+                request_data=request.model_dump(),
+                response_data=response.model_dump(),
+            )
+            RunArtifactRepository.save_artifact(
+                db_session,
+                run_type="recommendation",
+                field_id=request.field_id,
+                season=request.season,
+                request_payload=request.model_dump(),
+                response_payload=response.model_dump(),
+                status=response.status,
+                source=response.source,
+                data_available=response.data_available,
+                observed_at=observed_at_dt,
+            )
+            return response
         
         # Extract scenario parameters
         scenario = request.scenario or {}
@@ -114,21 +159,14 @@ class RecommendationService:
                 f"No candidate crops available for field={request.field_id}. "
                 "Please ensure crops are populated in the database."
             )
-            return RecommendationResponse(
-                field_id=request.field_id,
-                season=request.season,
-                recommendations=[],
-                status=str(feature_status.get("status") or "data_unavailable"),
-                source="optimization_service",
-                is_live=False,
-                observed_at=observed_at,
-                staleness_sec=None,
-                quality="unavailable",
+            return _response(
+                raw_status=str(feature_status.get("status") or "data_unavailable"),
                 data_available=False,
                 message=str(
                     feature_status.get("message")
                     or "Feature inputs unavailable for recommendation generation."
                 ),
+                recommendations=[],
             )
         
         # === Step 2: Compute Suitability Scores ===
@@ -136,18 +174,11 @@ class RecommendationService:
         
         if not suitability_scores:
             logger.warning("Suitability scoring returned no results.")
-            return RecommendationResponse(
-                field_id=request.field_id,
-                season=request.season,
-                recommendations=[],
-                status="data_unavailable",
-                source="optimization_service",
-                is_live=False,
-                observed_at=observed_at,
-                staleness_sec=None,
-                quality="unavailable",
+            return _response(
+                raw_status="data_unavailable",
                 data_available=False,
                 message="Suitability scoring could not be computed from available inputs.",
+                recommendations=[],
             )
         
         # === Step 3: Predict Yields ===
@@ -185,21 +216,14 @@ class RecommendationService:
                 missing.append("yield_predictions")
             if not has_price_data:
                 missing.append("price_predictions")
-            return RecommendationResponse(
-                field_id=request.field_id,
-                season=request.season,
-                recommendations=[],
-                status="data_unavailable",
-                source="optimization_service",
-                is_live=False,
-                observed_at=observed_at,
-                staleness_sec=None,
-                quality="unavailable",
+            return _response(
+                raw_status="data_unavailable",
                 data_available=False,
                 message=(
                     "Strict live-data mode requires complete yield and price predictions; "
                     f"missing: {', '.join(missing)}."
                 ),
+                recommendations=[],
             )
         
         # === Step 5: Build Optimization Inputs ===
@@ -212,18 +236,11 @@ class RecommendationService:
         )
 
         if strict_live_data and not optimization_inputs:
-            return RecommendationResponse(
-                field_id=request.field_id,
-                season=request.season,
-                recommendations=[],
-                status="data_unavailable",
-                source="optimization_service",
-                is_live=False,
-                observed_at=observed_at,
-                staleness_sec=None,
-                quality="unavailable",
+            return _response(
+                raw_status="data_unavailable",
                 data_available=False,
                 message="No optimization candidates could be built from live model outputs.",
+                recommendations=[],
             )
         
         # Get field area for optimization
@@ -236,18 +253,11 @@ class RecommendationService:
                 "Using default area of 1.0 ha."
             )
             if strict_live_data:
-                return RecommendationResponse(
-                    field_id=request.field_id,
-                    season=request.season,
-                    recommendations=[],
-                    status="data_unavailable",
-                    source="optimization_service",
-                    is_live=False,
-                    observed_at=observed_at,
-                    staleness_sec=None,
-                    quality="unavailable",
+                return _response(
+                    raw_status="data_unavailable",
                     data_available=False,
                     message="Strict live-data mode requires persisted field area metadata.",
+                    recommendations=[],
                 )
         
         # === Step 6: Run Optimization ===
@@ -272,33 +282,18 @@ class RecommendationService:
         
         logger.info(f"Generated {len(recommendations)} recommendations")
 
-        response = RecommendationResponse(
-            field_id=request.field_id,
-            season=request.season,
-            recommendations=recommendations,
-            status="ok" if recommendations else "data_unavailable",
-            source="optimization_service",
-            is_live=bool(recommendations),
-            observed_at=observed_at,
-            staleness_sec=0 if recommendations else None,
-            quality="good" if recommendations else "unavailable",
+        response = _response(
+            raw_status="ok" if recommendations else "data_unavailable",
             data_available=bool(recommendations),
             message=(
                 "Recommendations generated from live upstream context."
                 if recommendations
                 else "No recommendations could be generated from available live data."
             ),
+            recommendations=recommendations,
         )
-
-        # Persist recommendation payloads for downstream Plan-B/supply aggregation.
-        RecommendationRepository.save_recommendation(
-            db_session=db_session,
-            field_id=request.field_id,
-            season=request.season,
-            request_data=request.model_dump(),
-            response_data=response.model_dump(),
-        )
-        self._emit_recommendation_event(response)
+        if response.data_available:
+            self._emit_recommendation_event(response)
 
         return response
 

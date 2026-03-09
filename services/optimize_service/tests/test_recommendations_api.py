@@ -13,10 +13,28 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.dependencies.auth import get_current_user_context, require_admin
 
 
 # Create test client
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _auth_overrides():
+    app.dependency_overrides[get_current_user_context] = lambda: {
+        "id": "test-user",
+        "username": "tester",
+        "roles": ["farmer"],
+    }
+    app.dependency_overrides[require_admin] = lambda: {
+        "id": "admin-user",
+        "username": "admin",
+        "roles": ["admin"],
+    }
+    yield
+    app.dependency_overrides.pop(get_current_user_context, None)
+    app.dependency_overrides.pop(require_admin, None)
 
 
 class TestRecommendationsEndpoint:

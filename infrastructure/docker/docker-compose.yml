@@ -54,11 +54,15 @@ services:
       - ENVIRONMENT=development
       - DEBUG=true
       - PORT=8002
+      - AUTH_SERVICE_URL=http://auth_service:8001
+      - DATABASE_URL=postgresql://aca_o_user:aca_o_password@postgres:5432/aca_o_db
       - FORECASTING_SERVICE_URL=http://forecasting_service:8003
       - CROP_HEALTH_SERVICE_URL=http://crop_health_and_water_stress_detection:8007
       - MQTT_BROKER=mosquitto
       - MQTT_PORT=1883
     depends_on:
+      - postgres
+      - auth_service
       - mosquitto
     ports:
       - "8002:8002"
@@ -77,6 +81,10 @@ services:
       - ENVIRONMENT=development
       - DEBUG=true
       - PORT=8003
+      - STRICT_LIVE_DATA=false
+      - ML_ONLY_MODE=false
+      - AUTH_SERVICE_URL=http://auth_service:8001
+      - DATABASE_URL=postgresql://aca_o_user:aca_o_password@postgres:5432/aca_o_db
     ports:
       - "8003:8003"
     networks:
@@ -172,6 +180,7 @@ services:
       - DEBUG=true
       - HOST=0.0.0.0
       - PORT=8007
+      - AUTH_SERVICE_URL=http://auth_service:8001
       - MQTT_BROKER=mosquitto
       - MQTT_PORT=1883
     depends_on:

@@ -17,6 +17,10 @@ import type {
   ValveControlResponse,
   AutoControlDecision,
   IoTSensorData,
+  ManualRequestCreate,
+  ManualRequestItem,
+  ManualRequestReview,
+  UnifiedFieldProfile,
 } from '../features/f1-irrigation/types';
 
 // Irrigation API endpoints - via Gateway
@@ -33,6 +37,7 @@ const ENDPOINTS = {
   WATER_MGMT: {
     STATUS: '/irrigation/water-management/status',
     RESERVOIR_CURRENT: '/irrigation/water-management/reservoir/current',
+    RESERVOIR_INGEST: '/irrigation/water-management/reservoir/ingest',
     PREDICT: '/irrigation/water-management/predict',
     DECIDE: '/irrigation/water-management/decide',
     RECOMMEND: '/irrigation/water-management/recommend',
@@ -55,7 +60,11 @@ const ENDPOINTS = {
     FIELD_AUTO_DECISION: (fieldId: string) => `/irrigation/crop-fields/fields/${fieldId}/auto-decision`,
     FIELD_SENSOR_DATA: (fieldId: string) => `/irrigation/crop-fields/fields/${fieldId}/sensor-data`,
     FIELD_SENSOR_HISTORY: (fieldId: string) => `/irrigation/crop-fields/fields/${fieldId}/sensor-history`,
+    FIELD_MANUAL_REQUESTS: (fieldId: string) => `/irrigation/crop-fields/fields/${fieldId}/manual-requests`,
+    MANUAL_REQUESTS: '/irrigation/crop-fields/manual-requests',
+    MANUAL_REQUEST_REVIEW: (requestId: string) => `/irrigation/crop-fields/manual-requests/${requestId}/review`,
   },
+  FIELD_PROFILE: (fieldId: string) => `/irrigation/fields/${fieldId}/profile`,
 };
 
 export const irrigationApi = {
@@ -99,6 +108,13 @@ export const waterManagementApi = {
   // Get current reservoir data (live ingest-first)
   getCurrentReservoirData: () =>
     apiClient.get<ReservoirData>(ENDPOINTS.WATER_MGMT.RESERVOIR_CURRENT),
+
+  // Ingest live reservoir snapshot (admin)
+  ingestReservoirData: (data: ReservoirData) =>
+    apiClient.post<{ status: string; message: string }>(
+      ENDPOINTS.WATER_MGMT.RESERVOIR_INGEST,
+      data
+    ),
 
   // Get water release prediction
   predictRelease: (data: ReservoirData) =>
@@ -206,7 +222,14 @@ export const cropFieldsApi = {
 
   // Send sensor data (from IoT device)
   sendSensorData: (fieldId: string, data: IoTSensorData) =>
-    apiClient.post<{ data_received: boolean; auto_control_triggered: boolean; decision?: AutoControlDecision }>(
+    apiClient.post<{
+      data_received: boolean;
+      auto_control_triggered: boolean;
+      decision?: AutoControlDecision;
+      manual_request_required?: boolean;
+      manual_request_id?: string | null;
+      manual_request_reason?: string | null;
+    }>(
       ENDPOINTS.CROP_FIELDS.FIELD_SENSOR_DATA(fieldId),
       data
     ),
@@ -217,4 +240,29 @@ export const cropFieldsApi = {
       ENDPOINTS.CROP_FIELDS.FIELD_SENSOR_HISTORY(fieldId),
       { params: { limit } }
     ),
+
+  // Create manual request (farmer path when auto-open is blocked)
+  createManualRequest: (fieldId: string, payload: ManualRequestCreate) =>
+    apiClient.post<ManualRequestItem>(
+      ENDPOINTS.CROP_FIELDS.FIELD_MANUAL_REQUESTS(fieldId),
+      payload
+    ),
+
+  // List manual requests (admin)
+  listManualRequests: (params?: { field_id?: string; status?: string; limit?: number }) =>
+    apiClient.get<{ count: number; items: ManualRequestItem[] }>(
+      ENDPOINTS.CROP_FIELDS.MANUAL_REQUESTS,
+      { params }
+    ),
+
+  // Review manual request (admin)
+  reviewManualRequest: (requestId: string, payload: ManualRequestReview) =>
+    apiClient.post<ManualRequestItem>(
+      ENDPOINTS.CROP_FIELDS.MANUAL_REQUEST_REVIEW(requestId),
+      payload
+    ),
+
+  // Unified profile aggregate (gateway)
+  getUnifiedFieldProfile: (fieldId: string) =>
+    apiClient.get<UnifiedFieldProfile>(ENDPOINTS.FIELD_PROFILE(fieldId)),
 };
