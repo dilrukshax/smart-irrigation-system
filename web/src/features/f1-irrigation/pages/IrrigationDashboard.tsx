@@ -1,64 +1,35 @@
 import { useNavigate } from 'react-router-dom';
-import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Grid, Typography } from '@mui/material';
-import { WaterDrop, Thermostat, Opacity, Water, ArrowForward, Agriculture } from '@mui/icons-material';
 import { useQuery } from '@tanstack/react-query';
+import {
+  Box,
+  Typography,
+  Grid,
+  Card,
+  CardContent,
+  Chip,
+  Button,
+  LinearProgress,
+  CircularProgress,
+  Alert,
+} from '@mui/material';
+import { WaterDrop, Opacity, Water, ArrowForward, Agriculture, Sensors } from '@mui/icons-material';
 import { ROUTES } from '../../../config/routes';
-import { cropFieldsApi } from '../../../api/f1-irrigation.api';
-import { getFreshnessView } from '../../../utils/dataFreshness';
-
-type FieldCard = {
-  field_id: string;
-  field_name: string;
-  water_level: number | null;
-  soil_moisture: number | null;
-  status_label: string;
-  freshness: ReturnType<typeof getFreshnessView>;
-};
+import { iotApi } from '@/api/f1-iot.api';
 
 export default function IrrigationDashboard() {
   const navigate = useNavigate();
 
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['irrigation-dashboard-live-status'],
-    queryFn: async () => {
-      const fieldsResponse = await cropFieldsApi.getFields();
-      const fields = Array.isArray(fieldsResponse.data) ? fieldsResponse.data : [];
-      const statuses = await Promise.all(
-        fields.map(async (field) => {
-          try {
-            const statusResponse = await cropFieldsApi.getFieldStatus(field.field_id, false);
-            return { field, status: statusResponse.data };
-          } catch (_error) {
-            return { field, status: null };
-          }
-        })
-      );
-      return statuses;
-    },
-    refetchInterval: 10000,
+  const {
+    data: devicesData,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ['iot-devices'],
+    queryFn: () => iotApi.getDevices(),
+    refetchInterval: 5000,
   });
 
-  const cards: FieldCard[] =
-    data?.map(({ field, status }) => {
-      const freshness = getFreshnessView(
-        status
-          ? {
-              status: status.status,
-              data_available: status.data_available,
-              is_live: status.is_live,
-              staleness_sec: status.staleness_sec,
-            }
-          : { status: 'data_unavailable', data_available: false }
-      );
-      return {
-        field_id: field.field_id,
-        field_name: field.field_name,
-        water_level: status?.current_water_level_pct ?? null,
-        soil_moisture: status?.current_soil_moisture_pct ?? null,
-        status_label: status?.overall_status || 'NO_DATA',
-        freshness,
-      };
-    }) || [];
+  const devices = devicesData?.data?.devices ?? [];
 
   return (
     <Box>
@@ -92,7 +63,8 @@ export default function IrrigationDashboard() {
                   ML-Powered Water Management
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Reservoir decisions generated from backend live context
+                  Predict irrigation water releases using machine learning trained on Udawalawe
+                  reservoir data (1994-2025)
                 </Typography>
               </Box>
             </Box>
@@ -113,7 +85,8 @@ export default function IrrigationDashboard() {
                   IoT Crop Field Management
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Valve control and status from field telemetry streams
+                  Automatic valve control for rice fields based on real-time water level and soil
+                  moisture sensors
                 </Typography>
               </Box>
             </Box>
@@ -124,51 +97,156 @@ export default function IrrigationDashboard() {
         </CardContent>
       </Card>
 
-      {isLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
-      ) : cards.length === 0 ? (
-        <Alert severity="warning">No field configurations are available.</Alert>
-      ) : (
-        <Grid container spacing={3}>
-          {cards.map((field) => (
-            <Grid item xs={12} sm={6} md={3} key={field.field_id}>
+      {/* Live ESP32 Sensor Cards */}
+      <Typography
+        variant="h6"
+        fontWeight={600}
+        gutterBottom
+        sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
+      >
+        <Sensors color="primary" />
+        Live ESP32 Sensors
+        {isLoading && <CircularProgress size={16} sx={{ ml: 1 }} />}
+      </Typography>
+
+      {error && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          IoT service unavailable — sensor cards will appear when the service is reachable.
+        </Alert>
+      )}
+
+      {!isLoading && devices.length === 0 && !error && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          No ESP32 devices detected yet. Waiting for telemetry from <strong>esp32-01</strong>…
+        </Alert>
+      )}
+
+      <Grid container spacing={3}>
+        {devices.map((device) => {
+          const r = device.latest_reading;
+          const water = r?.water_level_pct ?? null;
+          const soil = r?.soil_moisture_pct ?? null;
+          const waterStatus =
+            water === null ? 'Unknown' : water < 20 ? 'Low' : water < 70 ? 'Medium' : 'High';
+          const soilStatus =
+            soil === null
+              ? 'Unknown'
+              : soil < 30
+                ? 'Dry'
+                : soil < 60
+                  ? 'Moderate'
+                  : soil <= 80
+                    ? 'Optimal'
+                    : 'Wet';
+          const chipColor = device.is_online ? 'success' : 'default';
+          return (
+            <Grid item xs={12} sm={6} md={4} key={device.device_id}>
               <Card>
                 <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, alignItems: 'center' }}>
-                    <Typography variant="h6">{field.field_name}</Typography>
-                    <Chip label={field.freshness.label} color={field.freshness.color} size="small" />
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                    <Typography variant="h6">{device.device_id}</Typography>
+                    <Chip
+                      label={device.is_online ? 'Online' : 'Offline'}
+                      color={chipColor}
+                      size="small"
+                      icon={<Sensors />}
+                    />
                   </Box>
-                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-                    Status: {field.status_label}
-                  </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                    <Opacity sx={{ mr: 1, color: 'primary.main' }} />
-                    <Typography>
-                      Water: {field.water_level !== null ? `${field.water_level.toFixed(1)}%` : 'Unavailable'}
+
+                  {/* Water Level */}
+                  <Box sx={{ mb: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <WaterDrop sx={{ fontSize: 18, color: 'primary.main' }} />
+                        <Typography variant="body2">Water Level</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body1" fontWeight={600}>
+                          {water !== null ? `${water.toFixed(1)}%` : '—'}
+                        </Typography>
+                        <Chip
+                          label={waterStatus}
+                          size="small"
+                          color={
+                            waterStatus === 'Low'
+                              ? 'error'
+                              : waterStatus === 'Medium'
+                                ? 'warning'
+                                : waterStatus === 'High'
+                                  ? 'success'
+                                  : 'default'
+                          }
+                          sx={{ height: 20, fontSize: '0.7rem' }}
+                        />
+                      </Box>
+                    </Box>
+                    <LinearProgress
+                      variant="determinate"
+                      value={water ?? 0}
+                      color={
+                        waterStatus === 'Low'
+                          ? 'error'
+                          : waterStatus === 'Medium'
+                            ? 'warning'
+                            : 'primary'
+                      }
+                      sx={{ height: 6, borderRadius: 3 }}
+                    />
+                  </Box>
+
+                  {/* Soil Moisture */}
+                  <Box sx={{ mb: 1 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Opacity sx={{ fontSize: 18, color: 'success.main' }} />
+                        <Typography variant="body2">Soil Moisture</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body1" fontWeight={600}>
+                          {soil !== null ? `${soil.toFixed(1)}%` : '—'}
+                        </Typography>
+                        <Chip
+                          label={soilStatus}
+                          size="small"
+                          color={
+                            soilStatus === 'Dry'
+                              ? 'error'
+                              : soilStatus === 'Moderate'
+                                ? 'warning'
+                                : soilStatus === 'Optimal'
+                                  ? 'success'
+                                  : 'default'
+                          }
+                          sx={{ height: 20, fontSize: '0.7rem' }}
+                        />
+                      </Box>
+                    </Box>
+                    <LinearProgress
+                      variant="determinate"
+                      value={soil ?? 0}
+                      color={
+                        soilStatus === 'Dry'
+                          ? 'error'
+                          : soilStatus === 'Moderate'
+                            ? 'warning'
+                            : 'success'
+                      }
+                      sx={{ height: 6, borderRadius: 3 }}
+                    />
+                  </Box>
+
+                  {r && (
+                    <Typography variant="caption" color="text.secondary">
+                      Updated: {new Date(r.timestamp).toLocaleTimeString()}
+                      {r.rssi !== undefined && r.rssi !== null && ` · WiFi: ${r.rssi} dBm`}
                     </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                    <Thermostat sx={{ mr: 1, color: 'warning.main' }} />
-                    <Typography>Soil: {field.soil_moisture !== null ? `${field.soil_moisture.toFixed(1)}%` : 'Unavailable'}</Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <WaterDrop sx={{ mr: 1, color: 'info.main' }} />
-                    <Typography>{field.freshness.label === 'Live' ? 'Streaming' : 'No live telemetry'}</Typography>
-                  </Box>
+                  )}
                 </CardContent>
               </Card>
             </Grid>
-          ))}
-        </Grid>
-      )}
-
-      {isError && (
-        <Alert severity="error" sx={{ mt: 2 }}>
-          Failed to load irrigation dashboard data.
-        </Alert>
-      )}
+          );
+        })}
+      </Grid>
     </Box>
   );
 }

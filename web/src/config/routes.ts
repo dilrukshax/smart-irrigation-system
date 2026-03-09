@@ -39,6 +39,7 @@ export const ROUTES = {
     HISTORY: '/irrigation/history',
     WATER_MANAGEMENT: '/irrigation/water-management',
     CROP_FIELDS: '/irrigation/crop-fields',
+    TELEMETRY: '/iot/telemetry',
   },
 
   // F2 - Crop Health

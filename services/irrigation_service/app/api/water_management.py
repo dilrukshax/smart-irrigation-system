@@ -9,12 +9,12 @@ Provides endpoints for:
 """
 
 import logging
-import time
-import json
 import os
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 from typing import Optional, List
 
+import httpx
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
@@ -62,7 +62,7 @@ class ReservoirDataWithLags(ReservoirData):
     inflow_mcm_lag1: Optional[float] = None
     rain_mm_lag7: Optional[float] = None
     main_canals_mcm_lag1: Optional[float] = None
-    
+
     # Rolling means (optional)
     rain_mm_roll7: Optional[float] = None
     inflow_mcm_roll7: Optional[float] = None
@@ -118,13 +118,7 @@ class RecommendationResponse(BaseModel):
     decision: DecisionResponse
     reservoir_status: ReservoirStatusResponse
     input_data: dict
-    status: str = "ok"
-    source: str = "observed"
-    is_live: bool = True
-    observed_at: Optional[str] = None
-    staleness_sec: Optional[float] = None
-    quality: str = "good"
-    data_available: bool = True
+    data_source: Optional[str] = "simulated"
 
 
 class ThresholdConfig(BaseModel):
@@ -153,43 +147,144 @@ class ManualOverrideResponse(BaseModel):
 
 # ============ Simulated Sensor Data ============
 
+# Udawalawe reservoir physical constants
+UDAWALAWE_DEAD_LEVEL_MMSL = 70.0   # mMSL – dead storage level
+UDAWALAWE_FULL_LEVEL_MMSL = 95.0   # mMSL – full supply level
+UDAWALAWE_TOTAL_MCM = 268.0        # MCM – total storage capacity
+
+# IoT service URL (override via env var for Docker networking)
+IOT_SERVICE_URL = os.getenv("IOT_SERVICE_URL", "http://localhost:8006")
+
+
 def get_simulated_reservoir_data() -> dict:
     """
     Generate simulated reservoir sensor data for demonstration.
-    In production, this would read from actual IoT sensors.
+    In production, this is replaced by real IoT sensor readings.
     """
     import random
     import math
-    
+
     # Simulate seasonal variations
     day_of_year = datetime.now().timetuple().tm_yday
     seasonal_factor = math.sin(2 * math.pi * day_of_year / 365)  # -1 to 1
-    
+
     # Base values with seasonal adjustment
     base_level = 85.0 + seasonal_factor * 5  # 80-90 mMSL
-    base_inflow = 0.5 + seasonal_factor * 0.3  # Varies with season
-    
-    # Add some daily noise
+    base_inflow = 0.5 + seasonal_factor * 0.3
+
+    # Add daily noise
     water_level = round(base_level + random.uniform(-2, 2), 2)
     inflow = round(max(0, base_inflow + random.uniform(-0.1, 0.2)), 3)
     rain = round(max(0, random.gauss(5, 10) if seasonal_factor > 0 else random.gauss(2, 5)), 1)
-    
-    total_storage = 268.0  # Udawalawe capacity (MCM)
-    active_storage = round(total_storage * (water_level - 70) / 30, 2)  # Simplified calculation
-    
+
+    active_storage = round(
+        UDAWALAWE_TOTAL_MCM * (water_level - UDAWALAWE_DEAD_LEVEL_MMSL)
+        / (UDAWALAWE_FULL_LEVEL_MMSL - UDAWALAWE_DEAD_LEVEL_MMSL),
+        2,
+    )
+
     return {
         "water_level_mmsl": water_level,
-        "total_storage_mcm": total_storage,
-        "active_storage_mcm": max(0, active_storage),
+        "total_storage_mcm": UDAWALAWE_TOTAL_MCM,
+        "active_storage_mcm": max(0.0, active_storage),
         "inflow_mcm": inflow,
         "rain_mm": rain,
         "main_canals_mcm": round(random.uniform(0.2, 0.8), 3),
         "lb_main_canal_mcm": round(random.uniform(0.1, 0.4), 3),
         "rb_main_canal_mcm": round(random.uniform(0.1, 0.4), 3),
         "evap_mm": round(random.uniform(3, 8), 2),
-        "spillway_mcm": round(random.uniform(0, 0.2), 3) if water_level > 90 else 0,
-        "wind_speed_ms": round(random.uniform(1, 5), 2)
+        "spillway_mcm": round(random.uniform(0, 0.2), 3) if water_level > 90 else 0.0,
+        "wind_speed_ms": round(random.uniform(1, 5), 2),
+        "data_source": "simulated",
     }
+
+
+async def _fetch_iot_reservoir_data() -> Optional[dict]:
+    """
+    Try to pull the latest water-level reading from any online IoT device
+    and convert it to reservoir-scale parameters for the ML model.
+
+    Returns enriched reservoir dict on success, or None if unavailable.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{IOT_SERVICE_URL}/api/v1/iot/devices")
+            if resp.status_code != 200:
+                return None
+
+            devices = resp.json()
+            if not isinstance(devices, list) or not devices:
+                return None
+
+            for device in devices:
+                if not device.get("is_online", False):
+                    continue
+
+                device_id = device.get("device_id") or device.get("id")
+                if not device_id:
+                    continue
+
+                dev_resp = await client.get(
+                    f"{IOT_SERVICE_URL}/api/v1/iot/devices/{device_id}/latest"
+                )
+                if dev_resp.status_code != 200:
+                    continue
+
+                reading = dev_resp.json()
+                water_level_pct = reading.get("water_level_pct")
+                if water_level_pct is None:
+                    continue
+
+                # Convert field-sensor percentage to reservoir mMSL
+                water_level_mmsl = round(
+                    UDAWALAWE_DEAD_LEVEL_MMSL
+                    + (water_level_pct / 100.0)
+                    * (UDAWALAWE_FULL_LEVEL_MMSL - UDAWALAWE_DEAD_LEVEL_MMSL),
+                    2,
+                )
+                active_storage_mcm = round(
+                    max(0.0, (water_level_pct / 100.0) * UDAWALAWE_TOTAL_MCM), 2
+                )
+
+                # Blend real level with simulated weather/inflow values
+                import random
+                import math
+                day_of_year = datetime.now().timetuple().tm_yday
+                seasonal_factor = math.sin(2 * math.pi * day_of_year / 365)
+
+                soil_moisture_pct = reading.get("soil_moisture_pct")
+
+                data = {
+                    # Real sensor values
+                    "water_level_mmsl": water_level_mmsl,
+                    "active_storage_mcm": active_storage_mcm,
+                    "total_storage_mcm": UDAWALAWE_TOTAL_MCM,
+                    # Estimated environmental parameters
+                    "inflow_mcm": round(max(0, 0.5 + seasonal_factor * 0.3 + random.uniform(-0.1, 0.2)), 3),
+                    "rain_mm": round(max(0, random.gauss(5, 10) if seasonal_factor > 0 else random.gauss(2, 5)), 1),
+                    "main_canals_mcm": round(random.uniform(0.2, 0.8), 3),
+                    "lb_main_canal_mcm": round(random.uniform(0.1, 0.4), 3),
+                    "rb_main_canal_mcm": round(random.uniform(0.1, 0.4), 3),
+                    "evap_mm": round(random.uniform(3, 8), 2),
+                    "spillway_mcm": round(random.uniform(0, 0.2), 3) if water_level_mmsl > 90 else 0.0,
+                    "wind_speed_ms": round(random.uniform(1, 5), 2),
+                    # Metadata
+                    "data_source": "iot_sensors",
+                    "device_id": device_id,
+                    "water_level_pct": water_level_pct,
+                    "soil_moisture_pct": soil_moisture_pct,
+                }
+                logger.info(
+                    "Using real IoT sensor data from device %s: "
+                    "water_level_pct=%.1f%% → water_level_mmsl=%.2f mMSL",
+                    device_id, water_level_pct, water_level_mmsl,
+                )
+                return data
+
+    except Exception as exc:
+        logger.warning("Could not fetch IoT sensor data (%s) – using simulated data", exc)
+
+    return None
 
 
 # ============ State Management ============
@@ -334,98 +429,36 @@ async def get_water_management_status():
 async def get_current_reservoir_data():
     """
     Get current reservoir sensor readings.
-    
-    Returns simulated data for demonstration.
-    In production, integrates with IoT sensors.
-    """
-    snapshot = _load_reservoir_snapshot()
-    if snapshot:
-        observed_at = snapshot.get("observed_at") or snapshot.get("timestamp")
-        contract = _build_data_contract(
-            source="reservoir_ingest",
-            observed_at=observed_at,
-            data_available=True,
-        )
-        snapshot.update(contract)
-        return snapshot
 
-    if settings.is_strict_live_data:
-        contract = _build_data_contract(
-            source="unavailable",
-            observed_at=None,
-            data_available=False,
-        )
-        return {"message": "No live reservoir snapshot available", **contract}
+    Tries real IoT sensor data first; falls back to simulated values.
+    """
+    iot_data = await _fetch_iot_reservoir_data()
+    if iot_data:
+        iot_data["timestamp"] = datetime.now().isoformat()
+        return iot_data
 
     data = get_simulated_reservoir_data()
-    now = datetime.utcnow().isoformat()
-    contract = _build_data_contract(
-        source="simulated",
-        observed_at=now,
-        data_available=True,
-    )
-    return {
-        **data,
-        "timestamp": now,
-        **contract,
-    }
-
-
-@router.post("/reservoir/ingest")
-async def ingest_reservoir_data(data: ReservoirData):
-    """Persist latest observed reservoir snapshot for live recommendation flow."""
-    payload = data.model_dump()
-    payload["timestamp"] = datetime.utcnow().isoformat()
-    _persist_reservoir_snapshot(payload)
-    contract = _build_data_contract(
-        source="reservoir_ingest",
-        observed_at=payload["timestamp"],
-        data_available=True,
-    )
-    return {"status": "ok", "message": "Reservoir snapshot ingested", **contract}
-
-
-@router.post("/predict", response_model=PredictionResponse)
-async def predict_water_release(data: ReservoirDataWithLags):
+    data["timestamp"] = datetime.now().isoformat()
+async def predict_water_release(data: ReservoirData):
     """
     Predict next-day irrigation water release.
-    
+
     Uses the trained ML model to predict the required water release
     based on current reservoir conditions and weather data.
     """
     if not water_management_model.is_ready:
         water_management_model.load_model()
-    
-    try:
-        prediction = water_management_model.predict_release(data.model_dump())
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=_ml_only_unavailable_detail(str(exc)),
-        )
-    except RuntimeError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=_ml_only_unavailable_detail(
-                str(exc),
-                missing_models=["water_management_hgbr"] if water_management_model.model is None else [],
-            ),
-        )
-    
+
+    prediction = water_management_model.predict_release(data.model_dump())
+
     logger.info(
         f"Water release prediction: {prediction['predicted_release_mcm']:.3f} MCM "
         f"(confidence: {prediction['confidence']:.2f})"
     )
-    
+
     _current_state["last_prediction"] = prediction
-    _persist_state()
-    
-    contract = _build_data_contract(
-        source="observed",
-        observed_at=datetime.utcnow().isoformat(),
-        data_available=True,
-    )
-    return PredictionResponse(**prediction, **contract)
+
+    return PredictionResponse(**prediction)
 
 
 @router.post("/decide", response_model=DecisionResponse)
@@ -435,13 +468,13 @@ async def get_control_decision(
 ):
     """
     Get actuator control decision based on prediction and reservoir status.
-    
+
     Returns a decision on whether to open/close irrigation valves
     based on the ML prediction and safety thresholds.
     """
     if not water_management_model.is_ready:
         water_management_model.load_model()
-    
+
     # Check for manual override
     if _current_state["manual_override_active"]:
         return DecisionResponse(
@@ -450,24 +483,10 @@ async def get_control_decision(
             reason="Manual override active",
             priority="high"
         )
-    
+
     # Get prediction first
-    try:
-        prediction = water_management_model.predict_release(data.model_dump())
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=_ml_only_unavailable_detail(str(exc)),
-        )
-    except RuntimeError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=_ml_only_unavailable_detail(
-                str(exc),
-                missing_models=["water_management_hgbr"] if water_management_model.model is None else [],
-            ),
-        )
-    
+    prediction = water_management_model.predict_release(data.model_dump())
+
     # Get decision with custom thresholds if provided
     threshold_params = thresholds.model_dump() if thresholds else {}
     decision = water_management_model.decide_actuation(
@@ -475,154 +494,67 @@ async def get_control_decision(
         reservoir_level_mmsl=data.water_level_mmsl,
         **threshold_params
     )
-    
+
     logger.info(
         f"Control decision: {decision['action']} (valve: {decision['valve_position']}%) - "
         f"{decision['reason']}"
     )
-    
+
     _current_state["last_decision"] = decision
-    _persist_state()
-    
-    contract = _build_data_contract(
-        source="observed",
-        observed_at=datetime.utcnow().isoformat(),
-        data_available=True,
-    )
-    return DecisionResponse(**decision, **contract)
+
+    return DecisionResponse(**decision)
 
 
 @router.post("/recommend", response_model=RecommendationResponse)
 async def get_recommendation(data: ReservoirDataWithLags):
     """
     Get complete water management recommendation.
-    
+
     Combines prediction, decision, and reservoir status assessment
     into a comprehensive recommendation for the irrigation system.
     """
     if not water_management_model.is_ready:
         water_management_model.load_model()
-    
-    try:
-        recommendation = water_management_model.get_recommendation(data.model_dump())
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=_ml_only_unavailable_detail(str(exc)),
-        )
-    except RuntimeError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=_ml_only_unavailable_detail(
-                str(exc),
-                missing_models=["water_management_hgbr"] if water_management_model.model is None else [],
-            ),
-        )
-    
+
+    recommendation = water_management_model.get_recommendation(data.model_dump())
+
     # Update historical data
     water_management_model.update_historical_data(data.model_dump())
-    
+
     logger.info(
         f"Recommendation generated: {recommendation['decision']['action']} - "
         f"Reservoir status: {recommendation['reservoir_status']['status']}"
     )
-    
-    contract = _build_data_contract(
-        source="observed",
-        observed_at=datetime.utcnow().isoformat(),
-        data_available=True,
-    )
-    recommendation.update(contract)
-    recommendation["prediction"] = {**recommendation.get("prediction", {}), **contract}
-    recommendation["decision"] = {**recommendation.get("decision", {}), **contract}
+
     return RecommendationResponse(**recommendation)
 
 
 @router.get("/recommend/auto", response_model=RecommendationResponse)
 async def get_auto_recommendation():
     """
-    Get recommendation using current (simulated) sensor data.
-    
-    Automatically fetches current sensor readings and generates
-    a recommendation. Useful for dashboard integration.
+    Get recommendation using current sensor data.
+
+    Tries to fetch live water-level data from the IoT service first.
+    Falls back to seasonally-adjusted simulated values when IoT data
+    is unavailable.
     """
     if not water_management_model.is_ready:
         water_management_model.load_model()
-    
-    snapshot = _load_reservoir_snapshot()
-    contract: dict
-    if snapshot:
-        data = {
-            "water_level_mmsl": snapshot.get("water_level_mmsl"),
-            "total_storage_mcm": snapshot.get("total_storage_mcm"),
-            "active_storage_mcm": snapshot.get("active_storage_mcm"),
-            "inflow_mcm": snapshot.get("inflow_mcm", 0.0),
-            "rain_mm": snapshot.get("rain_mm", 0.0),
-            "main_canals_mcm": snapshot.get("main_canals_mcm", 0.0),
-            "lb_main_canal_mcm": snapshot.get("lb_main_canal_mcm", 0.0),
-            "rb_main_canal_mcm": snapshot.get("rb_main_canal_mcm", 0.0),
-            "evap_mm": snapshot.get("evap_mm"),
-            "spillway_mcm": snapshot.get("spillway_mcm"),
-            "wind_speed_ms": snapshot.get("wind_speed_ms"),
-        }
-        observed_at = snapshot.get("observed_at") or snapshot.get("timestamp")
-        contract = _build_data_contract(
-            source="reservoir_ingest",
-            observed_at=observed_at,
-            data_available=True,
-        )
-    elif settings.is_strict_live_data:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "message": "No live reservoir data available",
-                **_build_data_contract(
-                    source="unavailable",
-                    observed_at=None,
-                    data_available=False,
-                ),
-            },
-        )
-    else:
-        if settings.is_ml_only_mode:
-            raise HTTPException(
-                status_code=503,
-                detail=_ml_only_unavailable_detail(
-                    "ML-only mode requires live reservoir ingest data; simulated source is disabled.",
-                    missing_models=["water_management_hgbr"] if water_management_model.model is None else [],
-                    missing_features=["reservoir_snapshot"],
-                ),
-            )
+
+    # Prefer real IoT sensor data; fall back to simulated
+    data = await _fetch_iot_reservoir_data()
+    if data is None:
         data = get_simulated_reservoir_data()
-        contract = _build_data_contract(
-            source="simulated",
-            observed_at=datetime.utcnow().isoformat(),
-            data_available=True,
-        )
-    
-    # Get recommendation
-    try:
-        recommendation = water_management_model.get_recommendation(data)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=_ml_only_unavailable_detail(str(exc)),
-        )
-    except RuntimeError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=_ml_only_unavailable_detail(
-                str(exc),
-                missing_models=["water_management_hgbr"] if water_management_model.model is None else [],
-            ),
-        )
-    
-    # Update historical data
+
+    # Get ML recommendation
+    recommendation = water_management_model.get_recommendation(data)
+
+    # Update rolling historical window
     water_management_model.update_historical_data(data)
-    
-    recommendation.update(contract)
-    recommendation["prediction"] = {**recommendation.get("prediction", {}), **contract}
-    recommendation["decision"] = {**recommendation.get("decision", {}), **contract}
+
+    # Attach data-source metadata so the frontend can show it
+    recommendation["data_source"] = data.get("data_source", "simulated")
+
     return RecommendationResponse(**recommendation)
 
 
@@ -630,20 +562,19 @@ async def get_auto_recommendation():
 async def set_manual_override(request: ManualOverrideRequest):
     """
     Set manual control override.
-    
+
     Allows operators to manually control the irrigation system,
     bypassing ML-based decisions. Logged for audit purposes.
     """
     _current_state["manual_override_active"] = True
     _current_state["manual_override_action"] = request.action
     _current_state["manual_valve_position"] = request.valve_position
-    _persist_state()
-    
+
     logger.warning(
         f"MANUAL OVERRIDE: {request.action} by {request.operator_id or 'unknown'} - "
         f"Reason: {request.reason}"
     )
-    
+
     return ManualOverrideResponse(
         status="success",
         action_taken=request.action,
@@ -657,14 +588,13 @@ async def set_manual_override(request: ManualOverrideRequest):
 async def cancel_manual_override():
     """Cancel manual override and return to automatic control."""
     previous_action = _current_state["manual_override_action"]
-    
+
     _current_state["manual_override_active"] = False
     _current_state["manual_override_action"] = None
     _current_state["manual_valve_position"] = None
-    _persist_state()
-    
+
     logger.info("Manual override cancelled - returning to automatic control")
-    
+
     return ManualOverrideResponse(
         status="success",
         action_taken="AUTO",

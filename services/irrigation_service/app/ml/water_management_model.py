@@ -41,56 +41,47 @@ except ImportError:
 class WaterManagementModel:
     """
     Smart Water Management Model for predicting irrigation water releases.
-    
+
     This model predicts the next-day main canal water release (MCM) based on
     reservoir conditions, inflows, rainfall, and historical patterns.
     """
 
-    MODEL_NAME = "HistGradientBoostingRegressor"
-    MODEL_VERSION = "1.0.0"
-    INPUT_CONTRACT_VERSION = "v1"
-
-    # Feature columns expected by the trained model
+    # Feature columns expected by the trained model (46 features).
+    # NOTE: wind_speed_ms appears 4× because the training Excel file had
+    # duplicate columns ("Average wind speed (m/s)" + "Average Wind Speed (m/s)")
+    # that were both renamed to wind_speed_ms.  The order here matches the
+    # exact column order in the saved Pipeline so predictions are correct.
+    # When the model is retrained via the notebook these dupes are removed and
+    # FEATURE_COLUMNS should be updated to the clean 43-feature list.
     FEATURE_COLUMNS = [
+        # Base reservoir / hydro-meteorological features
         'water_level_mmsl', 'total_storage_mcm', 'active_storage_mcm',
         'inflow_mcm', 'rain_mm', 'lb_main_canal_mcm', 'rb_main_canal_mcm',
-        'main_canals_mcm', 'spillway_mcm', 'evap_mm', 'wind_speed_ms',
-        # Lag features
-        'water_level_mmsl_lag1', 'water_level_mmsl_lag2', 'water_level_mmsl_lag3', 'water_level_mmsl_lag7',
-        'total_storage_mcm_lag1', 'total_storage_mcm_lag2', 'total_storage_mcm_lag3', 'total_storage_mcm_lag7',
-        'inflow_mcm_lag1', 'inflow_mcm_lag2', 'inflow_mcm_lag3', 'inflow_mcm_lag7',
-        'rain_mm_lag1', 'rain_mm_lag2', 'rain_mm_lag3', 'rain_mm_lag7',
-        'main_canals_mcm_lag1', 'main_canals_mcm_lag2', 'main_canals_mcm_lag3', 'main_canals_mcm_lag7',
-        # Rolling means
-        'rain_mm_roll3', 'rain_mm_roll7', 'rain_mm_roll14',
-        'inflow_mcm_roll3', 'inflow_mcm_roll7', 'inflow_mcm_roll14',
-        'water_level_mmsl_roll3', 'water_level_mmsl_roll7', 'water_level_mmsl_roll14',
+        'main_canals_mcm', 'spillway_mcm', 'evap_mm',
+        # wind_speed_ms × 4  (matches training data duplicate columns)
+        'wind_speed_ms', 'wind_speed_ms', 'wind_speed_ms', 'wind_speed_ms',
+        # Lag features — grouped by lag period (lag1 first, then lag2, lag3, lag7)
+        'water_level_mmsl_lag1', 'total_storage_mcm_lag1', 'inflow_mcm_lag1', 'rain_mm_lag1', 'main_canals_mcm_lag1',
+        'water_level_mmsl_lag2', 'total_storage_mcm_lag2', 'inflow_mcm_lag2', 'rain_mm_lag2', 'main_canals_mcm_lag2',
+        'water_level_mmsl_lag3', 'total_storage_mcm_lag3', 'inflow_mcm_lag3', 'rain_mm_lag3', 'main_canals_mcm_lag3',
+        'water_level_mmsl_lag7', 'total_storage_mcm_lag7', 'inflow_mcm_lag7', 'rain_mm_lag7', 'main_canals_mcm_lag7',
+        # Rolling means — grouped by window size
+        'rain_mm_roll3', 'inflow_mcm_roll3', 'water_level_mmsl_roll3',
+        'rain_mm_roll7', 'inflow_mcm_roll7', 'water_level_mmsl_roll7',
+        'rain_mm_roll14', 'inflow_mcm_roll14', 'water_level_mmsl_roll14',
         # Calendar features
-        'month', 'dow', 'dayofyear'
+        'month', 'dow', 'dayofyear',
     ]
-    
+
     # Default thresholds for control decisions
     DEFAULT_RELEASE_THRESHOLD_MCM = 0.5
     DEFAULT_MIN_SAFE_LEVEL_MMSL = 80.0
     DEFAULT_MAX_SAFE_LEVEL_MMSL = 95.0
-    REQUIRED_BASE_FIELDS = (
-        "water_level_mmsl",
-        "total_storage_mcm",
-        "active_storage_mcm",
-        "inflow_mcm",
-        "rain_mm",
-        "main_canals_mcm",
-        "lb_main_canal_mcm",
-        "rb_main_canal_mcm",
-        "evap_mm",
-        "spillway_mcm",
-        "wind_speed_ms",
-    )
-    
+
     def __init__(self, model_path: Optional[str] = None):
         """
         Initialize the Water Management Model.
-        
+
         Args:
             model_path: Path to the trained joblib model file.
                        If None, looks in the notebooks directory.
@@ -99,7 +90,7 @@ class WaterManagementModel:
         self._is_loaded = False
         self._model_path = model_path
         self._historical_data: List[Dict[str, float]] = []
-        
+
         # Model performance metrics (from training)
         self.model_metrics = {
             "model_type": "HistGradientBoostingRegressor",
@@ -109,14 +100,14 @@ class WaterManagementModel:
             "rmse": None,
             "r2": None
         }
-    
+
     def load_model(self, model_path: Optional[str] = None) -> bool:
         """
         Load the trained ML model from disk.
-        
+
         Args:
             model_path: Path to the joblib model file.
-            
+
         Returns:
             True if model loaded successfully, False otherwise.
         """
@@ -124,21 +115,21 @@ class WaterManagementModel:
             logger.warning("joblib not available - using fallback prediction model")
             self._is_loaded = True
             return True
-        
+
         path = model_path or self._model_path
-        
+
         # Default path in notebooks directory
         if path is None:
             notebooks_dir = Path(__file__).parent.parent.parent / "notebooks"
             path = notebooks_dir / "smart_water_mgmt_release_predictor.joblib"
-        
+
         path = Path(path)
-        
+
         if not path.exists():
             logger.warning(f"Model file not found at {path}. Using fallback model.")
             self._is_loaded = True
             return True
-        
+
         try:
             self.model = joblib.load(path)
             self._is_loaded = True
@@ -148,14 +139,14 @@ class WaterManagementModel:
             logger.error(f"Failed to load model: {e}")
             self._is_loaded = True  # Still mark as loaded to use fallback
             return False
-    
+
     def _create_feature_vector(self, data: Dict[str, float]) -> np.ndarray:
         """
         Create a feature vector from input data.
-        
+
         Args:
             data: Dictionary containing sensor/reservoir readings
-            
+
         Returns:
             numpy array of features in the expected order
         """
@@ -164,32 +155,20 @@ class WaterManagementModel:
             features.append(data.get(col, np.nan))
         return np.array([features])
 
-    def _validate_input_contract(self, data: Dict[str, float]) -> List[str]:
-        """Return missing or invalid fields for ML-only contract validation."""
-        missing: List[str] = []
-        for field in self.REQUIRED_BASE_FIELDS:
-            value = data.get(field)
-            if value is None:
-                missing.append(field)
-                continue
-            if isinstance(value, float) and np.isnan(value):
-                missing.append(field)
-        return missing
-    
     def _fallback_prediction(self, data: Dict[str, float]) -> float:
         """
         Fallback prediction when trained model is not available.
-        
+
         Uses a simple rule-based approach based on reservoir conditions.
         """
         water_level = data.get('water_level_mmsl', 85.0)
         inflow = data.get('inflow_mcm', 0.5)
         rain = data.get('rain_mm', 0)
         storage_pct = data.get('gross_storage_pct', 50)
-        
+
         # Base release estimate
         base_release = 0.3
-        
+
         # Adjust based on storage level
         if storage_pct > 80:
             base_release += 0.4
@@ -197,20 +176,20 @@ class WaterManagementModel:
             base_release += 0.2
         elif storage_pct < 30:
             base_release -= 0.2
-        
+
         # Adjust based on inflow
         base_release += inflow * 0.2
-        
+
         # Reduce if recent rainfall
         if rain > 10:
             base_release -= 0.1
-        
+
         return max(0.0, min(2.0, base_release))
-    
+
     def predict_release(self, data: Dict[str, float]) -> Dict[str, Any]:
         """
         Predict next-day irrigation water release.
-        
+
         Args:
             data: Dictionary containing current reservoir and weather data:
                 - water_level_mmsl: Reservoir water level (mMSL)
@@ -220,7 +199,7 @@ class WaterManagementModel:
                 - rain_mm: Rainfall (mm)
                 - main_canals_mcm: Current canal release (MCM)
                 - Plus lag and rolling features if available
-                
+
         Returns:
             Dictionary with prediction results:
                 - predicted_release_mcm: Predicted next-day release
@@ -229,7 +208,7 @@ class WaterManagementModel:
         """
         if not self._is_loaded:
             self.load_model()
-        
+
         # Add calendar features if not present
         now = datetime.now()
         if 'month' not in data:
@@ -238,18 +217,6 @@ class WaterManagementModel:
             data['dow'] = now.weekday()
         if 'dayofyear' not in data:
             data['dayofyear'] = now.timetuple().tm_yday
-
-        if settings.is_ml_only_mode:
-            if self.model is None:
-                raise RuntimeError(
-                    "ML-only mode is enabled and water-management model artifact is unavailable."
-                )
-            missing = self._validate_input_contract(data)
-            if missing:
-                raise ValueError(
-                    "Missing required features for water-management prediction: "
-                    + ", ".join(missing)
-                )
 
         # Use trained model if available
         if self.model is not None:
@@ -268,9 +235,7 @@ class WaterManagementModel:
                 }
             except Exception as e:
                 logger.error(f"Model prediction failed: {e}")
-                if settings.is_ml_only_mode:
-                    raise
-        
+
         # Fallback prediction
         if settings.is_ml_only_mode:
             raise RuntimeError(
@@ -287,7 +252,7 @@ class WaterManagementModel:
             "features_used_count": len(self.REQUIRED_BASE_FIELDS),
             "data_available": True,
         }
-    
+
     def decide_actuation(
         self,
         predicted_release_mcm: float,
@@ -298,14 +263,14 @@ class WaterManagementModel:
     ) -> Dict[str, Any]:
         """
         Generate actuator control decision based on prediction and reservoir status.
-        
+
         Args:
             predicted_release_mcm: Predicted next-day water release (MCM)
             reservoir_level_mmsl: Current reservoir water level (mMSL)
             release_threshold_mcm: Threshold above which to open valves
             min_safe_level_mmsl: Minimum safe reservoir level
             max_safe_level_mmsl: Maximum safe reservoir level (triggers spillway)
-            
+
         Returns:
             Dictionary with control decision:
                 - action: "OPEN", "CLOSE", "HOLD", or "EMERGENCY_RELEASE"
@@ -316,7 +281,7 @@ class WaterManagementModel:
         release_threshold = release_threshold_mcm or self.DEFAULT_RELEASE_THRESHOLD_MCM
         min_safe = min_safe_level_mmsl or self.DEFAULT_MIN_SAFE_LEVEL_MMSL
         max_safe = max_safe_level_mmsl or self.DEFAULT_MAX_SAFE_LEVEL_MMSL
-        
+
         # Handle missing inputs
         if np.isnan(predicted_release_mcm) or np.isnan(reservoir_level_mmsl):
             return {
@@ -325,7 +290,7 @@ class WaterManagementModel:
                 "reason": "Missing sensor inputs - maintaining current state",
                 "priority": "medium"
             }
-        
+
         # Emergency: Reservoir too high - need to release water
         if reservoir_level_mmsl >= max_safe:
             return {
@@ -334,7 +299,7 @@ class WaterManagementModel:
                 "reason": f"Reservoir level ({reservoir_level_mmsl:.1f} mMSL) exceeds maximum safe level ({max_safe} mMSL)",
                 "priority": "critical"
             }
-        
+
         # Reservoir too low - close valves to conserve water
         if reservoir_level_mmsl < min_safe:
             return {
@@ -343,7 +308,7 @@ class WaterManagementModel:
                 "reason": f"Reservoir level ({reservoir_level_mmsl:.1f} mMSL) below minimum safe level ({min_safe} mMSL)",
                 "priority": "high"
             }
-        
+
         # Normal operation based on prediction
         if predicted_release_mcm > release_threshold:
             # Calculate valve position based on release amount
@@ -354,21 +319,21 @@ class WaterManagementModel:
                 "reason": f"Predicted release ({predicted_release_mcm:.3f} MCM) exceeds threshold ({release_threshold} MCM)",
                 "priority": "medium"
             }
-        
+
         return {
             "action": "CLOSE",
             "valve_position": 0,
             "reason": f"Low irrigation demand predicted ({predicted_release_mcm:.3f} MCM)",
             "priority": "low"
         }
-    
+
     def get_recommendation(self, data: Dict[str, float]) -> Dict[str, Any]:
         """
         Get a complete irrigation recommendation including prediction and control decision.
-        
+
         Args:
             data: Dictionary with reservoir and weather sensor data
-            
+
         Returns:
             Complete recommendation including:
                 - prediction: Next-day release prediction
@@ -378,15 +343,15 @@ class WaterManagementModel:
         """
         # Get prediction
         prediction = self.predict_release(data)
-        
+
         # Get reservoir level
         water_level = data.get('water_level_mmsl', 85.0)
         total_storage = data.get('total_storage_mcm', 0)
         active_storage = data.get('active_storage_mcm', 0)
-        
+
         # Determine reservoir status
         storage_pct = (active_storage / total_storage * 100) if total_storage > 0 else 50
-        
+
         if storage_pct > 80:
             reservoir_status = "HIGH"
             reservoir_alert = None
@@ -399,13 +364,13 @@ class WaterManagementModel:
         else:
             reservoir_status = "CRITICAL"
             reservoir_alert = "Critical reservoir level - immediate action required"
-        
+
         # Get control decision
         decision = self.decide_actuation(
             predicted_release_mcm=prediction["predicted_release_mcm"],
             reservoir_level_mmsl=water_level
         )
-        
+
         return {
             "timestamp": datetime.now().isoformat(),
             "prediction": prediction,
@@ -425,21 +390,21 @@ class WaterManagementModel:
                 "evap_mm": data.get('evap_mm')
             }
         }
-    
+
     def update_historical_data(self, data: Dict[str, float]) -> None:
         """
         Update historical data for computing lag and rolling features.
-        
+
         Args:
             data: New data point to add to history
         """
         data['timestamp'] = datetime.now().isoformat()
         self._historical_data.append(data)
-        
+
         # Keep only last 30 days of data
         if len(self._historical_data) > 30:
             self._historical_data = self._historical_data[-30:]
-    
+
     @property
     def is_ready(self) -> bool:
         """Check if model is loaded and ready for predictions."""

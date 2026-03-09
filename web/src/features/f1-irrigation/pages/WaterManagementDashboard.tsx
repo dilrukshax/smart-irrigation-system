@@ -53,9 +53,7 @@ import type {
 } from '../types';
 
 // Status color mapping
-const getStatusColor = (
-  status: string
-): 'success' | 'warning' | 'error' | 'info' => {
+const getStatusColor = (status: string): 'success' | 'warning' | 'error' | 'info' => {
   switch (status) {
     case 'HIGH':
       return 'warning';
@@ -70,9 +68,7 @@ const getStatusColor = (
   }
 };
 
-const getPriorityColor = (
-  priority: string
-): 'success' | 'warning' | 'error' | 'info' => {
+const getPriorityColor = (priority: string): 'success' | 'warning' | 'error' | 'info' => {
   switch (priority) {
     case 'low':
       return 'success';
@@ -87,9 +83,7 @@ const getPriorityColor = (
   }
 };
 
-const getActionColor = (
-  action: string
-): 'success' | 'warning' | 'error' | 'info' => {
+const getActionColor = (action: string): 'success' | 'warning' | 'error' | 'info' => {
   switch (action) {
     case 'OPEN':
       return 'success';
@@ -106,15 +100,10 @@ const getActionColor = (
 
 export default function WaterManagementDashboard() {
   // State
-  const [recommendation, setRecommendation] =
-    useState<WaterManagementRecommendation | null>(null);
-  const [reservoirData, setReservoirData] = useState<ReservoirData | null>(
-    null
-  );
-  const [serviceStatus, setServiceStatus] =
-    useState<WaterManagementStatus | null>(null);
-  const [overrideStatus, setOverrideStatus] =
-    useState<ManualOverrideStatus | null>(null);
+  const [recommendation, setRecommendation] = useState<WaterManagementRecommendation | null>(null);
+  const [reservoirData, setReservoirData] = useState<ReservoirData | null>(null);
+  const [serviceStatus, setServiceStatus] = useState<WaterManagementStatus | null>(null);
+  const [overrideStatus, setOverrideStatus] = useState<ManualOverrideStatus | null>(null);
   const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -146,8 +135,7 @@ export default function WaterManagementDashboard() {
       setReservoirData({
         water_level_mmsl: recommendRes.data.reservoir_status.level_mmsl,
         total_storage_mcm: recommendRes.data.reservoir_status.total_storage_mcm,
-        active_storage_mcm:
-          recommendRes.data.reservoir_status.active_storage_mcm,
+        active_storage_mcm: recommendRes.data.reservoir_status.active_storage_mcm,
         inflow_mcm: recommendRes.data.input_data.inflow_mcm || 0,
         rain_mm: recommendRes.data.input_data.rain_mm || 0,
         main_canals_mcm: recommendRes.data.input_data.main_canals_mcm || 0,
@@ -187,11 +175,7 @@ export default function WaterManagementDashboard() {
   const handleSetOverride = async () => {
     try {
       await waterManagementApi.setManualOverride({
-        action: overrideAction as
-          | 'OPEN'
-          | 'CLOSE'
-          | 'HOLD'
-          | 'EMERGENCY_RELEASE',
+        action: overrideAction as 'OPEN' | 'CLOSE' | 'HOLD' | 'EMERGENCY_RELEASE',
         valve_position: overridePosition,
         reason: overrideReason,
       });
@@ -288,19 +272,15 @@ export default function WaterManagementDashboard() {
           }
         >
           <AlertTitle>Manual Override Active</AlertTitle>
-          Current action: <strong>{overrideStatus.current_action}</strong> |
-          Valve position: <strong>{overrideStatus.valve_position}%</strong>
+          Current action: <strong>{overrideStatus.current_action}</strong> | Valve position:{' '}
+          <strong>{overrideStatus.valve_position}%</strong>
         </Alert>
       )}
 
       {/* Reservoir Status Alert */}
       {recommendation?.reservoir_status.alert && (
         <Alert
-          severity={
-            recommendation.reservoir_status.status === 'CRITICAL'
-              ? 'error'
-              : 'warning'
-          }
+          severity={recommendation.reservoir_status.status === 'CRITICAL' ? 'error' : 'warning'}
           sx={{ mb: 3 }}
         >
           <AlertTitle>Reservoir Alert</AlertTitle>
@@ -333,19 +313,16 @@ export default function WaterManagementDashboard() {
                         Water Level
                       </Typography>
                       <Typography variant="body1" fontWeight={600}>
-                        {recommendation.reservoir_status.level_mmsl.toFixed(1)}{' '}
-                        mMSL
+                        {recommendation.reservoir_status.level_mmsl.toFixed(1)} mMSL
                       </Typography>
                     </Box>
                     <LinearProgress
                       variant="determinate"
                       value={Math.min(
                         100,
-                        (recommendation.reservoir_status.level_mmsl / 100) * 100
+                        Math.max(0, ((recommendation.reservoir_status.level_mmsl - 70) / 25) * 100)
                       )}
-                      color={getStatusColor(
-                        recommendation.reservoir_status.status
-                      )}
+                      color={getStatusColor(recommendation.reservoir_status.status)}
                     />
                   </Box>
 
@@ -361,34 +338,23 @@ export default function WaterManagementDashboard() {
                         Storage Capacity
                       </Typography>
                       <Typography variant="body1" fontWeight={600}>
-                        {recommendation.reservoir_status.storage_percentage.toFixed(
-                          1
-                        )}
-                        %
+                        {recommendation.reservoir_status.storage_percentage.toFixed(1)}%
                       </Typography>
                     </Box>
                     <LinearProgress
                       variant="determinate"
-                      value={
-                        recommendation.reservoir_status.storage_percentage
-                      }
-                      color={getStatusColor(
-                        recommendation.reservoir_status.status
-                      )}
+                      value={recommendation.reservoir_status.storage_percentage}
+                      color={getStatusColor(recommendation.reservoir_status.status)}
                     />
                   </Box>
 
-                  <Box
-                    sx={{ display: 'flex', justifyContent: 'space-between' }}
-                  >
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                     <Typography variant="body2" color="text.secondary">
                       Status
                     </Typography>
                     <Chip
                       label={recommendation.reservoir_status.status}
-                      color={getStatusColor(
-                        recommendation.reservoir_status.status
-                      )}
+                      color={getStatusColor(recommendation.reservoir_status.status)}
                       size="small"
                     />
                   </Box>
@@ -396,17 +362,11 @@ export default function WaterManagementDashboard() {
                   <Divider sx={{ my: 2 }} />
 
                   <Typography variant="body2" color="text.secondary" paragraph>
-                    Active Storage:{' '}
-                    {recommendation.reservoir_status.active_storage_mcm.toFixed(
-                      2
-                    )}{' '}
+                    Active Storage: {recommendation.reservoir_status.active_storage_mcm.toFixed(2)}{' '}
                     MCM
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Total Capacity:{' '}
-                    {recommendation.reservoir_status.total_storage_mcm.toFixed(
-                      2
-                    )}{' '}
+                    Total Capacity: {recommendation.reservoir_status.total_storage_mcm.toFixed(2)}{' '}
                     MCM
                   </Typography>
                 </>
@@ -429,9 +389,7 @@ export default function WaterManagementDashboard() {
                 <>
                   <Box sx={{ textAlign: 'center', py: 2 }}>
                     <Typography variant="h3" color="primary" fontWeight={700}>
-                      {recommendation.prediction.predicted_release_mcm.toFixed(
-                        3
-                      )}
+                      {recommendation.prediction.predicted_release_mcm.toFixed(3)}
                     </Typography>
                     <Typography variant="body1" color="text.secondary">
                       MCM predicted release (next day)
@@ -450,10 +408,7 @@ export default function WaterManagementDashboard() {
                         Confidence
                       </Typography>
                       <Typography variant="body1" fontWeight={600}>
-                        {(recommendation.prediction.confidence * 100).toFixed(
-                          0
-                        )}
-                        %
+                        {(recommendation.prediction.confidence * 100).toFixed(0)}%
                       </Typography>
                     </Box>
                     <LinearProgress
@@ -463,9 +418,7 @@ export default function WaterManagementDashboard() {
                     />
                   </Box>
 
-                  <Box
-                    sx={{ display: 'flex', justifyContent: 'space-between' }}
-                  >
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                     <Typography variant="body2" color="text.secondary">
                       Model
                     </Typography>
@@ -498,8 +451,7 @@ export default function WaterManagementDashboard() {
                       icon={
                         recommendation.decision.action === 'OPEN' ? (
                           <PlayArrow />
-                        ) : recommendation.decision.action ===
-                          'EMERGENCY_RELEASE' ? (
+                        ) : recommendation.decision.action === 'EMERGENCY_RELEASE' ? (
                           <Warning />
                         ) : (
                           <Stop />
@@ -550,10 +502,7 @@ export default function WaterManagementDashboard() {
                     />
                   </Box>
 
-                  <Paper
-                    variant="outlined"
-                    sx={{ p: 1.5, bgcolor: 'grey.50' }}
-                  >
+                  <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'grey.50' }}>
                     <Typography variant="body2" color="text.secondary">
                       {recommendation.decision.reason}
                     </Typography>
@@ -579,8 +528,7 @@ export default function WaterManagementDashboard() {
                   <Paper variant="outlined" sx={{ p: 2, textAlign: 'center' }}>
                     <Opacity color="primary" />
                     <Typography variant="h5" fontWeight={600}>
-                      {recommendation?.input_data.inflow_mcm?.toFixed(3) ||
-                        '—'}
+                      {recommendation?.input_data.inflow_mcm?.toFixed(3) || '—'}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
                       Inflow (MCM)
@@ -602,8 +550,7 @@ export default function WaterManagementDashboard() {
                   <Paper variant="outlined" sx={{ p: 2, textAlign: 'center' }}>
                     <WaterDrop color="success" />
                     <Typography variant="h5" fontWeight={600}>
-                      {recommendation?.input_data.main_canals_mcm?.toFixed(3) ||
-                        '—'}
+                      {recommendation?.input_data.main_canals_mcm?.toFixed(3) || '—'}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
                       Canal Release (MCM)
@@ -636,8 +583,7 @@ export default function WaterManagementDashboard() {
               <Divider sx={{ my: 2 }} />
 
               <Typography variant="body2" color="text.secondary" paragraph>
-                Override the automatic ML-based control with manual commands.
-                Use with caution.
+                Override the automatic ML-based control with manual commands. Use with caution.
               </Typography>
 
               <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
@@ -684,11 +630,7 @@ export default function WaterManagementDashboard() {
 
               {overrideStatus?.override_active && (
                 <Box sx={{ mt: 2 }}>
-                  <Button
-                    variant="outlined"
-                    onClick={handleCancelOverride}
-                    fullWidth
-                  >
+                  <Button variant="outlined" onClick={handleCancelOverride} fullWidth>
                     Cancel Manual Override
                   </Button>
                 </Box>
@@ -707,29 +649,36 @@ export default function WaterManagementDashboard() {
                   Service Status
                 </Typography>
                 <Chip
-                  icon={
-                    serviceStatus?.model_ready ? (
-                      <CheckCircle />
-                    ) : (
-                      <Error />
-                    )
-                  }
+                  icon={serviceStatus?.model_ready ? <CheckCircle /> : <Error />}
                   label={serviceStatus?.model_ready ? 'Ready' : 'Not Ready'}
                   color={serviceStatus?.model_ready ? 'success' : 'error'}
                   size="small"
                 />
               </Box>
 
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ mt: 1, display: 'block' }}
+              <Box
+                sx={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  mt: 1,
+                }}
               >
-                Last updated:{' '}
-                {recommendation
-                  ? new Date(recommendation.timestamp).toLocaleString()
-                  : '—'}
-              </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Last updated:{' '}
+                  {recommendation ? new Date(recommendation.timestamp).toLocaleString() : '—'}
+                </Typography>
+                {recommendation?.data_source && (
+                  <Chip
+                    label={
+                      recommendation.data_source === 'iot_sensors' ? 'Live Sensors' : 'Simulated'
+                    }
+                    color={recommendation.data_source === 'iot_sensors' ? 'success' : 'default'}
+                    size="small"
+                    variant="outlined"
+                  />
+                )}
+              </Box>
             </CardContent>
           </Card>
         </Grid>
@@ -755,18 +704,16 @@ export default function WaterManagementDashboard() {
                 <MenuItem value="OPEN">OPEN - Start water release</MenuItem>
                 <MenuItem value="CLOSE">CLOSE - Stop water release</MenuItem>
                 <MenuItem value="HOLD">HOLD - Maintain current state</MenuItem>
-                <MenuItem value="EMERGENCY_RELEASE">
-                  EMERGENCY RELEASE - Maximum release
-                </MenuItem>
+                <MenuItem value="EMERGENCY_RELEASE">EMERGENCY RELEASE - Maximum release</MenuItem>
               </Select>
             </FormControl>
 
-            <Typography gutterBottom>
-              Valve Position: {overridePosition}%
-            </Typography>
+            <Typography gutterBottom>Valve Position: {overridePosition}%</Typography>
             <Slider
               value={overridePosition}
-              onChange={(_event: Event, value: number | number[]) => setOverridePosition(value as number)}
+              onChange={(_event: Event, value: number | number[]) =>
+                setOverridePosition(value as number)
+              }
               min={0}
               max={100}
               marks={[
@@ -781,7 +728,9 @@ export default function WaterManagementDashboard() {
               fullWidth
               label="Reason for Override"
               value={overrideReason}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOverrideReason(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setOverrideReason(e.target.value)
+              }
               multiline
               rows={2}
               required
@@ -791,11 +740,7 @@ export default function WaterManagementDashboard() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOverrideDialogOpen(false)}>Cancel</Button>
-          <Button
-            onClick={handleSetOverride}
-            variant="contained"
-            disabled={!overrideReason.trim()}
-          >
+          <Button onClick={handleSetOverride} variant="contained" disabled={!overrideReason.trim()}>
             Apply Override
           </Button>
         </DialogActions>

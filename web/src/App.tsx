@@ -76,6 +76,7 @@ function App() {
           <Route path="/irrigation/telemetry" element={<SensorTelemetry />} />
           <Route path="/irrigation/water-management" element={<WaterManagementDashboard />} />
           <Route path="/irrigation/crop-fields" element={<CropFieldDashboard />} />
+          <Route path="/iot/telemetry" element={<SensorTelemetry />} />
 
           {/* F2 - Crop Health Routes */}
           <Route path="/crop-health" element={<CropHealthDashboard />} />

@@ -25,7 +25,7 @@ from app.iot.schemas import (
     DeviceCommand,
     DeviceCommandResponse,
 )
-from app.iot.influx_repo import influx_repo
+from app.iot.pg_repo import pg_repo
 from app.iot.mqtt_client import get_mqtt_client
 
 logger = logging.getLogger(__name__)
@@ -34,76 +34,76 @@ logger = logging.getLogger(__name__)
 class IoTService:
     """
     Business logic service for IoT operations.
-    
+
     Handles:
     - Telemetry processing with calibration
     - Data storage and retrieval
     - Device command publishing
     """
-    
+
     @staticmethod
     def calculate_soil_moisture_pct(adc_value: int) -> float:
         """
         Convert soil moisture ADC value to percentage.
-        
+
         Uses linear interpolation based on calibration values.
         Dry = 0%, Wet = 100%
-        
+
         Args:
             adc_value: Raw ADC value (0-4095)
-            
+
         Returns:
             Moisture percentage (0-100)
         """
         dry = settings.soil_adc_dry
         wet = settings.soil_adc_wet
-        
+
         # Clamp value to calibration range
         clamped = max(wet, min(dry, adc_value))
-        
+
         # Linear interpolation: dry=0%, wet=100%
         # Note: Higher ADC = drier (inverted relationship)
         pct = ((dry - clamped) / (dry - wet)) * 100
-        
+
         return round(max(0, min(100, pct)), 1)
-    
+
     @staticmethod
     def calculate_water_level_pct(adc_value: int) -> float:
         """
         Convert water level ADC value to percentage.
-        
+
         Uses linear interpolation based on calibration values.
         Empty = 0%, Full = 100%
-        
+
         Args:
             adc_value: Raw ADC value (0-4095)
-            
+
         Returns:
             Water level percentage (0-100)
         """
         empty = settings.water_adc_empty
         full = settings.water_adc_full
-        
+
         # Clamp value to calibration range
         clamped = max(full, min(empty, adc_value))
-        
+
         # Linear interpolation: empty=0%, full=100%
         # Note: Higher ADC = lower level (inverted relationship)
         pct = ((empty - clamped) / (empty - full)) * 100
-        
+
         return round(max(0, min(100, pct)), 1)
-    
+
     @classmethod
     def process_telemetry(cls, payload: TelemetryPayload) -> Optional[TelemetryWithDerived]:
         """
         Process incoming telemetry payload.
-        
+
         - Calculates derived percentage values
         - Writes to InfluxDB
-        
+
         Args:
             payload: Raw telemetry from device.
-            
+
         Returns:
             Processed telemetry with derived values, or None on failure.
         """
@@ -111,7 +111,7 @@ class IoTService:
             # Calculate derived values (use ESP32's calculated values if available)
             soil_moisture_pct = payload.soil_moisture_pct if payload.soil_moisture_pct is not None else cls.calculate_soil_moisture_pct(payload.soil_ao)
             water_level_pct = payload.water_level_pct if payload.water_level_pct is not None else cls.calculate_water_level_pct(payload.water_ao)
-            
+
             # Create enriched telemetry object
             telemetry = TelemetryWithDerived(
                 device_id=payload.device_id,
@@ -127,10 +127,10 @@ class IoTService:
                 ip=payload.ip,
                 sampling_ms=payload.sampling_ms,
             )
-            
-            # Write to InfluxDB
-            success = influx_repo.write_point(telemetry)
-            
+
+# Write to PostgreSQL
+            success = pg_repo.write_point(telemetry)
+
             if success:
                 field_id = cls._resolve_field_id(payload.device_id)
                 cls._forward_to_irrigation(field_id=field_id, telemetry=telemetry)
@@ -144,115 +144,38 @@ class IoTService:
             else:
                 logger.error(f"Failed to store telemetry from {payload.device_id}")
                 return None
-                
+
         except Exception as e:
             logger.error(f"Error processing telemetry: {e}")
             return None
 
     @staticmethod
-    def _resolve_field_id(device_id: str) -> Optional[str]:
-        """Resolve a device identifier into a field identifier via F1 service."""
-        # Prefer static mapping when provided for deterministic local E2E runs.
-        mapping = settings.get_device_field_map()
-        if device_id in mapping:
-            return mapping[device_id]
-
-        try:
-            response = requests.get(
-                f"{settings.irrigation_service_url}/api/v1/crop-fields/devices/{device_id}/resolve",
-                timeout=1.5,
-            )
-            if response.status_code == 200:
-                payload = response.json()
-                return payload.get("field_id")
-        except Exception as exc:
-            logger.debug(f"Device resolution failed for {device_id}: {exc}")
-        return None
-
-    @staticmethod
-    def _forward_to_irrigation(field_id: Optional[str], telemetry: TelemetryWithDerived) -> None:
-        """Forward normalized sensor payload to F1 field ingestion endpoint."""
-        if not field_id:
-            return
-
-        payload = {
-            "device_id": telemetry.device_id,
-            "timestamp": telemetry.timestamp.isoformat(),
-            "soil_moisture_pct": telemetry.soil_moisture_pct,
-            "water_level_pct": telemetry.water_level_pct,
-            "soil_ao": telemetry.soil_ao,
-            "water_ao": telemetry.water_ao,
-            "rssi": telemetry.rssi,
-            "battery_v": telemetry.battery_v,
-        }
-
-        try:
-            response = requests.post(
-                f"{settings.irrigation_service_url}/api/v1/crop-fields/fields/{field_id}/sensor-data",
-                json=payload,
-                timeout=1.5,
-            )
-            if response.status_code >= 400:
-                logger.warning(
-                    "IoT->F1 bridge failed for device=%s field=%s status=%s",
-                    telemetry.device_id,
-                    field_id,
-                    response.status_code,
-                )
-        except Exception as exc:
-            logger.warning(
-                "IoT->F1 bridge exception for device=%s field=%s: %s",
-                telemetry.device_id,
-                field_id,
-                exc,
-            )
-
-    @staticmethod
-    def _emit_sensor_event(field_id: Optional[str], telemetry: TelemetryWithDerived) -> None:
-        """Emit sensor.reading.v1 for observability/traceability."""
-        mqtt = get_mqtt_client()
-        if not mqtt or not mqtt.is_connected:
-            return
-
-        event_payload = {
-            "event": "sensor.reading.v1",
-            "occurred_at": datetime.utcnow().isoformat(),
-            "device_id": telemetry.device_id,
-            "field_id": field_id,
-            "soil_moisture_pct": telemetry.soil_moisture_pct,
-            "water_level_pct": telemetry.water_level_pct,
-            "rssi": telemetry.rssi,
-            "battery_v": telemetry.battery_v,
-        }
-        mqtt.publish_event("sensor.reading.v1", event_payload)
-    
-    @staticmethod
     def get_all_devices() -> DeviceListResponse:
         """
         Get list of all known devices.
-        
+
         Returns:
             Device list response with count and device info.
         """
-        devices = influx_repo.get_all_devices()
+        devices = pg_repo.get_all_devices()
         return DeviceListResponse(
             count=len(devices),
             devices=devices,
         )
-    
+
     @staticmethod
     def get_latest_reading(device_id: str) -> Optional[TelemetryResponse]:
         """
         Get latest reading for a device.
-        
+
         Args:
             device_id: Device identifier.
-            
+
         Returns:
             Latest telemetry response or None.
         """
-        return influx_repo.query_latest(device_id)
-    
+        return pg_repo.query_latest(device_id)
+
     @staticmethod
     def get_readings_range(
         device_id: str,
@@ -262,23 +185,13 @@ class IoTService:
     ) -> TelemetryRangeResponse:
         """
         Get readings for a device within a time range.
-        
-        Args:
-            device_id: Device identifier.
-            start_time: Range start.
-            end_time: Range end.
-            limit: Maximum results.
-            
-        Returns:
-            Telemetry range response with readings.
         """
-        readings = influx_repo.query_range(
+        readings = pg_repo.query_range(
             device_id=device_id,
             start_time=start_time,
             end_time=end_time,
             limit=limit,
         )
-        
         return TelemetryRangeResponse(
             device_id=device_id,
             count=len(readings),
@@ -286,22 +199,22 @@ class IoTService:
             end_time=end_time,
             readings=readings,
         )
-    
+
     @staticmethod
     def send_command(device_id: str, command: DeviceCommand) -> DeviceCommandResponse:
         """
         Send a command to a device via MQTT.
-        
+
         Args:
             device_id: Target device identifier.
             command: Command to send.
-            
+
         Returns:
             Command response with status.
         """
         mqtt = get_mqtt_client()
         topic = f"devices/{device_id}/cmd"
-        
+
         if not mqtt or not mqtt.is_connected:
             return DeviceCommandResponse(
                 device_id=device_id,
@@ -310,7 +223,7 @@ class IoTService:
                 message="MQTT client not connected",
                 topic=topic,
             )
-        
+
         # Build command payload
         cmd_payload = {
             "type": command.type,
@@ -318,10 +231,10 @@ class IoTService:
         }
         if command.value is not None:
             cmd_payload["value"] = command.value
-        
+
         # Publish command
         success = mqtt.publish_command(device_id, cmd_payload)
-        
+
         if success:
             return DeviceCommandResponse(
                 device_id=device_id,

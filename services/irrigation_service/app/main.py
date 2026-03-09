@@ -5,6 +5,7 @@ Smart irrigation microservice providing:
 - Real-time sensor data simulation
 - ML-based irrigation predictions
 - Manual irrigation control
+- IoT sensor data integration (crop fields pull from IoT service)
 
 This service uses a RandomForestClassifier to predict irrigation needs
 based on soil moisture, temperature, humidity, and time of day.
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """
     Application lifespan manager.
-    
+
     On startup: Initialize and train ML model
     On shutdown: Cleanup resources
     """
@@ -43,54 +44,16 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Environment: {settings.environment}")
 
-    required_models = {
-        "irrigation_rf": irrigation_model.model_path,
-        "water_management_hgbr": str(
-            Path(__file__).resolve().parents[1] / "notebooks" / "smart_water_mgmt_release_predictor.joblib"
-        ),
-    }
-    loaded_models = []
-    missing_models = []
+    # Initialize and train ML model
+    irrigation_model.train_model()
+    logger.info("Irrigation ML model initialized and ready")
 
-    # Load primary irrigation model artifact.
-    if irrigation_model.load_model():
-        loaded_models.append("irrigation_rf")
-        logger.info("Irrigation ML model loaded and ready")
-    else:
-        missing_models.append("irrigation_rf")
-        if settings.is_ml_only_mode:
-            raise RuntimeError(
-                "ML-only mode is enabled and irrigation model artifact is missing."
-            )
-        irrigation_model.train_model()
-        logger.warning("Irrigation artifact missing; trained synthetic fallback (ML-only disabled).")
-
-    # Load smart water-management model artifact.
+    # Load Smart Water Management ML model
     water_management_model.load_model()
-    if water_management_model.model is not None:
-        loaded_models.append("water_management_hgbr")
-        logger.info("Water Management ML model loaded and ready")
-    else:
-        missing_models.append("water_management_hgbr")
-        if settings.is_ml_only_mode:
-            raise RuntimeError(
-                "ML-only mode is enabled and water-management model artifact is missing."
-            )
-        logger.warning("Water-management artifact missing; fallback remains enabled (ML-only disabled).")
+    logger.info("Water Management ML model loaded and ready")
 
-    app.state.model_readiness = {
-        "ml_only_mode": settings.is_ml_only_mode,
-        "required_models": required_models,
-        "loaded_models": loaded_models,
-        "missing_models": missing_models,
-        "dependencies": {
-            "joblib": True,
-            "sklearn": True,
-        },
-    }
-    
     yield
-    
+
     # Shutdown
     logger.info(f"Shutting down {settings.app_name}...")
 
@@ -138,7 +101,7 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     uvicorn.run(
         "app.main:app",
         host=settings.host,

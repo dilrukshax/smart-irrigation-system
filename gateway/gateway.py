@@ -6,7 +6,7 @@ Routes all requests to the appropriate microservices.
 Service Route Structure:
 - Auth Service (8001): /api/auth/*, /api/admin/*, /health
 - Irrigation Service (8002): /api/v1/*, /health
-- Forecasting Service (8003): /api/v1/*, /health  
+- Forecasting Service (8003): /api/v1/*, /health
 - ACA-O Service (8004): /f4/*, /health/*
 """
 
@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 # Service URLs - Local Development
 SERVICES = {
     "auth": "http://127.0.0.1:8001",
-    "irrigation": "http://127.0.0.1:8002",
+    "irrigation": "http://127.0.0.1:19002",
+    "crop_health": "http://127.0.0.1:8007",
     "forecasting": "http://127.0.0.1:8003",
     "optimization": "http://127.0.0.1:8004",
     "iot": "http://127.0.0.1:8006",
@@ -125,48 +126,48 @@ async def proxy_request(
     request: Request,
 ) -> JSONResponse:
     """Proxy a request to a backend service."""
-    
+
     # Build the target URL
     url = f"{service_url}{path}"
-    
+
     # Get query params
     query_params = str(request.query_params) if request.query_params else ""
     if query_params:
         url = f"{url}?{query_params}"
-    
+
     # Get headers (forward auth token)
     headers = {}
     if "authorization" in request.headers:
         headers["Authorization"] = request.headers["authorization"]
     if "content-type" in request.headers:
         headers["Content-Type"] = request.headers["content-type"]
-    
+
     # Get body for POST/PUT/PATCH
     body = None
     if request.method in ["POST", "PUT", "PATCH"]:
         body = await request.body()
-    
+
     try:
         logger.info(f"Proxying {request.method} {url}")
-        
+
         response = await http_client.request(
             method=request.method,
             url=url,
             headers=headers,
             content=body,
         )
-        
+
         # Return the response
         try:
             content = response.json() if response.content else {}
         except:
             content = {"message": response.text}
-            
+
         return JSONResponse(
             content=content,
             status_code=response.status_code,
         )
-        
+
     except httpx.ConnectError:
         logger.error(f"Service unavailable: {service_url}")
         raise HTTPException(status_code=503, detail=f"Service unavailable")
@@ -190,7 +191,7 @@ async def gateway_health():
 async def all_services_health():
     """Check health status of all backend microservices."""
     results = {}
-    
+
     for name, url in SERVICES.items():
         try:
             response = await http_client.get(f"{url}/health", timeout=5.0)
@@ -200,7 +201,7 @@ async def all_services_health():
             }
         except Exception as e:
             results[name] = {"status": "unavailable", "url": url, "error": str(e)}
-    
+
     return results
 
 
@@ -236,7 +237,7 @@ async def auth_me(request: Request):
     return await proxy_request(SERVICES["auth"], "/api/auth/me", request)
 
 
-@app.api_route("/api/v1/auth/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"], 
+@app.api_route("/api/v1/auth/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
                tags=["Auth Service"], summary="Auth Service Proxy", include_in_schema=False)
 async def auth_proxy(path: str, request: Request):
     """Proxy to Auth Service - maps /api/v1/auth/* -> /api/auth/*"""
@@ -257,7 +258,7 @@ async def admin_get_user(user_id: str, request: Request):
     return await proxy_request(SERVICES["auth"], f"/api/admin/users/{user_id}", request)
 
 
-@app.api_route("/api/v1/admin/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"], 
+@app.api_route("/api/v1/admin/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
                tags=["Admin Service"], summary="Admin Service Proxy", include_in_schema=False)
 async def admin_proxy(path: str, request: Request):
     """Proxy to Auth Service Admin - maps /api/v1/admin/* -> /api/admin/*"""
@@ -296,7 +297,7 @@ async def irrigation_predict(request: Request):
     return await proxy_request(SERVICES["irrigation"], "/api/v1/sensors/predict", request)
 
 
-@app.api_route("/api/v1/irrigation/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"], 
+@app.api_route("/api/v1/irrigation/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
                tags=["Irrigation Service (F1)"], summary="Irrigation Service Proxy", include_in_schema=False)
 async def irrigation_proxy(path: str, request: Request):
     """Proxy to Irrigation Service - maps /api/v1/irrigation/* -> /api/v1/*"""
@@ -359,7 +360,7 @@ async def crop_health_model_classes(request: Request):
     return await proxy_request(SERVICES["crop_health"], "/api/v1/crop-health/model/classes", request)
 
 
-@app.api_route("/api/v1/crop-health/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"], 
+@app.api_route("/api/v1/crop-health/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
                tags=["Crop Health Service (F2)"], summary="Crop Health Service Proxy", include_in_schema=False)
 async def crop_health_proxy(path: str, request: Request):
     """Proxy to Crop Health Service - maps /api/v1/crop-health/* -> /api/v1/crop-health/*"""
@@ -399,7 +400,7 @@ def _map_forecast_path(path: str) -> str:
     return f"/api/v1/{path}"
 
 
-@app.api_route("/api/v1/forecast/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"], 
+@app.api_route("/api/v1/forecast/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
                tags=["Forecasting Service (F3)"], summary="Forecasting Service Proxy", include_in_schema=False)
 async def forecasting_proxy(path: str, request: Request):
     """Proxy to Forecasting Service for /api/v1, /api/v2 and /api/weather APIs."""
@@ -444,7 +445,7 @@ async def optimization_supply(request: Request):
     return await proxy_request(SERVICES["optimization"], "/f4/supply", request)
 
 
-@app.api_route("/api/v1/optimization/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"], 
+@app.api_route("/api/v1/optimization/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
                tags=["Optimization Service (F4/ACA-O)"], summary="Optimization Service Proxy", include_in_schema=False)
 async def optimization_proxy(path: str, request: Request):
     """Proxy to Optimization Service (ACA-O) - maps /api/v1/optimization/* -> /f4/*"""
@@ -489,7 +490,7 @@ async def iot_ingest_telemetry(request: Request):
     return await proxy_request(SERVICES["iot"], "/api/v1/iot/telemetry", request)
 
 
-@app.api_route("/api/v1/iot/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"], 
+@app.api_route("/api/v1/iot/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
                tags=["IoT Service"], summary="IoT Service Proxy", include_in_schema=False)
 async def iot_proxy(path: str, request: Request):
     """Proxy to IoT Service - maps /api/v1/iot/* -> /api/v1/iot/*"""
@@ -506,7 +507,7 @@ async def shutdown():
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     print("=" * 60)
     print("Smart Irrigation API Gateway")
     print("=" * 60)
@@ -525,5 +526,5 @@ if __name__ == "__main__":
     for name, url in SERVICES.items():
         print(f"  - {name}: {url}")
     print("=" * 60)
-    
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
