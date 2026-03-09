@@ -1,6 +1,6 @@
 /**
  * Sensor Telemetry Page
- * 
+ *
  * Displays live and historical telemetry data from ESP32 IoT sensors.
  * Features:
  * - Device selector dropdown
@@ -73,20 +73,33 @@ const COLORS = {
   success: '#4caf50',
 };
 
-// Helper to format timestamp
+// Helper to format timestamp — treats the ISO string as UTC since the server stores UTC
 function formatTimestamp(ts: string): string {
-  const date = new Date(ts);
-  return date.toLocaleString();
+  // Append 'Z' if not already timezone-qualified so the browser treats it as UTC
+  const normalized = ts.endsWith('Z') || ts.includes('+') ? ts : ts + 'Z';
+  return new Date(normalized).toLocaleString();
 }
 
 // Helper to format time for chart
 function formatChartTime(ts: string): string {
-  const date = new Date(ts);
+  const normalized = ts.endsWith('Z') || ts.includes('+') ? ts : ts + 'Z';
+  const date = new Date(normalized);
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+// Returns true if the ISO timestamp string is within the last `seconds` seconds
+function isRecentTimestamp(ts: string | undefined | null, seconds = 120): boolean {
+  if (!ts) return false;
+  const normalized = ts.endsWith('Z') || ts.includes('+') ? ts : ts + 'Z';
+  const diff = (Date.now() - new Date(normalized).getTime()) / 1000;
+  return Math.abs(diff) <= seconds;
+}
+
 // Status chip based on value
-function getStatusColor(value: number, thresholds: { low: number; high: number }): 'success' | 'warning' | 'error' {
+function getStatusColor(
+  value: number,
+  thresholds: { low: number; high: number }
+): 'success' | 'warning' | 'error' {
   if (value < thresholds.low) return 'error';
   if (value < thresholds.high) return 'warning';
   return 'success';
@@ -98,32 +111,27 @@ export default function SensorTelemetry() {
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
   const [samplingInterval, setSamplingInterval] = useState<number>(60000);
-  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
+  const [snackbar, setSnackbar] = useState<{
+    open: boolean;
+    message: string;
+    severity: 'success' | 'error';
+  }>({
     open: false,
     message: '',
     severity: 'success',
   });
 
   // Fetch devices list
-  const { 
-    data: devicesData, 
-    isLoading: loadingDevices, 
+  const {
+    data: devicesData,
+    isLoading: loadingDevices,
     error: devicesError,
     refetch: refetchDevices,
   } = useQuery({
     queryKey: ['iot-devices'],
     queryFn: () => iotApi.getDevices(),
-    refetchInterval: 30000, // Refresh device list every 30 seconds
+    refetchInterval: 5000, // Refresh device list every 5 seconds for responsive online/offline
   });
-
-  const devices = devicesData?.data?.devices || [];
-
-  // Auto-select first device if none selected
-  useMemo(() => {
-    if (devices.length > 0 && !selectedDevice) {
-      setSelectedDevice(devices[0].device_id);
-    }
-  }, [devices, selectedDevice]);
 
   // Fetch latest reading with auto-refresh (every 3 seconds)
   const {
@@ -147,21 +155,24 @@ export default function SensorTelemetry() {
     refetch: refetchHistory,
   } = useQuery({
     queryKey: ['iot-history', selectedDevice, dateFrom, dateTo],
-    queryFn: () => iotApi.getRange(
-      selectedDevice,
-      dateFrom || undefined,
-      dateTo || undefined,
-      100
-    ),
+    queryFn: () => iotApi.getRange(selectedDevice, dateFrom || undefined, dateTo || undefined, 100),
     enabled: !!selectedDevice,
   });
 
   const historyReadings = historyData?.data?.readings || [];
 
+  // Derive devices array from query result
+  const devices: DeviceInfo[] = devicesData?.data?.devices || [];
+
   // Send command mutation
   const sendCommandMutation = useMutation({
-    mutationFn: ({ deviceId, command }: { deviceId: string; command: { type: 'set_interval_ms'; value: number } }) =>
-      iotApi.sendCommand(deviceId, command),
+    mutationFn: ({
+      deviceId,
+      command,
+    }: {
+      deviceId: string;
+      command: { type: 'set_interval_ms'; value: number };
+    }) => iotApi.sendCommand(deviceId, command),
     onSuccess: (response) => {
       setSnackbar({
         open: true,
@@ -181,7 +192,7 @@ export default function SensorTelemetry() {
   // Handle send command
   const handleSendCommand = () => {
     if (!selectedDevice || !samplingInterval) return;
-    
+
     sendCommandMutation.mutate({
       deviceId: selectedDevice,
       command: {
@@ -206,6 +217,7 @@ export default function SensorTelemetry() {
         fullTime: reading.timestamp,
         soilMoisture: reading.soil_moisture_pct,
         waterLevel: reading.water_level_pct,
+        waterLevelCm: reading.water_level_cm ?? 0,
         soilAo: reading.soil_ao,
         waterAo: reading.water_ao,
       }));
@@ -259,8 +271,8 @@ export default function SensorTelemetry() {
             No Devices Connected
           </Typography>
           <Typography color="text.secondary">
-            No IoT devices have sent telemetry data yet. Make sure your ESP32 devices are
-            configured and connected to the MQTT broker.
+            No IoT devices have sent telemetry data yet. Make sure your ESP32 devices are configured
+            and connected to the MQTT broker.
           </Typography>
         </Paper>
       )}
@@ -279,18 +291,29 @@ export default function SensorTelemetry() {
                   label="Select Device"
                   onChange={(e) => setSelectedDevice(e.target.value)}
                 >
-                  {devices.map((device: DeviceInfo) => (
-                    <MenuItem key={device.device_id} value={device.device_id}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Chip
-                          size="small"
-                          label={device.is_online ? 'Online' : 'Offline'}
-                          color={device.is_online ? 'success' : 'default'}
-                        />
-                        {device.device_id}
-                      </Box>
-                    </MenuItem>
-                  ))}
+                  {devices.map((device: DeviceInfo) => {
+                    // A device is considered online only if both the backend flag is
+                    // set AND the latest reading timestamp is recent (< 2 minutes old).
+                    const latestTs = device.latest_reading?.timestamp;
+                    const actuallyOnline = device.is_online && isRecentTimestamp(latestTs, 120);
+                    return (
+                      <MenuItem key={device.device_id} value={device.device_id}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Chip
+                            size="small"
+                            label={actuallyOnline ? 'Online' : 'Offline'}
+                            color={actuallyOnline ? 'success' : 'default'}
+                          />
+                          {device.device_id}
+                          {latestTs && (
+                            <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                              ({formatTimestamp(latestTs)})
+                            </Typography>
+                          )}
+                        </Box>
+                      </MenuItem>
+                    );
+                  })}
                 </Select>
               </FormControl>
             </Paper>
@@ -307,65 +330,161 @@ export default function SensorTelemetry() {
 
           {latestReading ? (
             <>
-              {/* Soil Moisture Card */}
+              {/* ── Soil Moisture Card ─────────────────────────────────── */}
               <Grid item xs={12} sm={6} md={3}>
-                <Card>
+                <Card sx={{ borderTop: `4px solid ${COLORS.soilMoisture}` }}>
                   <CardContent>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                      <Typography variant="subtitle2" color="text.secondary">
-                        Soil Moisture
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        mb: 1,
+                      }}
+                    >
+                      <Typography variant="subtitle2" color="text.secondary" fontWeight={600}>
+                        SOIL MOISTURE
                       </Typography>
                       <MoistureIcon sx={{ color: COLORS.soilMoisture }} />
                     </Box>
-                    <Typography variant="h3" fontWeight={600} color={COLORS.soilMoisture}>
+
+                    {/* Big percentage */}
+                    <Typography
+                      variant="h2"
+                      fontWeight={700}
+                      color={COLORS.soilMoisture}
+                      lineHeight={1}
+                    >
                       {latestReading.soil_moisture_pct.toFixed(1)}%
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      Raw ADC: {latestReading.soil_ao}
-                    </Typography>
+
                     <LinearProgress
                       variant="determinate"
                       value={latestReading.soil_moisture_pct}
-                      sx={{ mt: 1, height: 8, borderRadius: 4 }}
-                      color={getStatusColor(latestReading.soil_moisture_pct, { low: 30, high: 70 }) as any}
+                      sx={{ my: 1, height: 10, borderRadius: 5 }}
+                      color={
+                        getStatusColor(latestReading.soil_moisture_pct, {
+                          low: 30,
+                          high: 70,
+                        }) as any
+                      }
                     />
+
+                    <Chip
+                      label={(latestReading.soil_status ?? 'unknown').toUpperCase()}
+                      size="small"
+                      color={
+                        getStatusColor(latestReading.soil_moisture_pct, {
+                          low: 30,
+                          high: 70,
+                        }) as any
+                      }
+                      sx={{ mb: 1 }}
+                    />
+
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Probe depth: {(latestReading.soil_probe_depth_cm ?? 5.0).toFixed(1)} cm zone
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Raw ADC: {latestReading.soil_ao}
+                    </Typography>
                   </CardContent>
                 </Card>
               </Grid>
 
-              {/* Water Level Card */}
+              {/* ── Water Level Card ───────────────────────────────────── */}
               <Grid item xs={12} sm={6} md={3}>
-                <Card>
+                <Card sx={{ borderTop: `4px solid ${COLORS.waterLevel}` }}>
                   <CardContent>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                      <Typography variant="subtitle2" color="text.secondary">
-                        Water Level
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        mb: 1,
+                      }}
+                    >
+                      <Typography variant="subtitle2" color="text.secondary" fontWeight={600}>
+                        WATER LEVEL
                       </Typography>
                       <WaterIcon sx={{ color: COLORS.waterLevel }} />
                     </Box>
-                    <Typography variant="h3" fontWeight={600} color={COLORS.waterLevel}>
-                      {latestReading.water_level_pct.toFixed(1)}%
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      Raw ADC: {latestReading.water_ao}
-                    </Typography>
+
+                    {/* Physical cm — primary value: e.g. 1.92 cm / 4.0 cm */}
+                    <Box
+                      sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5, flexWrap: 'wrap' }}
+                    >
+                      <Typography
+                        variant="h2"
+                        fontWeight={700}
+                        color={COLORS.waterLevel}
+                        lineHeight={1}
+                      >
+                        {(latestReading.water_level_cm ?? 0).toFixed(2)}
+                      </Typography>
+                      <Typography variant="h5" color="text.secondary" fontWeight={400}>
+                        / {(latestReading.water_sensor_height_cm ?? 4.0).toFixed(1)} cm
+                      </Typography>
+                    </Box>
+
                     <LinearProgress
                       variant="determinate"
                       value={latestReading.water_level_pct}
-                      sx={{ mt: 1, height: 8, borderRadius: 4 }}
-                      color={getStatusColor(latestReading.water_level_pct, { low: 20, high: 50 }) as any}
+                      sx={{ my: 1, height: 10, borderRadius: 5 }}
+                      color={
+                        getStatusColor(latestReading.water_level_pct, { low: 20, high: 50 }) as any
+                      }
                     />
+
+                    <Stack direction="row" spacing={0.5} sx={{ mb: 1, flexWrap: 'wrap' }}>
+                      <Chip
+                        label={`${latestReading.water_level_pct.toFixed(1)}%`}
+                        size="small"
+                        variant="outlined"
+                        color={
+                          getStatusColor(latestReading.water_level_pct, {
+                            low: 20,
+                            high: 50,
+                          }) as any
+                        }
+                      />
+                      <Chip
+                        label={(latestReading.water_status ?? 'unknown').toUpperCase()}
+                        size="small"
+                        color={
+                          getStatusColor(latestReading.water_level_pct, {
+                            low: 20,
+                            high: 50,
+                          }) as any
+                        }
+                      />
+                    </Stack>
+
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Sensor height: {(latestReading.water_sensor_height_cm ?? 4.0).toFixed(1)} cm
+                      total
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Raw ADC: {latestReading.water_ao}
+                    </Typography>
                   </CardContent>
                 </Card>
               </Grid>
 
-              {/* Signal Strength Card */}
+              {/* ── WiFi Signal Card ───────────────────────────────────── */}
               <Grid item xs={12} sm={6} md={3}>
                 <Card>
                   <CardContent>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                      <Typography variant="subtitle2" color="text.secondary">
-                        WiFi Signal
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        mb: 2,
+                      }}
+                    >
+                      <Typography variant="subtitle2" color="text.secondary" fontWeight={600}>
+                        WiFi SIGNAL
                       </Typography>
                       <SignalIcon color="primary" />
                     </Box>
@@ -373,30 +492,82 @@ export default function SensorTelemetry() {
                       {latestReading.rssi ?? '--'} dBm
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      {latestReading.rssi && latestReading.rssi > -50 ? 'Excellent' : 
-                       latestReading.rssi && latestReading.rssi > -70 ? 'Good' : 
-                       latestReading.rssi ? 'Weak' : 'N/A'}
+                      {latestReading.rssi && latestReading.rssi > -50
+                        ? '🟢 Excellent'
+                        : latestReading.rssi && latestReading.rssi > -70
+                          ? '🟡 Good'
+                          : latestReading.rssi
+                            ? '🔴 Weak'
+                            : 'N/A'}
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      display="block"
+                      sx={{ mt: 1 }}
+                    >
+                      Updated: {formatTimestamp(latestReading.timestamp)}
                     </Typography>
                   </CardContent>
                 </Card>
               </Grid>
 
-              {/* Battery Card */}
+              {/* ── Summary Card ──────────────────────────────────────── */}
               <Grid item xs={12} sm={6} md={3}>
                 <Card>
                   <CardContent>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                      <Typography variant="subtitle2" color="text.secondary">
-                        Battery
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        mb: 2,
+                      }}
+                    >
+                      <Typography variant="subtitle2" color="text.secondary" fontWeight={600}>
+                        SENSOR SUMMARY
                       </Typography>
                       <BatteryIcon color="success" />
                     </Box>
-                    <Typography variant="h3" fontWeight={600}>
-                      {latestReading.battery_v?.toFixed(2) ?? '--'} V
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      Last update: {formatTimestamp(latestReading.timestamp)}
-                    </Typography>
+                    <Stack spacing={0.8}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Soil:
+                        </Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                          {latestReading.soil_moisture_pct.toFixed(1)}% —{' '}
+                          {latestReading.soil_status ?? '?'}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Water:
+                        </Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                          {(latestReading.water_level_cm ?? 0).toFixed(2)} /{' '}
+                          {(latestReading.water_sensor_height_cm ?? 4.0).toFixed(1)} cm —{' '}
+                          {latestReading.water_status ?? '?'}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Device:
+                        </Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                          {latestReading.device_id}
+                        </Typography>
+                      </Box>
+                      {latestReading.battery_v != null && (
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <Typography variant="body2" color="text.secondary">
+                            Battery:
+                          </Typography>
+                          <Typography variant="body2" fontWeight={600}>
+                            {latestReading.battery_v.toFixed(2)} V
+                          </Typography>
+                        </Box>
+                      )}
+                    </Stack>
                   </CardContent>
                 </Card>
               </Grid>
@@ -404,7 +575,9 @@ export default function SensorTelemetry() {
           ) : (
             <Grid item xs={12}>
               <Alert severity="info">
-                {loadingLatest ? 'Loading latest reading...' : 'No readings available for this device'}
+                {loadingLatest
+                  ? 'Loading latest reading...'
+                  : 'No readings available for this device'}
               </Alert>
             </Grid>
           )}
@@ -472,16 +645,18 @@ export default function SensorTelemetry() {
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="time" />
-                    <YAxis domain={[0, 100]} unit="%" />
+                    <YAxis yAxisId="pct" domain={[0, 100]} unit="%" />
+                    <YAxis yAxisId="cm" orientation="right" domain={[0, 4]} unit=" cm" />
                     <RechartsTooltip
-                      formatter={(value: number, name: string) => [
-                        `${value.toFixed(1)}%`,
-                        name === 'soilMoisture' ? 'Soil Moisture' : 'Water Level'
-                      ]}
+                      formatter={(value: number, name: string) => {
+                        if (name === 'Water Level (cm)') return [`${value.toFixed(2)} cm`, name];
+                        return [`${value.toFixed(1)}%`, name];
+                      }}
                       labelFormatter={(label) => `Time: ${label}`}
                     />
                     <Legend />
                     <Line
+                      yAxisId="pct"
                       type="monotone"
                       dataKey="soilMoisture"
                       name="Soil Moisture"
@@ -490,11 +665,22 @@ export default function SensorTelemetry() {
                       dot={false}
                     />
                     <Line
+                      yAxisId="pct"
                       type="monotone"
                       dataKey="waterLevel"
-                      name="Water Level"
+                      name="Water Level (%)"
                       stroke={COLORS.waterLevel}
                       strokeWidth={2}
+                      dot={false}
+                    />
+                    <Line
+                      yAxisId="cm"
+                      type="monotone"
+                      dataKey="waterLevelCm"
+                      name="Water Level (cm)"
+                      stroke="#1565c0"
+                      strokeWidth={2}
+                      strokeDasharray="5 5"
                       dot={false}
                     />
                   </LineChart>
@@ -521,38 +707,50 @@ export default function SensorTelemetry() {
                     <TableRow>
                       <TableCell>Timestamp</TableCell>
                       <TableCell align="right">Soil Moisture</TableCell>
-                      <TableCell align="right">Water Level</TableCell>
+                      <TableCell align="right">Water (cm)</TableCell>
+                      <TableCell align="right">Water (%)</TableCell>
                       <TableCell align="right">Soil ADC</TableCell>
                       <TableCell align="right">Water ADC</TableCell>
                       <TableCell align="right">RSSI</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {historyReadings.slice(0, 50).map((reading: TelemetryReading, index: number) => (
-                      <TableRow key={index} hover>
-                        <TableCell>{formatTimestamp(reading.timestamp)}</TableCell>
-                        <TableCell align="right">
-                          <Chip
-                            size="small"
-                            label={`${reading.soil_moisture_pct.toFixed(1)}%`}
-                            color={getStatusColor(reading.soil_moisture_pct, { low: 30, high: 70 })}
-                          />
-                        </TableCell>
-                        <TableCell align="right">
-                          <Chip
-                            size="small"
-                            label={`${reading.water_level_pct.toFixed(1)}%`}
-                            color={getStatusColor(reading.water_level_pct, { low: 20, high: 50 })}
-                          />
-                        </TableCell>
-                        <TableCell align="right">{reading.soil_ao}</TableCell>
-                        <TableCell align="right">{reading.water_ao}</TableCell>
-                        <TableCell align="right">{reading.rssi ?? '-'}</TableCell>
-                      </TableRow>
-                    ))}
+                    {historyReadings
+                      .slice(0, 50)
+                      .map((reading: TelemetryReading, index: number) => (
+                        <TableRow key={index} hover>
+                          <TableCell>{formatTimestamp(reading.timestamp)}</TableCell>
+                          <TableCell align="right">
+                            <Chip
+                              size="small"
+                              label={`${reading.soil_moisture_pct.toFixed(1)}% (${reading.soil_status ?? '?'})`}
+                              color={getStatusColor(reading.soil_moisture_pct, {
+                                low: 30,
+                                high: 70,
+                              })}
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" fontWeight={600} color={COLORS.waterLevel}>
+                              {(reading.water_level_cm ?? 0).toFixed(2)} /{' '}
+                              {(reading.water_sensor_height_cm ?? 4.0).toFixed(1)} cm
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Chip
+                              size="small"
+                              label={`${reading.water_level_pct.toFixed(1)}% (${reading.water_status ?? '?'})`}
+                              color={getStatusColor(reading.water_level_pct, { low: 20, high: 50 })}
+                            />
+                          </TableCell>
+                          <TableCell align="right">{reading.soil_ao}</TableCell>
+                          <TableCell align="right">{reading.water_ao}</TableCell>
+                          <TableCell align="right">{reading.rssi ?? '-'}</TableCell>
+                        </TableRow>
+                      ))}
                     {historyReadings.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={6} align="center">
+                        <TableCell colSpan={7} align="center">
                           <Typography color="text.secondary" sx={{ py: 2 }}>
                             No readings to display
                           </Typography>
@@ -600,7 +798,9 @@ export default function SensorTelemetry() {
                   color="primary"
                   onClick={handleSendCommand}
                   disabled={sendCommandMutation.isPending || !selectedDevice}
-                  startIcon={sendCommandMutation.isPending ? <CircularProgress size={16} /> : <SendIcon />}
+                  startIcon={
+                    sendCommandMutation.isPending ? <CircularProgress size={16} /> : <SendIcon />
+                  }
                 >
                   Apply
                 </Button>
@@ -645,8 +845,8 @@ export default function SensorTelemetry() {
         onClose={() => setSnackbar({ ...snackbar, open: false })}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
       >
-        <Alert 
-          onClose={() => setSnackbar({ ...snackbar, open: false })} 
+        <Alert
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
           severity={snackbar.severity}
           sx={{ width: '100%' }}
         >

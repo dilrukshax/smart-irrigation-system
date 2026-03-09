@@ -182,7 +182,12 @@ async def _fetch_iot_reservoir_data() -> Optional[dict]:
             if resp.status_code != 200:
                 return None
 
-            devices = resp.json()
+            body = resp.json()
+            # API returns {"count": N, "devices": [...]} or a plain list
+            if isinstance(body, dict):
+                devices = body.get("devices", [])
+            else:
+                devices = body
             if not isinstance(devices, list) or not devices:
                 return None
 

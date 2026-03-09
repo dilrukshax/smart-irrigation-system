@@ -47,13 +47,15 @@ class Settings(BaseSettings):
     device_api_keys: Optional[str] = None
 
     # Sensor Calibration Defaults
+    # These MUST match the calibration values in the ESP32 firmware (main.ino)
+    # Measure actual ADC values: dry/empty in air, wet/full fully submerged, then set .env overrides.
     # ADC range for soil moisture sensor (dry to wet)
-    soil_adc_dry: int = 4095  # Max ADC value when dry
-    soil_adc_wet: int = 1000  # Min ADC value when wet
+    soil_adc_dry: int = 3800  # Max ADC in air/dry soil (SOIL_DRY_RAW in firmware)
+    soil_adc_wet: int = 50    # Min ADC in saturated soil — measured actual wet reading ~50-117
 
     # ADC range for water level sensor (empty to full)
-    water_adc_empty: int = 4095  # Max ADC value when empty
-    water_adc_full: int = 500   # Min ADC value when full
+    water_adc_empty: int = 3800  # ADC when sensor is completely dry (WATER_EMPTY_RAW)
+    water_adc_full: int = 40     # ADC when fully submerged — measured actual full reading ~43-133, use lowest observed
 
     model_config = SettingsConfigDict(
         env_file=".env",

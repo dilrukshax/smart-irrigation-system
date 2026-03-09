@@ -7,7 +7,7 @@ Defines the data models for:
 - Command payloads for device control
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Literal
 from pydantic import BaseModel, Field, field_validator
 from dateutil import parser as date_parser
@@ -50,6 +50,15 @@ class TelemetryPayload(BaseModel):
     soil_moisture_pct: Optional[float] = Field(None, ge=0, le=100, description="Calculated soil moisture %")
     water_level_pct: Optional[float] = Field(None, ge=0, le=100, description="Calculated water level %")
 
+    # Physical measurements sent by ESP32 firmware
+    water_level_cm: Optional[float] = Field(None, ge=0, le=500, description="Water level in cm (water_level_pct x sensor_height)")
+    soil_probe_depth_cm: Optional[float] = Field(None, ge=0, le=100, description="Soil probe sensing depth in cm")
+    water_sensor_height_cm: Optional[float] = Field(None, ge=0, le=100, description="Water sensor strip height in cm")
+
+    # Human-readable status labels sent by ESP32
+    soil_status: Optional[str] = Field(None, max_length=16, description="dry / moderate / optimal / wet")
+    water_status: Optional[str] = Field(None, max_length=16, description="low / medium / high")
+
     @field_validator("ts", mode="before")
     @classmethod
     def parse_timestamp(cls, value):
@@ -69,13 +78,14 @@ class TelemetryPayload(BaseModel):
         raise ValueError(f"Invalid timestamp format: {value}")
 
     def get_timestamp(self) -> datetime:
-        """Get the timestamp, preferring ts over ts_ms."""
+        """Get the timestamp as a naive UTC datetime for consistent DB storage."""
         if self.ts is not None:
+            # If timezone-aware, convert to UTC then strip tzinfo for naive storage
+            if self.ts.tzinfo is not None:
+                return self.ts.astimezone(timezone.utc).replace(tzinfo=None)
             return self.ts
-        if self.ts_ms is not None:
-            # ts_ms from ESP32 is millis() - device uptime, use current time instead
-            return datetime.utcnow()
-        return datetime.utcnow()
+        # ts_ms from ESP32 is millis() uptime, NOT epoch — use server UTC clock
+        return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class TelemetryWithDerived(BaseModel):
@@ -96,6 +106,13 @@ class TelemetryWithDerived(BaseModel):
     soil_moisture_pct: float = Field(..., ge=0, le=100, description="Soil moisture percentage")
     water_level_pct: float = Field(..., ge=0, le=100, description="Water level percentage")
 
+    # Physical measurements
+    water_level_cm: float = Field(0.0, description="Water level in centimetres")
+    soil_probe_depth_cm: float = Field(5.0, description="Soil probe sensing depth in cm")
+    water_sensor_height_cm: float = Field(4.0, description="Water sensor strip height in cm")
+    soil_status: str = Field("unknown", description="dry / moderate / optimal / wet")
+    water_status: str = Field("unknown", description="low / medium / high")
+
     # Optional device metadata
     rssi: Optional[int] = None
     battery_v: Optional[float] = None
@@ -114,6 +131,12 @@ class TelemetryResponse(BaseModel):
     water_ao: int
     soil_moisture_pct: float
     water_level_pct: float
+    # Physical measurements
+    water_level_cm: float = 0.0
+    soil_probe_depth_cm: float = 5.0
+    water_sensor_height_cm: float = 4.0
+    soil_status: str = "unknown"
+    water_status: str = "unknown"
     rssi: Optional[int] = None
     battery_v: Optional[float] = None
 

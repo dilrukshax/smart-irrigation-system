@@ -9,7 +9,7 @@ Provides methods to:
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, text
@@ -35,6 +35,11 @@ class SensorTelemetryModel(Base):
     water_ao = Column(Integer, nullable=False)
     soil_moisture_pct = Column(Float, nullable=False)
     water_level_pct = Column(Float, nullable=False)
+    water_level_cm = Column(Float, nullable=False, default=0.0)
+    soil_probe_depth_cm = Column(Float, nullable=False, default=5.0)
+    water_sensor_height_cm = Column(Float, nullable=False, default=4.0)
+    soil_status = Column(String(16), nullable=False, default="unknown")
+    water_status = Column(String(16), nullable=False, default="unknown")
     rssi = Column(Integer, nullable=True)
     battery_v = Column(Float, nullable=True)
     firmware = Column(String(32), nullable=True)
@@ -127,6 +132,11 @@ class PostgresRepository:
                 water_ao=telemetry.water_ao,
                 soil_moisture_pct=telemetry.soil_moisture_pct,
                 water_level_pct=telemetry.water_level_pct,
+                water_level_cm=telemetry.water_level_cm,
+                soil_probe_depth_cm=telemetry.soil_probe_depth_cm,
+                water_sensor_height_cm=telemetry.water_sensor_height_cm,
+                soil_status=telemetry.soil_status,
+                water_status=telemetry.water_status,
                 rssi=telemetry.rssi,
                 battery_v=telemetry.battery_v,
                 firmware=telemetry.firmware,
@@ -162,7 +172,7 @@ class PostgresRepository:
                 row = (
                     session.query(SensorTelemetryModel)
                     .filter(SensorTelemetryModel.device_id == device_id)
-                    .order_by(SensorTelemetryModel.id.desc())
+                    .order_by(SensorTelemetryModel.created_at.desc())
                     .first()
                 )
 
@@ -177,6 +187,11 @@ class PostgresRepository:
                     water_ao=row.water_ao,
                     soil_moisture_pct=row.soil_moisture_pct,
                     water_level_pct=row.water_level_pct,
+                    water_level_cm=row.water_level_cm or 0.0,
+                    soil_probe_depth_cm=row.soil_probe_depth_cm or 5.0,
+                    water_sensor_height_cm=row.water_sensor_height_cm or 4.0,
+                    soil_status=row.soil_status or "unknown",
+                    water_status=row.water_status or "unknown",
                     rssi=row.rssi,
                     battery_v=row.battery_v,
                 )
@@ -235,6 +250,11 @@ class PostgresRepository:
                         water_ao=row.water_ao,
                         soil_moisture_pct=row.soil_moisture_pct,
                         water_level_pct=row.water_level_pct,
+                        water_level_cm=row.water_level_cm or 0.0,
+                        soil_probe_depth_cm=row.soil_probe_depth_cm or 5.0,
+                        water_sensor_height_cm=row.water_sensor_height_cm or 4.0,
+                        soil_status=row.soil_status or "unknown",
+                        water_status=row.water_status or "unknown",
                         rssi=row.rssi,
                         battery_v=row.battery_v,
                     )
@@ -256,24 +276,28 @@ class PostgresRepository:
             return []
 
         try:
-            cutoff = datetime.utcnow() - timedelta(days=30)
-            online_cutoff = datetime.utcnow() - timedelta(minutes=2)
+            # Use timezone-aware UTC to avoid comparison issues with naive datetimes
+            now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+            cutoff_30d = now_utc - timedelta(days=30)
+            online_cutoff = now_utc - timedelta(minutes=2)
 
+            # Get distinct device IDs in a fresh session
             with self._SessionLocal() as session:
-                # Get distinct device IDs active in last 30 days
                 device_ids = (
                     session.query(SensorTelemetryModel.device_id)
-                    .filter(SensorTelemetryModel.timestamp >= cutoff)
+                    .filter(SensorTelemetryModel.created_at >= cutoff_30d)
                     .distinct()
                     .all()
                 )
 
-                result = []
-                for (device_id,) in device_ids:
+            result = []
+            for (device_id,) in device_ids:
+                # Open a SEPARATE session per device to avoid stale identity-map cache
+                with self._SessionLocal() as session:
                     latest_row = (
                         session.query(SensorTelemetryModel)
                         .filter(SensorTelemetryModel.device_id == device_id)
-                        .order_by(SensorTelemetryModel.timestamp.desc())
+                        .order_by(SensorTelemetryModel.created_at.desc())
                         .first()
                     )
 
@@ -282,8 +306,11 @@ class PostgresRepository:
                     is_online = False
 
                     if latest_row:
+                        # Use created_at (server insert time) for online check.
+                        # This is always set by the server clock and is timezone-consistent.
+                        insert_time = latest_row.created_at or latest_row.timestamp
                         last_seen = latest_row.timestamp
-                        is_online = last_seen >= online_cutoff
+                        is_online = insert_time >= online_cutoff
                         latest = TelemetryResponse(
                             device_id=latest_row.device_id,
                             timestamp=latest_row.timestamp,
@@ -292,18 +319,23 @@ class PostgresRepository:
                             water_ao=latest_row.water_ao,
                             soil_moisture_pct=latest_row.soil_moisture_pct,
                             water_level_pct=latest_row.water_level_pct,
+                            water_level_cm=latest_row.water_level_cm or 0.0,
+                            soil_probe_depth_cm=latest_row.soil_probe_depth_cm or 5.0,
+                            water_sensor_height_cm=latest_row.water_sensor_height_cm or 4.0,
+                            soil_status=latest_row.soil_status or "unknown",
+                            water_status=latest_row.water_status or "unknown",
                             rssi=latest_row.rssi,
                             battery_v=latest_row.battery_v,
                         )
 
-                    result.append(DeviceInfo(
-                        device_id=device_id,
-                        last_seen=last_seen,
-                        latest_reading=latest,
-                        is_online=is_online,
-                    ))
+                result.append(DeviceInfo(
+                    device_id=device_id,
+                    last_seen=last_seen,
+                    latest_reading=latest,
+                    is_online=is_online,
+                ))
 
-                return result
+            return result
 
         except Exception as e:
             logger.error(f"Failed to get devices: {e}")

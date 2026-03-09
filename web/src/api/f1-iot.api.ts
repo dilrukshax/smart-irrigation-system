@@ -40,6 +40,13 @@ export interface TelemetryReading {
   water_ao: number;
   soil_moisture_pct: number;
   water_level_pct: number;
+  // Physical measurements
+  water_level_cm: number;
+  soil_probe_depth_cm: number;
+  water_sensor_height_cm: number;
+  // Status labels
+  soil_status: string;
+  water_status: string;
   rssi?: number;
   battery_v?: number;
 }

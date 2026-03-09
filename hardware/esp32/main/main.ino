@@ -28,16 +28,16 @@ const char *DEVICE_ID = "esp32-01";
 // =====================================================
 // SENSOR PINS
 // =====================================================
-const int SOIL_AO = 1;    // GPIO1
-const int WATER_AO = 2;   // GPIO2
-const int SOIL_DO = 7;    // GPIO7 (optional comparator output)
-const int LED_PIN = 21;   // onboard / external status LED
+const int SOIL_AO = 1;  // GPIO1
+const int WATER_AO = 2; // GPIO2
+const int SOIL_DO = 7;  // GPIO7 (optional comparator output)
+const int LED_PIN = 21; // onboard / external status LED
 
 // =====================================================
 // SENSOR META
 // =====================================================
-const float SOIL_PROBE_DEPTH_CM = 5.0;     // soil sensing depth zone
-const float WATER_SENSOR_HEIGHT_CM = 4.0;  // actual active water strip height
+const float SOIL_PROBE_DEPTH_CM = 5.0;    // soil sensing depth zone
+const float WATER_SENSOR_HEIGHT_CM = 4.0; // actual active water strip height
 
 // =====================================================
 // CALIBRATION VALUES
@@ -45,18 +45,23 @@ const float WATER_SENSOR_HEIGHT_CM = 4.0;  // actual active water strip height
 // =====================================================
 
 // Soil sensor calibration
-// Example meaning:
-// - DRY = sensor inserted in dry soil sample
-// - WET = sensor inserted in fully watered soil sample
-const int SOIL_DRY_RAW = 3200;
-const int SOIL_WET_RAW = 1400;
+// HOW TO CALIBRATE:
+//   1. Put sensor in completely dry soil / open air  -> read ADC from Serial Monitor -> set SOIL_DRY_RAW
+//   2. Put sensor in fully watered soil             -> read ADC from Serial Monitor -> set SOIL_WET_RAW
+// Formula: moisture% = (DRY - raw) / (DRY - WET) * 100  (clamped 0-100)
+// Higher ADC = less moisture (inverted, because dry soil = less conductivity = higher voltage)
+const int SOIL_DRY_RAW = 3800; // dry soil / air: measure and update this value
+const int SOIL_WET_RAW = 50;   // fully wet soil: measured from actual sensor output (observed ~50-117)
 
 // Water level sensor calibration
-// Example meaning:
-// - EMPTY = dry sensor
-// - FULL = fully wet sensor over full 4 cm active strip
-const int WATER_EMPTY_RAW = 3800;
-const int WATER_FULL_RAW = 600;
+// HOW TO CALIBRATE:
+//   1. Sensor completely dry / no water  -> read ADC -> set WATER_EMPTY_RAW
+//   2. Sensor fully submerged to 4cm tip -> read ADC -> set WATER_FULL_RAW
+// Formula: level% = (EMPTY - raw) / (EMPTY - FULL) * 100  (clamped 0-100)
+// Then:    level_cm = level% / 100 * WATER_SENSOR_HEIGHT_CM
+// At 50% (half sensor = 2cm), ADC should be midway between EMPTY and FULL
+const int WATER_EMPTY_RAW = 3800; // no water: measure and update this value
+const int WATER_FULL_RAW = 40;    // fully submerged: measured from actual sensor output (observed ~43-133, use lowest seen)
 
 // =====================================================
 // TIMING
@@ -105,8 +110,10 @@ int soilToPercent(int rawValue)
   float pct = 100.0f * ((float)SOIL_DRY_RAW - (float)rawValue) /
               ((float)SOIL_DRY_RAW - (float)SOIL_WET_RAW);
 
-  if (pct < 0) pct = 0;
-  if (pct > 100) pct = 100;
+  if (pct < 0)
+    pct = 0;
+  if (pct > 100)
+    pct = 100;
 
   return (int)(pct + 0.5f);
 }
@@ -122,8 +129,10 @@ int waterToPercent(int rawValue)
   float pct = 100.0f * ((float)WATER_EMPTY_RAW - (float)rawValue) /
               ((float)WATER_EMPTY_RAW - (float)WATER_FULL_RAW);
 
-  if (pct < 0) pct = 0;
-  if (pct > 100) pct = 100;
+  if (pct < 0)
+    pct = 0;
+  if (pct > 100)
+    pct = 100;
 
   return (int)(pct + 0.5f);
 }
@@ -141,9 +150,12 @@ float waterPercentToCm(int waterPercent)
  */
 const char *soilConditionLabel(int soilPercent)
 {
-  if (soilPercent < 30) return "dry";
-  if (soilPercent < 60) return "moderate";
-  if (soilPercent <= 80) return "optimal";
+  if (soilPercent < 30)
+    return "dry";
+  if (soilPercent < 60)
+    return "moderate";
+  if (soilPercent <= 80)
+    return "optimal";
   return "wet";
 }
 
@@ -152,8 +164,10 @@ const char *soilConditionLabel(int soilPercent)
  */
 const char *waterConditionLabel(int waterPercent)
 {
-  if (waterPercent < 20) return "low";
-  if (waterPercent < 70) return "medium";
+  if (waterPercent < 20)
+    return "low";
+  if (waterPercent < 70)
+    return "medium";
   return "high";
 }
 

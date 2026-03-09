@@ -39,6 +39,30 @@ class IoTService:
     - Device command publishing
     """
 
+    # Must match ESP32 firmware constants
+    WATER_SENSOR_HEIGHT_CM: float = 4.0
+    SOIL_PROBE_DEPTH_CM: float = 5.0
+
+    @staticmethod
+    def _soil_status_label(pct: float) -> str:
+        """Map soil moisture % to human-readable label matching ESP32 firmware."""
+        if pct < 30:
+            return "dry"
+        if pct < 60:
+            return "moderate"
+        if pct <= 80:
+            return "optimal"
+        return "wet"
+
+    @staticmethod
+    def _water_status_label(pct: float) -> str:
+        """Map water level % to human-readable label matching ESP32 firmware."""
+        if pct < 20:
+            return "low"
+        if pct < 70:
+            return "medium"
+        return "high"
+
     @staticmethod
     def calculate_soil_moisture_pct(adc_value: int) -> float:
         """
@@ -97,7 +121,9 @@ class IoTService:
         Process incoming telemetry payload.
 
         - Calculates derived percentage values
-        - Writes to InfluxDB
+        - Computes physical water_level_cm from percentage x sensor height
+        - Derives status labels (dry/moderate/optimal/wet, low/medium/high)
+        - Writes to PostgreSQL
 
         Args:
             payload: Raw telemetry from device.
@@ -106,11 +132,27 @@ class IoTService:
             Processed telemetry with derived values, or None on failure.
         """
         try:
-            # Calculate derived values (use ESP32's calculated values if available)
-            soil_moisture_pct = payload.soil_moisture_pct if payload.soil_moisture_pct is not None else cls.calculate_soil_moisture_pct(payload.soil_ao)
-            water_level_pct = payload.water_level_pct if payload.water_level_pct is not None else cls.calculate_water_level_pct(payload.water_ao)
+            # Always recalculate from raw ADC using backend calibration constants.
+            # This ensures accuracy even when the ESP32 firmware uses different
+            # (e.g. older) calibration values.
+            soil_moisture_pct = cls.calculate_soil_moisture_pct(payload.soil_ao)
+            water_level_pct = cls.calculate_water_level_pct(payload.water_ao)
 
-            # Create enriched telemetry object
+            # Physical sensor dimensions (prefer ESP32 values, fall back to firmware defaults)
+            water_sensor_height_cm = payload.water_sensor_height_cm or cls.WATER_SENSOR_HEIGHT_CM
+            soil_probe_depth_cm = payload.soil_probe_depth_cm or cls.SOIL_PROBE_DEPTH_CM
+
+            # Core physical measurement: actual water depth in cm
+            water_level_cm = (
+                payload.water_level_cm
+                if payload.water_level_cm is not None
+                else round((water_level_pct / 100.0) * water_sensor_height_cm, 2)
+            )
+
+            # Status labels — use ESP32 label if sent, else derive from percentage
+            soil_status = payload.soil_status or cls._soil_status_label(soil_moisture_pct)
+            water_status = payload.water_status or cls._water_status_label(water_level_pct)
+
             telemetry = TelemetryWithDerived(
                 device_id=payload.device_id,
                 timestamp=payload.get_timestamp(),
@@ -119,6 +161,11 @@ class IoTService:
                 water_ao=payload.water_ao,
                 soil_moisture_pct=soil_moisture_pct,
                 water_level_pct=water_level_pct,
+                water_level_cm=water_level_cm,
+                soil_probe_depth_cm=soil_probe_depth_cm,
+                water_sensor_height_cm=water_sensor_height_cm,
+                soil_status=soil_status,
+                water_status=water_status,
                 rssi=payload.rssi,
                 battery_v=payload.battery_v,
                 firmware=payload.firmware,
@@ -132,7 +179,8 @@ class IoTService:
             if success:
                 logger.info(
                     f"Stored telemetry from {payload.device_id}: "
-                    f"soil={soil_moisture_pct}%, water={water_level_pct}%"
+                    f"soil={soil_moisture_pct:.1f}% ({soil_status}), "
+                    f"water={water_level_pct:.1f}% = {water_level_cm:.2f}cm ({water_status})"
                 )
                 return telemetry
             else:
