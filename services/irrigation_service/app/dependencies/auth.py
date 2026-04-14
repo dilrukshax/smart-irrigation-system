@@ -1,6 +1,4 @@
-"""
-Auth dependencies for irrigation admin actions.
-"""
+"""Auth dependencies for irrigation actions."""
 
 from typing import Any, Dict, List, Optional
 
@@ -16,16 +14,14 @@ _security = HTTPBearer(auto_error=False)
 def _extract_roles(payload: Dict[str, Any]) -> List[str]:
     roles = payload.get("roles")
     if isinstance(roles, list):
-        return [str(r) for r in roles]
+        return [str(role) for role in roles]
     return []
 
 
 async def get_current_user_context(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
 ) -> Dict[str, Any]:
-    """
-    Validate bearer token by introspecting auth service `/api/auth/me`.
-    """
+    """Validate bearer token by introspecting auth service `/api/auth/me`."""
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -61,20 +57,33 @@ async def get_current_user_context(
         "id": str(payload.get("id") or ""),
         "username": str(payload.get("username") or ""),
         "roles": _extract_roles(payload),
+        "scheme_ids": payload.get("scheme_ids") or [],
     }
 
 
-async def require_admin(
+async def require_authority(
     user_context: Dict[str, Any] = Depends(get_current_user_context),
 ) -> Dict[str, Any]:
-    """
-    Require `admin` role.
-    """
     roles = user_context.get("roles") or []
-    if "admin" not in roles:
+    if "authority" not in roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required",
+            detail="Authority privileges required",
         )
     return user_context
 
+
+async def require_officer_or_authority(
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+) -> Dict[str, Any]:
+    roles = set(user_context.get("roles") or [])
+    if not roles.intersection({"officer", "authority"}):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Officer or authority privileges required",
+        )
+    return user_context
+
+
+# Backward-compatible alias for older imports.
+require_admin = require_authority

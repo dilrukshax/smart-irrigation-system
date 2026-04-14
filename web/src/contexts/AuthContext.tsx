@@ -14,13 +14,16 @@ import {
 import { AUTH_TOKEN_KEY, REFRESH_TOKEN_KEY } from '@config/constants';
 import { authApi, LoginResponse } from '@api/auth.api';
 
+export type AuthRole = 'farmer' | 'officer' | 'authority';
+
 // User type for context
 export interface AuthUser {
   id: string;
   username: string;
   email?: string;
-  roles: string[];
+  roles: AuthRole[];
   is_active: boolean;
+  scheme_ids?: string[];
 }
 
 interface AuthContextType {
@@ -34,10 +37,13 @@ interface AuthContextType {
     username: string,
     password: string,
     email?: string,
-    role?: 'user' | 'farmer'
+    role?: 'farmer'
   ) => Promise<void>;
   fetchCurrentUser: () => Promise<AuthUser | null>;
   hasRole: (role: string) => boolean;
+  hasAnyRole: (roles: string[]) => boolean;
+  isAuthority: boolean;
+  isOfficer: boolean;
   isAdmin: boolean;
   isFarmer: boolean;
 }
@@ -78,8 +84,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         id: userData.id,
         username: userData.username,
         email: userData.email,
-        roles: userData.roles,
+        roles: userData.roles as AuthRole[],
         is_active: userData.is_active,
+        scheme_ids: userData.scheme_ids || [],
       };
       setUser(authUser);
       return authUser;
@@ -141,7 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       username: string,
       password: string,
       email?: string,
-      role: 'user' | 'farmer' = 'user'
+      role: 'farmer' = 'farmer'
     ) => {
       setIsLoading(true);
       try {
@@ -171,15 +178,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const hasRole = useCallback(
     (role: string): boolean => {
       if (!user) return false;
-      return user.roles.includes(role);
+      return user.roles.includes(role as AuthRole);
+    },
+    [user]
+  );
+
+  const hasAnyRole = useCallback(
+    (roles: string[]): boolean => {
+      if (!user) return false;
+      return roles.some((role) => user.roles.includes(role as AuthRole));
     },
     [user]
   );
 
   /**
-   * Check if user is admin
+   * Role shortcuts
    */
-  const isAdmin = user?.roles.includes('admin') ?? false;
+  const isAuthority = user?.roles.includes('authority') ?? false;
+  const isOfficer = user?.roles.includes('officer') ?? false;
+  // Keep isAdmin for compatibility with older components during cutover.
+  const isAdmin = isAuthority;
   const isFarmer = user?.roles.includes('farmer') ?? false;
 
   return (
@@ -194,6 +212,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         register,
         fetchCurrentUser,
         hasRole,
+        hasAnyRole,
+        isAuthority,
+        isOfficer,
         isAdmin,
         isFarmer,
       }}

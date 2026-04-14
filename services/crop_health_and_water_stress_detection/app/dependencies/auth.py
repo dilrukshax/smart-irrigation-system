@@ -65,10 +65,10 @@ async def get_current_user_context(
 async def require_admin(
     user_context: Dict[str, Any] = Depends(get_current_user_context),
 ) -> Dict[str, Any]:
-    """Require admin role for protected routes."""
-    if "admin" not in (user_context.get("roles") or []):
+    """Require authority role for protected routes."""
+    if "authority" not in (user_context.get("roles") or []):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required",
+            detail="Authority privileges required",
         )
     return user_context

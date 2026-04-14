@@ -209,18 +209,18 @@ export interface AvailableCropsResponse extends DataContract {
 
 // ACA-O (Optimization) API endpoints
 const ENDPOINTS = {
-  RECOMMENDATIONS: '/optimization/recommendations',
-  FIELD_RECOMMENDATIONS: (id: string) => `/optimization/recommendations?field_id=${id}`,
-  OPTIMIZE: '/optimization/recommendations/optimize',
-  SCENARIO_EVALUATE: '/optimization/recommendations/scenario-evaluate',
-  PLANB: '/optimization/planb',
-  WATER_BUDGET: '/optimization/supply/water-budget',
-  SUPPLY: '/optimization/supply',
-  HEALTH: '/optimization/health',
+  RECOMMENDATIONS: '/planning/recommendations',
+  FIELD_RECOMMENDATIONS: (id: string) => `/planning/recommendations?field_id=${id}`,
+  OPTIMIZE: '/planning/recommendations/optimize',
+  SCENARIO_EVALUATE: '/planning/scenario-evaluate',
+  PLANB: '/planning/planb',
+  WATER_BUDGET: '/planning/supply/water-budget',
+  SUPPLY: '/planning/supply',
+  HEALTH: '/planning/health',
   // Adaptive endpoints
-  ADAPTIVE_RECOMMENDATIONS: '/optimization/adaptive',
-  ADAPTIVE_PARAMETERS: '/optimization/adaptive/parameters',
-  ADAPTIVE_CROPS: '/optimization/adaptive/crops',
+  ADAPTIVE_RECOMMENDATIONS: '/planning/adaptive',
+  ADAPTIVE_PARAMETERS: '/planning/adaptive/parameters',
+  ADAPTIVE_CROPS: '/planning/adaptive/crops',
 };
 
 export const acaoApi = {

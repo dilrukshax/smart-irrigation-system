@@ -61,7 +61,7 @@ const EnhancedForecastDashboard: React.FC = () => {
 
       {!isAdmin && (
         <Alert severity="info" sx={{ mb: 3 }}>
-          Admin-only controls are hidden for your role. You can still view weather and irrigation recommendation flows.
+          Authority-only controls are hidden for your role. You can still view weather and irrigation recommendation flows.
         </Alert>
       )}
 
@@ -152,10 +152,10 @@ const EnhancedForecastDashboard: React.FC = () => {
                   ✅ Weather API: Connected
                 </Typography>
                 <Typography variant="body2" sx={{ opacity: 0.9, mb: 1 }}>
-                  {isAdmin ? '✅ ML Models: Ready' : '🔒 ML Models: Admin only'}
+                  {isAdmin ? '✅ ML Models: Ready' : '🔒 ML Models: Authority only'}
                 </Typography>
                 <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                  {isAdmin ? '✅ Anomaly Detection: Active' : '🔒 Anomaly Detection: Admin only'}
+                  {isAdmin ? '✅ Anomaly Detection: Active' : '🔒 Anomaly Detection: Authority only'}
                 </Typography>
               </Box>
               <Box sx={{ mt: 3 }}>

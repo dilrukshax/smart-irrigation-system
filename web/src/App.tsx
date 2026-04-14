@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from '@layouts/MainLayout';
 import AuthLayout from '@layouts/AuthLayout';
 
@@ -8,27 +8,32 @@ import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import NotFound from '@/pages/NotFound';
 import FarmerPortal from '@/pages/FarmerPortal';
+import FarmerFieldWorkspace from '@/pages/FarmerFieldWorkspace';
 import FarmerLanding from '@/pages/FarmerLanding';
-import FarmerLogin from '@/pages/FarmerLogin';
 import FarmerRegister from '@/pages/FarmerRegister';
-import AdminLogin from '@/pages/AdminLogin';
 import AboutUs from '@/pages/AboutUs';
 import ResearchTopics from '@/pages/ResearchTopics';
 import DataParameters from '@/pages/DataParameters';
 import AnalyticsCenter from '@/pages/AnalyticsCenter';
 import ContactUs from '@/pages/ContactUs';
 
-// Admin Pages
+// Authority Pages
 import AdminUserList from '@/pages/admin/AdminUserList';
+import OfficerManualRequestsPage from '@/pages/operations/OfficerManualRequestsPage';
+import AuthorityPoliciesPage from '@/pages/operations/AuthorityPoliciesPage';
+import OfficerHydraulicsPage from '@/pages/operations/OfficerHydraulicsPage';
+import OfficerOperationsDashboard from '@/pages/operations/OfficerOperationsDashboard';
 
 // Auth Components
-import { ProtectedRoute, AdminRoute, PublicRoute } from '@components/auth/ProtectedRoute';
+import { ProtectedRoute, AuthorityRoute, PublicRoute, RoleRoute } from '@components/auth/ProtectedRoute';
 
 // Feature Pages - F1 Irrigation
 import IrrigationDashboard from '@features/f1-irrigation/pages/IrrigationDashboard';
 import WaterManagementDashboard from '@features/f1-irrigation/pages/WaterManagementDashboard';
 import CropFieldDashboard from '@features/f1-irrigation/pages/CropFieldDashboard';
 import SensorTelemetry from '@features/f1-irrigation/pages/SensorTelemetry';
+import FieldProfilePage from '@features/f1-irrigation/pages/FieldProfilePage';
+import FarmerOnboardingWizard from '@features/f1-irrigation/pages/FarmerOnboardingWizard';
 
 // Feature Pages - F2 Crop Health
 import CropHealthDashboard from '@features/f2-crop-health/pages/CropHealthDashboard';
@@ -42,6 +47,7 @@ import FieldRecommendations from '@features/f4-acao/pages/FieldRecommendations';
 import OptimizationPlanner from '@features/f4-acao/pages/OptimizationPlanner';
 import Scenarios from '@features/f4-acao/pages/Scenarios';
 import AdaptiveRecommendations from '@features/f4-acao/pages/AdaptiveRecommendations';
+import { ROUTES } from '@/config/routes';
 
 function App() {
   return (
@@ -49,51 +55,65 @@ function App() {
       {/* Auth Routes - Public only (redirect if logged in) */}
       <Route element={<AuthLayout />}>
         <Route element={<PublicRoute />}>
-          <Route path="/" element={<FarmerLanding />} />
-          <Route path="/landing" element={<FarmerLanding />} />
-          <Route path="/farmer/landing" element={<FarmerLanding />} />
-          <Route path="/about-us" element={<AboutUs />} />
-          <Route path="/research" element={<ResearchTopics />} />
-          <Route path="/data-parameters" element={<DataParameters />} />
-          <Route path="/analytics" element={<AnalyticsCenter />} />
-          <Route path="/contact-us" element={<ContactUs />} />
-          <Route path="/farmer/login" element={<FarmerLogin />} />
-          <Route path="/farmer/register" element={<FarmerRegister />} />
-          <Route path="/admin/login" element={<AdminLogin />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+          <Route path={ROUTES.PUBLIC.HOME} element={<FarmerLanding />} />
+          <Route path={ROUTES.LANDING} element={<FarmerLanding />} />
+          <Route path={ROUTES.FARMER.LANDING} element={<FarmerLanding />} />
+          <Route path={ROUTES.PUBLIC.ABOUT} element={<AboutUs />} />
+          <Route path={ROUTES.PUBLIC.RESEARCH} element={<ResearchTopics />} />
+          <Route path={ROUTES.PUBLIC.PARAMETERS} element={<DataParameters />} />
+          <Route path={ROUTES.PUBLIC.ANALYTICS} element={<AnalyticsCenter />} />
+          <Route path={ROUTES.PUBLIC.CONTACT} element={<ContactUs />} />
+          <Route path="/farmer/login" element={<Navigate to="/login" replace />} />
+          <Route path={ROUTES.FARMER.REGISTER} element={<FarmerRegister />} />
+          <Route path="/authority/login" element={<Navigate to="/login" replace />} />
+          <Route path={ROUTES.LOGIN} element={<Login />} />
+          <Route path={ROUTES.REGISTER} element={<Register />} />
         </Route>
       </Route>
 
       {/* Main App Routes - Protected */}
       <Route element={<ProtectedRoute />}>
         <Route element={<MainLayout />}>
-          <Route path="/dashboard" element={<Home />} />
-          <Route path="/farmer" element={<FarmerPortal />} />
+          <Route path={ROUTES.HOME} element={<Home />} />
+          <Route path={ROUTES.FARMER.ROOT} element={<Navigate to={ROUTES.FARMER.FIELDS} replace />} />
+          <Route path={ROUTES.FARMER.FIELDS} element={<FarmerPortal />} />
+          <Route path={ROUTES.FARMER.FIELD_WORKSPACE} element={<FarmerFieldWorkspace />} />
+          <Route path={ROUTES.FARMER.ONBOARDING} element={<FarmerOnboardingWizard />} />
+          <Route path={ROUTES.FARMER.FIELD_PROFILE} element={<FieldProfilePage />} />
 
           {/* F1 - Irrigation Routes */}
-          <Route path="/irrigation" element={<IrrigationDashboard />} />
-          <Route path="/irrigation/telemetry" element={<SensorTelemetry />} />
-          <Route path="/irrigation/water-management" element={<WaterManagementDashboard />} />
-          <Route path="/irrigation/crop-fields" element={<CropFieldDashboard />} />
-          <Route path="/iot/telemetry" element={<SensorTelemetry />} />
+          <Route path={ROUTES.IRRIGATION.ROOT} element={<IrrigationDashboard />} />
+          <Route path={ROUTES.IRRIGATION.TELEMETRY} element={<SensorTelemetry />} />
+          <Route path={ROUTES.IRRIGATION.WATER_MANAGEMENT} element={<WaterManagementDashboard />} />
+          <Route path={ROUTES.IRRIGATION.CROP_FIELDS} element={<CropFieldDashboard />} />
+          <Route path={ROUTES.IRRIGATION.DEVICE_TELEMETRY} element={<SensorTelemetry />} />
+          <Route path="/irrigation/fields/:fieldId/profile" element={<FieldProfilePage />} />
 
           {/* F2 - Crop Health Routes */}
-          <Route path="/crop-health" element={<CropHealthDashboard />} />
+          <Route path={ROUTES.CROP_HEALTH.ROOT} element={<CropHealthDashboard />} />
 
           {/* F3 - Forecasting Routes */}
-          <Route path="/forecasting" element={<EnhancedForecastDashboard />} />
+          <Route path={ROUTES.FORECASTING.ROOT} element={<EnhancedForecastDashboard />} />
 
           {/* F4 - ACA-O Routes */}
-          <Route path="/optimization" element={<ACAODashboard />} />
-          <Route path="/optimization/recommendations" element={<FieldRecommendations />} />
-          <Route path="/optimization/planner" element={<OptimizationPlanner />} />
-          <Route path="/optimization/scenarios" element={<Scenarios />} />
-          <Route path="/optimization/adaptive" element={<AdaptiveRecommendations />} />
+          <Route path={ROUTES.OPTIMIZATION.ROOT} element={<ACAODashboard />} />
+          <Route path={ROUTES.OPTIMIZATION.RECOMMENDATIONS} element={<FieldRecommendations />} />
+          <Route path={ROUTES.OPTIMIZATION.PLANNER} element={<OptimizationPlanner />} />
+          <Route path={ROUTES.OPTIMIZATION.SCENARIOS} element={<Scenarios />} />
+          <Route path={ROUTES.OPTIMIZATION.ADAPTIVE} element={<AdaptiveRecommendations />} />
 
-          {/* Admin Routes - Requires admin role */}
-          <Route element={<AdminRoute />}>
-            <Route path="/admin/users" element={<AdminUserList />} />
+          {/* Authority Routes - Requires authority role */}
+          <Route element={<AuthorityRoute />}>
+            <Route path={ROUTES.AUTHORITY.USERS} element={<AdminUserList />} />
+            <Route path={ROUTES.AUTHORITY.POLICIES} element={<AuthorityPoliciesPage />} />
+          </Route>
+
+          {/* Officer/Authority Operations */}
+          <Route element={<RoleRoute allowedRoles={['officer', 'authority']} />}>
+            <Route path={ROUTES.OFFICER.ROOT} element={<Navigate to={ROUTES.OFFICER.OVERVIEW} replace />} />
+            <Route path={ROUTES.OFFICER.OVERVIEW} element={<OfficerOperationsDashboard />} />
+            <Route path={ROUTES.OFFICER.REQUESTS} element={<OfficerManualRequestsPage />} />
+            <Route path={ROUTES.OFFICER.HYDRAULICS} element={<OfficerHydraulicsPage />} />
           </Route>
 
           {/* 404 */}

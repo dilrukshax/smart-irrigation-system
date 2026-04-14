@@ -7,6 +7,10 @@ Manages application settings using Pydantic's BaseSettings.
 from functools import lru_cache
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from app.core.config_bootstrap import apply_remote_config
+
+
+apply_remote_config(default_service_name="irrigation_service")
 
 
 class Settings(BaseSettings):
@@ -34,16 +38,17 @@ class Settings(BaseSettings):
     ml_only_mode: Optional[bool] = None
 
     # Cross-service URLs
-    forecasting_service_url: str = "http://forecasting-service:8003"
-    crop_health_service_url: str = "http://crop_health_and_water_stress_detection:8007"
-    optimization_service_url: str = "http://optimization_service:8004"
-    auth_service_url: str = "http://auth_service:8001"
+    forecasting_service_url: str = "http://localhost:8003"
+    crop_health_service_url: str = "http://localhost:8007"
+    optimization_service_url: str = "http://localhost:8004"
+    auth_service_url: str = "http://localhost:8001"
 
     # Database
-    database_url: str = "postgresql://aca_o_user:aca_o_password@postgres:5432/aca_o_db"
+    database_url: str = "postgresql://aca_o_user:aca_o_password@localhost:5432/aca_o_db"
+    auto_create_schema: bool = False
 
     # Event broker
-    mqtt_broker: str = "mosquitto"
+    mqtt_broker: str = "localhost"
     mqtt_port: int = 1883
 
     # Local state persistence

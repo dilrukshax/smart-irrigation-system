@@ -53,7 +53,8 @@ const asRecord = (value: unknown): Record<string, unknown> => {
 
 export default function FieldProfilePage() {
   const { fieldId } = useParams<{ fieldId: string }>();
-  const { isAdmin } = useAuth();
+  const { isAuthority, isOfficer } = useAuth();
+  const canReviewRequests = isAuthority || isOfficer;
 
   const [profile, setProfile] = useState<UnifiedFieldProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,16 +65,16 @@ export default function FieldProfilePage() {
   const [manualPosition, setManualPosition] = useState(100);
   const [manualReason, setManualReason] = useState('');
 
-  const [adminReviewNote, setAdminReviewNote] = useState('');
+  const [reviewNote, setReviewNote] = useState('');
   const [manualRequests, setManualRequests] = useState<ManualRequestItem[]>([]);
 
   const [overrideAction, setOverrideAction] = useState<'OPEN' | 'CLOSE' | 'HOLD' | 'EMERGENCY_RELEASE'>('HOLD');
   const [overridePosition, setOverridePosition] = useState(0);
-  const [overrideReason, setOverrideReason] = useState('Admin override from field profile');
+  const [overrideReason, setOverrideReason] = useState('Authority override from field profile');
   const [reservoirLevel, setReservoirLevel] = useState(85);
 
   const loadManualRequests = useCallback(async () => {
-    if (!isAdmin || !fieldId) {
+    if (!canReviewRequests || !fieldId) {
       return;
     }
     try {
@@ -86,7 +87,7 @@ export default function FieldProfilePage() {
     } catch (err) {
       console.error('Failed to load manual requests', err);
     }
-  }, [fieldId, isAdmin]);
+  }, [canReviewRequests, fieldId]);
 
   const loadProfile = useCallback(async () => {
     if (!fieldId) {
@@ -138,6 +139,35 @@ export default function FieldProfilePage() {
     return 0;
   }, [f4?.recommendations]);
 
+  const recommendationRows = useMemo(() => {
+    const recommendations = asRecord(f4?.recommendations);
+    const data = recommendations.data;
+    return Array.isArray(data) ? data : [];
+  }, [f4?.recommendations]);
+
+  const topRecommendations = useMemo(() => {
+    if (recommendationRows.length === 0) {
+      return [];
+    }
+    const firstRow = asRecord(recommendationRows[0]);
+    const nested = firstRow.recommendations;
+    if (!Array.isArray(nested)) {
+      return [];
+    }
+    return nested
+      .map((item) => asRecord(item))
+      .filter((item) => typeof item.crop_type === 'string' || typeof item.crop_name === 'string')
+      .slice(0, 3);
+  }, [recommendationRows]);
+
+  const selectedCrop = useMemo(() => {
+    const selected = asRecord(profile?.selected_crop);
+    if (Object.keys(selected).length > 0) {
+      return String(selected.crop_type || selected.crop_name || '-');
+    }
+    return f1?.field_status?.crop_type || '-';
+  }, [f1?.field_status?.crop_type, profile?.selected_crop]);
+
   const handleCreateManualRequest = async () => {
     if (!fieldId || !manualReason.trim()) {
       setActionMessage('Reason is required for manual request');
@@ -162,7 +192,7 @@ export default function FieldProfilePage() {
     try {
       await cropFieldsApi.reviewManualRequest(requestId, {
         decision,
-        note: adminReviewNote || undefined,
+        note: reviewNote || undefined,
       });
       setActionMessage(`Request ${requestId} marked as ${decision}`);
       await Promise.all([loadProfile(), loadManualRequests()]);
@@ -239,6 +269,22 @@ export default function FieldProfilePage() {
     } catch (err) {
       console.error('Failed to request Plan B', err);
       setActionMessage('Plan B request failed');
+    }
+  };
+
+  const handleConfirmCrop = async (cropType: string, expectedProfitPerHa?: number) => {
+    if (!fieldId) return;
+    try {
+      await cropFieldsApi.confirmCrop(fieldId, {
+        crop_type: cropType,
+        source: 'adaptive_recommendation',
+        expected_profit_per_ha: expectedProfitPerHa,
+      });
+      setActionMessage(`Selected crop updated to ${cropType}`);
+      await loadProfile();
+    } catch (err) {
+      console.error('Failed to confirm crop', err);
+      setActionMessage('Crop confirmation failed');
     }
   };
 
@@ -327,6 +373,9 @@ export default function FieldProfilePage() {
                 Water: {f1?.field_status?.current_water_level_pct ?? '-'}% | Soil: {f1?.field_status?.current_soil_moisture_pct ?? '-'}%
               </Typography>
               <Typography variant="body2">
+                Selected Crop: {selectedCrop} | Soil Type: {f1?.field_status?.soil_type || '-'}
+              </Typography>
+              <Typography variant="body2">
                 Valve: {f1?.field_status?.valve_status || '-'} ({f1?.field_status?.valve_position_pct ?? '-'}%)
               </Typography>
               <Typography variant="body2" sx={{ mt: 1 }}>
@@ -334,7 +383,9 @@ export default function FieldProfilePage() {
               </Typography>
               {f1?.auto_decision?.manual_request_required && (
                 <Alert severity="warning" sx={{ mt: 1 }}>
-                  Auto OPEN blocked by reservoir safety. Request ID: {f1.auto_decision.manual_request_id || 'pending'}
+                  Auto OPEN blocked. Request ID: {f1.auto_decision.manual_request_id || 'pending'} | Reason:{' '}
+                  {f1.auto_decision.blocked_reason || f1.auto_decision.manual_request_reason || 'Policy guardrail'} | Policy:{' '}
+                  {f1.auto_decision.policy_id || '-'} v{f1.auto_decision.policy_version ?? '-'}
                 </Alert>
               )}
             </CardContent>
@@ -385,6 +436,45 @@ export default function FieldProfilePage() {
                 <Chip size="small" color={statusColor(f4?.status)} label={f4?.status || 'unknown'} />
               </Stack>
               <Typography variant="body2">Recommendations Count: {recommendationsCount}</Typography>
+              <Typography variant="body2">
+                Expected Income/ha: {String((f4?.income_projection as { expected_profit_per_ha?: unknown } | undefined)?.expected_profit_per_ha ?? '-')}
+              </Typography>
+              <Typography variant="body2">
+                Market Price/kg: {String((f4?.market_snapshot as { predicted_price_per_kg?: unknown } | undefined)?.predicted_price_per_kg ?? '-')}
+              </Typography>
+              {topRecommendations.map((rec) => {
+                const resolvedCrop = String(rec.crop_type || rec.crop_name || rec.crop_id || '').trim();
+                if (!resolvedCrop) {
+                  return null;
+                }
+                return (
+                  <Box
+                    key={resolvedCrop}
+                    sx={{ mt: 1, p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}
+                  >
+                    <Typography variant="body2" fontWeight={600}>
+                      {String(rec.crop_name || rec.crop_type)}
+                    </Typography>
+                    <Typography variant="caption" display="block" color="text.secondary">
+                      Profit/ha: {String(rec.expected_profit_per_ha ?? rec.profit_per_ha ?? '-')} | Market:{' '}
+                      {String(rec.predicted_price_per_kg ?? '-')}
+                    </Typography>
+                    <Button
+                      sx={{ mt: 0.5 }}
+                      size="small"
+                      variant="text"
+                      onClick={() =>
+                        handleConfirmCrop(
+                          resolvedCrop,
+                          Number(rec.expected_profit_per_ha ?? rec.profit_per_ha ?? 0) || undefined
+                        )
+                      }
+                    >
+                      Select This Crop
+                    </Button>
+                  </Box>
+                );
+              })}
               <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
                 <Button size="small" variant="outlined" onClick={handleRequestRecommendation}>
                   Request Recommendation
@@ -435,13 +525,13 @@ export default function FieldProfilePage() {
           </Card>
         </Grid>
 
-        {isAdmin && (
+        {canReviewRequests && (
           <Grid item xs={12}>
             <Card>
               <CardContent>
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
                   <AdminPanelSettingsIcon color="error" />
-                  <Typography variant="h6">Admin Actions</Typography>
+                  <Typography variant="h6">Officer / Authority Actions</Typography>
                 </Stack>
 
                 <Typography variant="subtitle1">Pending Manual Requests</Typography>
@@ -468,9 +558,9 @@ export default function FieldProfilePage() {
 
                 <TextField
                   size="small"
-                  label="Admin Review Note"
-                  value={adminReviewNote}
-                  onChange={(e) => setAdminReviewNote(e.target.value)}
+                  label="Review Note"
+                  value={reviewNote}
+                  onChange={(e) => setReviewNote(e.target.value)}
                   fullWidth
                   sx={{ mb: 2 }}
                 />

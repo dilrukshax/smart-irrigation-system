@@ -7,6 +7,10 @@ Manages application settings using Pydantic's BaseSettings.
 from functools import lru_cache
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from app.core.config_bootstrap import apply_remote_config
+
+
+apply_remote_config(default_service_name="forecasting_service")
 
 
 class Settings(BaseSettings):
@@ -31,10 +35,10 @@ class Settings(BaseSettings):
     ml_only_mode: Optional[bool] = None
 
     # Cross-service URLs
-    auth_service_url: str = "http://auth_service:8001"
+    auth_service_url: str = "http://localhost:8001"
 
     # Database
-    database_url: str = "postgresql://aca_o_user:aca_o_password@postgres:5432/aca_o_db"
+    database_url: str = "postgresql://aca_o_user:aca_o_password@localhost:5432/aca_o_db"
     
     model_config = SettingsConfigDict(
         env_file=".env",

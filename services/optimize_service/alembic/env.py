@@ -37,6 +37,7 @@ if config.config_file_name is not None:
 
 # Add your model's MetaData object here for 'autogenerate' support
 target_metadata = Base.metadata
+VERSION_TABLE = "optimize_alembic_version"
 
 
 def run_migrations_offline() -> None:
@@ -54,6 +55,7 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        version_table=VERSION_TABLE,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,  # Detect column type changes
@@ -81,6 +83,7 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            version_table=VERSION_TABLE,
             compare_type=True,  # Detect column type changes
             compare_server_default=True,  # Detect default value changes
         )

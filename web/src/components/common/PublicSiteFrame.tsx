@@ -50,8 +50,8 @@ export default function PublicSiteFrame({ title, subtitle, children }: PublicSit
                   </Button>
                 ))}
               </Stack>
-              <Button component={RouterLink} to={ROUTES.FARMER.LOGIN} variant="outlined" size="small">
-                Farmer Login
+              <Button component={RouterLink} to={ROUTES.LOGIN} variant="outlined" size="small">
+                Login
               </Button>
             </Stack>
           </Stack>

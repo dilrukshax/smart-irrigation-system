@@ -163,7 +163,18 @@ export interface CropFieldConfig {
   field_id: string;
   field_name: string;
   crop_type: string;
+  soil_type?: string | null;
   area_hectares: number;
+  owner_id?: string | null;
+  scheme_id?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  location_name?: string | null;
+  lifecycle_state?: 'REGISTERED' | 'CONFIGURED' | 'DEVICELINKED' | 'LIVE' | 'DEGRADED' | 'SUSPENDED' | 'ARCHIVED' | string;
+  pairing_status?: 'UNPAIRED' | 'PENDING' | 'CONFIRMED' | 'FAILED' | string;
+  last_handshake_at?: string | null;
+  live_since?: string | null;
+  suspended_reason?: string | null;
   device_id: string | null;
   water_level_min_pct: number;
   water_level_max_pct: number;
@@ -181,6 +192,7 @@ export interface CropFieldStatus {
   field_id: string;
   field_name: string;
   crop_type: string;
+  soil_type?: string | null;
   device_id: string | null;
   // Sensor connection status
   sensor_connected: boolean;
@@ -264,6 +276,11 @@ export interface AutoControlDecision {
   manual_request_id?: string | null;
   manual_request_status?: string | null;
   manual_request_reason?: string | null;
+  blocked?: boolean;
+  blocked_reason?: string | null;
+  policy_id?: string | null;
+  policy_version?: number | null;
+  quota_remaining_mcm?: number | null;
 }
 
 export interface DataContract {
@@ -301,18 +318,126 @@ export interface ManualRequestAuditItem {
 export interface ManualRequestItem {
   request_id: string;
   field_id: string;
+  scheme_id?: string | null;
   requested_action: 'OPEN' | 'CLOSE';
   requested_position_pct: number;
   reason: string;
   source_decision?: Record<string, unknown> | null;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  policy_context?: {
+    policy_id?: string | null;
+    policy_version?: number | null;
+    blocked_reason?: string | null;
+  } | null;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXECUTED' | 'CLOSED';
   created_by?: string | null;
   reviewed_by?: string | null;
+  closed_by?: string | null;
   review_note?: string | null;
   reviewed_at?: string | null;
+  executed_at?: string | null;
+  closed_at?: string | null;
+  execution_note?: string | null;
   created_at: string;
   updated_at: string;
   audit?: ManualRequestAuditItem[];
+}
+
+export interface AuthorityPolicyAuditItem {
+  audit_id: string;
+  policy_id: string;
+  scheme_id: string;
+  version: number;
+  event_type: string;
+  actor_id?: string | null;
+  actor_roles?: string[] | null;
+  created_at: string;
+}
+
+export interface AuthorityPolicyItem {
+  policy_id: string;
+  scheme_id: string;
+  version: number;
+  status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED' | string;
+  quota_mcm: number;
+  max_field_open_pct: number;
+  emergency_mode?: string | null;
+  constraints?: Record<string, unknown> | null;
+  created_by?: string | null;
+  published_by?: string | null;
+  published_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  audit?: AuthorityPolicyAuditItem[];
+}
+
+export interface HydraulicScheduleItem {
+  schedule_id: string;
+  scheme_id: string;
+  canal_id?: string | null;
+  tunnel_id?: string | null;
+  channel_id?: string | null;
+  turnout_id?: string | null;
+  action: 'OPEN' | 'HOLD' | 'CLOSE' | 'PARTIAL' | string;
+  expected_flow_m3s?: number | null;
+  start_time: string;
+  end_time: string;
+  requested_by?: string | null;
+  requested_roles?: string[] | null;
+  policy_id?: string | null;
+  policy_version?: number | null;
+  status: 'ACCEPTED' | 'REJECTED' | string;
+  reason?: string | null;
+  conflict_reason?: string | null;
+  created_at: string;
+}
+
+export interface HydraulicTopologyNode {
+  node_id: string;
+  scheme_id: string;
+  node_type: 'reservoir' | 'canal' | 'tunnel' | 'channel' | 'turnout' | string;
+  parent_node_id?: string | null;
+  display_name: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OfficerOverviewQueue extends DataContract {
+  total_requests: number;
+  pending_requests: number;
+  open_lifecycle_requests: number;
+}
+
+export interface OfficerOverviewTelemetry extends DataContract {
+  total_fields: number;
+  field_ids: string[];
+  live_fields: number;
+  degraded_fields: number;
+  fresh_fields: number;
+  stale_fields: number;
+  no_telemetry_fields: number;
+  worst_staleness_sec?: number | null;
+}
+
+export interface OfficerOverviewHydraulic extends DataContract {
+  total_schedules: number;
+  accepted_schedules: number;
+  rejected_schedules: number;
+  cancelled_schedules: number;
+  next_accepted_start_at?: string | null;
+}
+
+export interface OfficerOverviewItem extends DataContract {
+  scheme_id: string;
+  queue: OfficerOverviewQueue;
+  telemetry: OfficerOverviewTelemetry;
+  hydraulic: OfficerOverviewHydraulic;
+}
+
+export interface OfficerOverviewResponse extends DataContract {
+  count: number;
+  generated_at: string;
+  items: OfficerOverviewItem[];
 }
 
 export interface UnifiedF1Section extends DataContract {
@@ -333,6 +458,9 @@ export interface UnifiedF3Section extends DataContract {
 export interface UnifiedF4Section extends DataContract {
   recommendations?: Record<string, unknown> | null;
   optimization_context?: Record<string, unknown> | null;
+  recommendation_summary?: Record<string, unknown> | null;
+  income_projection?: Record<string, unknown> | null;
+  market_snapshot?: Record<string, unknown> | null;
   actions?: Record<string, string>;
 }
 
@@ -341,6 +469,8 @@ export interface UnifiedFieldProfile extends DataContract {
   generated_at: string;
   partial_failure: boolean;
   errors: string[];
+  selected_crop?: Record<string, unknown> | null;
+  satellite_stress_summary?: Record<string, unknown> | null;
   sections: {
     f1: UnifiedF1Section;
     f2: UnifiedF2Section;

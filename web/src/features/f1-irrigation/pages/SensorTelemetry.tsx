@@ -9,7 +9,8 @@
  * - Device command controls
  */
 
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import {
   Box,
@@ -73,6 +74,18 @@ const COLORS = {
   success: '#4caf50',
 };
 
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof (error as { message?: string }).message === 'string'
+  ) {
+    return (error as { message?: string }).message || fallback;
+  }
+  return fallback;
+};
+
 // Helper to format timestamp
 function formatTimestamp(ts: string): string {
   const date = new Date(ts);
@@ -93,6 +106,9 @@ function getStatusColor(value: number, thresholds: { low: number; high: number }
 }
 
 export default function SensorTelemetry() {
+  const [searchParams] = useSearchParams();
+  const scopedFieldId = searchParams.get('fieldId') || '';
+
   // State
   const [selectedDevice, setSelectedDevice] = useState<string>('');
   const [dateFrom, setDateFrom] = useState<string>('');
@@ -116,14 +132,24 @@ export default function SensorTelemetry() {
     refetchInterval: 30000, // Refresh device list every 30 seconds
   });
 
-  const devices = devicesData?.data?.devices || [];
+  const devices = useMemo(() => devicesData?.data?.devices || [], [devicesData?.data?.devices]);
 
-  // Auto-select first device if none selected
-  useMemo(() => {
-    if (devices.length > 0 && !selectedDevice) {
-      setSelectedDevice(devices[0].device_id);
+  // Auto-select device (prefer field-scoped device if route provides fieldId)
+  useEffect(() => {
+    if (devices.length === 0 || selectedDevice) {
+      return;
     }
-  }, [devices, selectedDevice]);
+
+    if (scopedFieldId) {
+      const matched = devices.find((device) => device.field_id === scopedFieldId);
+      if (matched) {
+        setSelectedDevice(matched.device_id);
+        return;
+      }
+    }
+
+    setSelectedDevice(devices[0].device_id);
+  }, [devices, scopedFieldId, selectedDevice]);
 
   // Fetch latest reading with auto-refresh (every 3 seconds)
   const {
@@ -156,7 +182,7 @@ export default function SensorTelemetry() {
     enabled: !!selectedDevice,
   });
 
-  const historyReadings = historyData?.data?.readings || [];
+  const historyReadings = useMemo(() => historyData?.data?.readings || [], [historyData?.data?.readings]);
 
   // Send command mutation
   const sendCommandMutation = useMutation({
@@ -169,10 +195,10 @@ export default function SensorTelemetry() {
         severity: 'success',
       });
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       setSnackbar({
         open: true,
-        message: `Failed to send command: ${error.message}`,
+        message: `Failed to send command: ${getErrorMessage(error, 'Unknown error')}`,
         severity: 'error',
       });
     },
@@ -229,6 +255,11 @@ export default function SensorTelemetry() {
           <Typography variant="body1" color="text.secondary">
             Real-time monitoring of ESP32 IoT sensors
           </Typography>
+          {scopedFieldId && (
+            <Typography variant="caption" color="text.secondary">
+              Field context: {scopedFieldId}
+            </Typography>
+          )}
         </Box>
         <Tooltip title="Refresh devices">
           <IconButton onClick={() => refetchDevices()} color="primary">
@@ -240,7 +271,7 @@ export default function SensorTelemetry() {
       {/* Error Alert */}
       {hasError && (
         <Alert severity="error" sx={{ mb: 3 }}>
-          {(devicesError as any)?.message || (latestError as any)?.message || 'Failed to load data'}
+          {getErrorMessage(devicesError, getErrorMessage(latestError, 'Failed to load data'))}
         </Alert>
       )}
 
@@ -327,7 +358,7 @@ export default function SensorTelemetry() {
                       variant="determinate"
                       value={latestReading.soil_moisture_pct}
                       sx={{ mt: 1, height: 8, borderRadius: 4 }}
-                      color={getStatusColor(latestReading.soil_moisture_pct, { low: 30, high: 70 }) as any}
+                      color={getStatusColor(latestReading.soil_moisture_pct, { low: 30, high: 70 })}
                     />
                   </CardContent>
                 </Card>
@@ -353,7 +384,7 @@ export default function SensorTelemetry() {
                       variant="determinate"
                       value={latestReading.water_level_pct}
                       sx={{ mt: 1, height: 8, borderRadius: 4 }}
-                      color={getStatusColor(latestReading.water_level_pct, { low: 20, high: 50 }) as any}
+                      color={getStatusColor(latestReading.water_level_pct, { low: 20, high: 50 })}
                     />
                   </CardContent>
                 </Card>
@@ -456,7 +487,7 @@ export default function SensorTelemetry() {
           {historyError && (
             <Grid item xs={12}>
               <Alert severity="error">
-                Failed to load historical data: {(historyError as any)?.message}
+                Failed to load historical data: {getErrorMessage(historyError, 'Unknown error')}
               </Alert>
             </Grid>
           )}

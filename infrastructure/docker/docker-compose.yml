@@ -1,13 +1,35 @@
 # Smart Irrigation System - Docker Compose (Local E2E)
 
-version: '3.8'
-
 services:
-  gateway:
-    build: ../../gateway
+  config_server:
+    build: ../../services/config_server
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8010
     ports:
-      - "8000:80"
+      - "8010:8010"
+    networks:
+      - smart-irrigation
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  gateway:
+    build: ../../services/gateway_service
+    environment:
+      - CONFIG_ENABLED=true
+      - CONFIG_SERVER_URL=http://config_server:8010
+      - CONFIG_PROFILE=docker
+      - CONFIG_SERVICE_NAME=gateway
+      - CONFIG_TIMEOUT_SEC=3
+      - CONFIG_FAIL_FAST=false
+    ports:
+      - "8000:8000"
     depends_on:
+      - config_server
       - auth_service
       - irrigation_service
       - forecasting_service
@@ -30,12 +52,19 @@ services:
   auth_service:
     build: ../../services/auth_service
     environment:
+      - CONFIG_ENABLED=true
+      - CONFIG_SERVER_URL=http://config_server:8010
+      - CONFIG_PROFILE=docker
+      - CONFIG_SERVICE_NAME=auth_service
+      - CONFIG_TIMEOUT_SEC=3
+      - CONFIG_FAIL_FAST=false
       - DEBUG=true
       - HOST=0.0.0.0
       - PORT=8001
       - DATABASE_URL=postgresql://aca_o_user:aca_o_password@postgres:5432/aca_o_db
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-secret-key-change-me}
     depends_on:
+      - config_server
       - postgres
     ports:
       - "8001:8001"
@@ -51,6 +80,12 @@ services:
   irrigation_service:
     build: ../../services/irrigation_service
     environment:
+      - CONFIG_ENABLED=true
+      - CONFIG_SERVER_URL=http://config_server:8010
+      - CONFIG_PROFILE=docker
+      - CONFIG_SERVICE_NAME=irrigation_service
+      - CONFIG_TIMEOUT_SEC=3
+      - CONFIG_FAIL_FAST=false
       - ENVIRONMENT=development
       - DEBUG=true
       - PORT=8002
@@ -58,9 +93,12 @@ services:
       - DATABASE_URL=postgresql://aca_o_user:aca_o_password@postgres:5432/aca_o_db
       - FORECASTING_SERVICE_URL=http://forecasting_service:8003
       - CROP_HEALTH_SERVICE_URL=http://crop_health_and_water_stress_detection:8007
+      - OPTIMIZATION_SERVICE_URL=http://optimize_service:8004
+      - IOT_SERVICE_URL=http://iot_service:8006
       - MQTT_BROKER=mosquitto
       - MQTT_PORT=1883
     depends_on:
+      - config_server
       - postgres
       - auth_service
       - mosquitto
@@ -78,6 +116,12 @@ services:
   forecasting_service:
     build: ../../services/forecasting_service
     environment:
+      - CONFIG_ENABLED=true
+      - CONFIG_SERVER_URL=http://config_server:8010
+      - CONFIG_PROFILE=docker
+      - CONFIG_SERVICE_NAME=forecasting_service
+      - CONFIG_TIMEOUT_SEC=3
+      - CONFIG_FAIL_FAST=false
       - ENVIRONMENT=development
       - DEBUG=true
       - PORT=8003
@@ -85,6 +129,10 @@ services:
       - ML_ONLY_MODE=false
       - AUTH_SERVICE_URL=http://auth_service:8001
       - DATABASE_URL=postgresql://aca_o_user:aca_o_password@postgres:5432/aca_o_db
+    depends_on:
+      - config_server
+      - postgres
+      - auth_service
     ports:
       - "8003:8003"
     networks:
@@ -96,43 +144,38 @@ services:
       timeout: 10s
       retries: 3
 
-  iot-service:
-    build: ../../services/iot_service
-    ports:
-      - "8006:8006"
+  optimize_service:
+    build: ../../services/optimize_service
     environment:
-      - ENVIRONMENT=development
-      - DEBUG=true
-      - DATABASE_URL=${DATABASE_URL:-}
+      - CONFIG_ENABLED=true
+      - CONFIG_SERVER_URL=http://config_server:8010
+      - CONFIG_PROFILE=docker
+      - CONFIG_SERVICE_NAME=optimize_service
+      - CONFIG_TIMEOUT_SEC=3
+      - CONFIG_FAIL_FAST=false
+      - APP_ENV=development
+      - APP_DEBUG=true
+      - APP_PORT=8004
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=aca_o_user
+      - DB_PASSWORD=aca_o_password
+      - DB_NAME=aca_o_db
+      - DB_SSLMODE=disable
+      - IRRIGATION_SERVICE_URL=http://irrigation_service:8002
+      - FORECASTING_SERVICE_URL=http://forecasting_service:8003
+      - CROP_HEALTH_SERVICE_URL=http://crop_health_and_water_stress_detection:8007
+      - AUTH_SERVICE_URL=http://auth_service:8001
       - MQTT_BROKER=mosquitto
       - MQTT_PORT=1883
-      - MQTT_USERNAME=${MQTT_USERNAME:-}
-      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
-      - DEVICE_API_KEYS=${DEVICE_API_KEYS:-}
     depends_on:
-      - mosquitto
-    networks:
-      - smart-irrigation
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  optimization-service:
-    build: ../../services/aca_o_service
-    environment:
-      - ENVIRONMENT=development
-      - DEBUG=true
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/optimization
-      - REDIS_URL=redis://redis:6379
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
-      - OTEL_SERVICE_NAME=aca-o-service
-    depends_on:
+      - config_server
       - postgres
       - mosquitto
-      - jaeger
+      - auth_service
+      - irrigation_service
+      - forecasting_service
+      - crop_health_and_water_stress_detection
     ports:
       - "8004:8004"
     networks:
@@ -147,19 +190,29 @@ services:
   iot_service:
     build: ../../services/iot_service
     environment:
+      - CONFIG_ENABLED=true
+      - CONFIG_SERVER_URL=http://config_server:8010
+      - CONFIG_PROFILE=docker
+      - CONFIG_SERVICE_NAME=iot_service
+      - CONFIG_TIMEOUT_SEC=3
+      - CONFIG_FAIL_FAST=false
       - ENVIRONMENT=development
       - DEBUG=true
       - PORT=8006
+      - DATABASE_URL=${DATABASE_URL:-postgresql://aca_o_user:aca_o_password@postgres:5432/aca_o_db}
       - INFLUXDB_URL=http://influxdb:8086
       - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:-dev-token-smart-irrigation}
       - INFLUXDB_ORG=smart-irrigation
       - INFLUXDB_BUCKET=sensors
       - MQTT_BROKER=mosquitto
       - MQTT_PORT=1883
+      - MQTT_USERNAME=${MQTT_USERNAME:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
       - DEVICE_API_KEYS=${DEVICE_API_KEYS:-}
       - IRRIGATION_SERVICE_URL=http://irrigation_service:8002
       - DEVICE_FIELD_MAP=${DEVICE_FIELD_MAP:-}
     depends_on:
+      - config_server
       - influxdb
       - mosquitto
       - irrigation_service
@@ -177,14 +230,23 @@ services:
   crop_health_and_water_stress_detection:
     build: ../../services/crop_health_and_water_stress_detection
     environment:
+      - CONFIG_ENABLED=true
+      - CONFIG_SERVER_URL=http://config_server:8010
+      - CONFIG_PROFILE=docker
+      - CONFIG_SERVICE_NAME=crop_health_and_water_stress_detection
+      - CONFIG_TIMEOUT_SEC=3
+      - CONFIG_FAIL_FAST=false
       - DEBUG=true
       - HOST=0.0.0.0
       - PORT=8007
+      - ENVIRONMENT=development
       - AUTH_SERVICE_URL=http://auth_service:8001
       - MQTT_BROKER=mosquitto
       - MQTT_PORT=1883
     depends_on:
+      - config_server
       - mosquitto
+      - auth_service
     ports:
       - "8007:8007"
     networks:
@@ -210,6 +272,8 @@ services:
       - POSTGRES_USER=aca_o_user
       - POSTGRES_PASSWORD=aca_o_password
       - POSTGRES_DB=aca_o_db
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:

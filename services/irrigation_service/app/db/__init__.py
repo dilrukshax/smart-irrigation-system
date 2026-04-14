@@ -1,7 +1,12 @@
 """Database package for irrigation service."""
 
 from app.db.models import (
+    AuthorityPolicy,
+    AuthorityPolicyAudit,
     CropField,
+    DevicePairingSession,
+    HydraulicSchedule,
+    HydraulicTopologyNode,
     ManualRequest,
     ManualRequestAudit,
     ReservoirSnapshot,
@@ -17,11 +22,15 @@ __all__ = [
     "init_db",
     "close_db",
     "CropField",
+    "DevicePairingSession",
     "ValveState",
     "SensorReading",
     "ReservoirSnapshot",
     "ManualRequest",
     "ManualRequestAudit",
+    "HydraulicSchedule",
+    "HydraulicTopologyNode",
+    "AuthorityPolicy",
+    "AuthorityPolicyAudit",
     "WaterManagementState",
 ]
-

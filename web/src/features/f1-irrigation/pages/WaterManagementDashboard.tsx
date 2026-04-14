@@ -43,10 +43,10 @@ import {
   Opacity,
   WaterDrop,
 } from '@mui/icons-material';
+import { useSearchParams } from 'react-router-dom';
 import { waterManagementApi } from '../../../api/f1-irrigation.api';
 import type {
   WaterManagementRecommendation,
-  ReservoirData,
   ManualOverrideStatus,
   WaterManagementStatus,
   ModelInfo,
@@ -99,9 +99,11 @@ const getActionColor = (action: string): 'success' | 'warning' | 'error' | 'info
 };
 
 export default function WaterManagementDashboard() {
+  const [searchParams] = useSearchParams();
+  const scopedFieldId = searchParams.get('fieldId') || undefined;
+
   // State
   const [recommendation, setRecommendation] = useState<WaterManagementRecommendation | null>(null);
-  const [reservoirData, setReservoirData] = useState<ReservoirData | null>(null);
   const [serviceStatus, setServiceStatus] = useState<WaterManagementStatus | null>(null);
   const [overrideStatus, setOverrideStatus] = useState<ManualOverrideStatus | null>(null);
   const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null);
@@ -126,22 +128,12 @@ export default function WaterManagementDashboard() {
 
       const [statusRes, recommendRes, overrideRes] = await Promise.all([
         waterManagementApi.getStatus(),
-        waterManagementApi.getAutoRecommendation(),
+        waterManagementApi.getAutoRecommendation(scopedFieldId),
         waterManagementApi.getManualOverrideStatus(),
       ]);
 
       setServiceStatus(statusRes.data);
       setRecommendation(recommendRes.data);
-      setReservoirData({
-        water_level_mmsl: recommendRes.data.reservoir_status.level_mmsl,
-        total_storage_mcm: recommendRes.data.reservoir_status.total_storage_mcm,
-        active_storage_mcm: recommendRes.data.reservoir_status.active_storage_mcm,
-        inflow_mcm: recommendRes.data.input_data.inflow_mcm || 0,
-        rain_mm: recommendRes.data.input_data.rain_mm || 0,
-        main_canals_mcm: recommendRes.data.input_data.main_canals_mcm || 0,
-        lb_main_canal_mcm: 0,
-        rb_main_canal_mcm: 0,
-      });
       setOverrideStatus(overrideRes.data);
     } catch (err) {
       console.error('Failed to fetch data:', err);
@@ -149,7 +141,7 @@ export default function WaterManagementDashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [scopedFieldId]);
 
   // Fetch model info
   const fetchModelInfo = async () => {
@@ -178,7 +170,7 @@ export default function WaterManagementDashboard() {
         action: overrideAction as 'OPEN' | 'CLOSE' | 'HOLD' | 'EMERGENCY_RELEASE',
         valve_position: overridePosition,
         reason: overrideReason,
-      });
+      }, scopedFieldId);
       setOverrideDialogOpen(false);
       setOverrideReason('');
       fetchData();
@@ -191,7 +183,7 @@ export default function WaterManagementDashboard() {
   // Handle cancel override
   const handleCancelOverride = async () => {
     try {
-      await waterManagementApi.cancelManualOverride();
+      await waterManagementApi.cancelManualOverride(scopedFieldId);
       fetchData();
     } catch (err) {
       console.error('Failed to cancel override:', err);
@@ -232,6 +224,11 @@ export default function WaterManagementDashboard() {
           <Typography variant="body1" color="text.secondary">
             ML-powered irrigation water release prediction and control
           </Typography>
+          {scopedFieldId && (
+            <Typography variant="caption" color="text.secondary">
+              Field context: {scopedFieldId}
+            </Typography>
+          )}
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Tooltip title="Model Information">

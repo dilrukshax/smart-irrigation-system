@@ -90,7 +90,7 @@ export default function Scenarios() {
 
   const handleRunScenario = async (scenario: Scenario) => {
     if (!isAdmin) {
-      setGlobalError('Admin role required to run scenario evaluations.');
+      setGlobalError('Authority role required to run scenario evaluations.');
       return;
     }
     setGlobalError(null);
@@ -105,7 +105,7 @@ export default function Scenarios() {
 
   const handleCompareAll = async () => {
     if (!isAdmin) {
-      setGlobalError('Admin role required to run scenario evaluations.');
+      setGlobalError('Authority role required to run scenario evaluations.');
       return;
     }
     setGlobalError(null);
@@ -155,7 +155,7 @@ export default function Scenarios() {
       </Typography>
       {!isAdmin && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          Scenario evaluation is admin-only. You can view existing results but cannot run new scenarios.
+          Scenario evaluation is authority-only. You can view existing results but cannot run new scenarios.
         </Alert>
       )}
 

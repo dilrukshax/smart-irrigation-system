@@ -8,6 +8,10 @@ Supports InfluxDB, MQTT, and device authentication configuration.
 from functools import lru_cache
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from app.core.config_bootstrap import apply_remote_config
+
+
+apply_remote_config(default_service_name="iot_service")
 
 
 class Settings(BaseSettings):
@@ -31,9 +35,10 @@ class Settings(BaseSettings):
 
     # PostgreSQL (NeonDB) Configuration
     database_url: str = ""
+    irrigation_service_url: str = "http://localhost:8002"
 
     # MQTT Configuration
-    mqtt_broker: str = "mosquitto"
+    mqtt_broker: str = "localhost"
     mqtt_port: int = 1883
     mqtt_username: Optional[str] = None
     mqtt_password: Optional[str] = None

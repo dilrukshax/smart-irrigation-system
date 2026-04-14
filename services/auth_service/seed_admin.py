@@ -1,6 +1,5 @@
 """
-Seed script to create the first admin user.
-Run this after starting the service for the first time.
+Seed script to create default farmer, officer, and authority users.
 
 Usage:
     cd services/auth_service
@@ -8,64 +7,95 @@ Usage:
 """
 
 import asyncio
-import sys
 import os
+import sys
+
+from passlib.context import CryptContext
+from sqlalchemy import select
 
 # Ensure the service root is on the path
 sys.path.insert(0, os.path.dirname(__file__))
 
-from sqlalchemy import select
-from passlib.context import CryptContext
-
 from app.core.config import settings
 from app.db.postgres import AsyncSessionLocal, connect_to_db
+from app.models.scheme_assignment import SchemeAssignment
 from app.models.user import User
 
-# Admin user details
-ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD = "admin123"
-ADMIN_EMAIL = "admin@smartirrigation.com"
+DEFAULT_USERS = [
+    {
+        "username": "farmer",
+        "password": "farmer123",
+        "email": "farmer@smartirrigation.com",
+        "roles": ["farmer"],
+        "schemes": [],
+    },
+    {
+        "username": "authority",
+        "password": "authority123",
+        "email": "authority@smartirrigation.com",
+        "roles": ["authority"],
+        "schemes": ["scheme-default"],
+    },
+    {
+        "username": "officer",
+        "password": "officer123",
+        "email": "officer@smartirrigation.com",
+        "roles": ["officer"],
+        "schemes": ["scheme-default"],
+    },
+]
 
 pwd_context = CryptContext(schemes=["bcrypt_sha256", "bcrypt"], deprecated="auto")
 
 
-async def seed():
+async def _ensure_assignments(session, user, scheme_ids):
+    await session.execute(
+        SchemeAssignment.__table__.delete().where(SchemeAssignment.user_id == user.id)
+    )
+    for scheme_id in scheme_ids:
+        session.add(SchemeAssignment(user_id=user.id, scheme_id=scheme_id))
+
+
+async def seed() -> None:
     print("Connecting to PostgreSQL (Neon)...")
     await connect_to_db()
 
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(select(User).where(User.username == ADMIN_USERNAME))
-        existing = result.scalar_one_or_none()
+    async with AsyncSessionLocal() as session:
+        for entry in DEFAULT_USERS:
+            result = await session.execute(select(User).where(User.username == entry["username"]))
+            existing = result.scalar_one_or_none()
 
-        if existing:
-            print(f"User '{ADMIN_USERNAME}' already exists.")
-            if "admin" not in (existing.roles or []):
-                existing.roles = list(set((existing.roles or []) + ["admin"]))
-                await db.commit()
-                print("Added 'admin' role.")
-            else:
-                print("Already has admin role. Nothing to do.")
-        else:
-            admin = User(
-                username=ADMIN_USERNAME,
-                email=ADMIN_EMAIL,
-                hashed_password=pwd_context.hash(ADMIN_PASSWORD),
-                roles=["admin", "user"],
+            if existing:
+                print(f"User '{entry['username']}' already exists.")
+                existing.roles = sorted(set(entry["roles"]))
+                existing.is_active = True
+                await _ensure_assignments(session, existing, entry["schemes"])
+                await session.commit()
+                print(f"Updated roles to: {existing.roles}")
+                continue
+
+            user = User(
+                username=entry["username"],
+                email=entry["email"],
+                hashed_password=pwd_context.hash(entry["password"]),
+                roles=entry["roles"],
                 is_active=True,
             )
-            db.add(admin)
-            await db.commit()
-            await db.refresh(admin)
-            print(f"Admin user created!")
-            print(f"  ID:       {admin.id}")
-            print(f"  Username: {admin.username}")
-            print(f"  Email:    {admin.email}")
-            print(f"  Roles:    {admin.roles}")
+            session.add(user)
+            await session.flush()
+            await _ensure_assignments(session, user, entry["schemes"])
+            await session.commit()
+            await session.refresh(user)
+
+            print(f"Created user '{user.username}'")
+            print(f"  ID:       {user.id}")
+            print(f"  Email:    {user.email}")
+            print(f"  Roles:    {user.roles}")
 
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("Auth Service - Admin User Seed Script")
+    print("Auth Service - Farmer/Officer/Authority Seed Script")
     print("=" * 50)
     print(f"Database: {settings.DATABASE_URL[:40]}...")
     print()

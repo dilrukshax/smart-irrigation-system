@@ -1,20 +1,24 @@
-# API Gateway Dockerfile
+# API Gateway Dockerfile (FastAPI runtime)
 
-FROM nginx:1.25-alpine
+FROM python:3.11-slim
 
 LABEL org.opencontainers.image.title="API Gateway"
-LABEL org.opencontainers.image.description="NGINX-based API Gateway for Smart Irrigation"
+LABEL org.opencontainers.image.description="FastAPI API Gateway for Smart Irrigation"
 
-# Remove default config
-RUN rm /etc/nginx/conf.d/default.conf
+WORKDIR /app
 
-# Copy custom config
-COPY nginx.conf /etc/nginx/conf.d/
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-# Health check
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8000
+
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost/health || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-EXPOSE 80
-
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["uvicorn", "gateway:app", "--host", "0.0.0.0", "--port", "8000"]

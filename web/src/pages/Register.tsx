@@ -10,10 +10,6 @@ import {
   Alert,
   Link,
   CircularProgress,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
 } from '@mui/material';
 import { useAuth } from '@contexts/AuthContext';
 import { useNotification } from '@contexts/NotificationContext';
@@ -24,7 +20,6 @@ export default function Register() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [role, setRole] = useState<'user' | 'farmer'>('user');
   const [error, setError] = useState('');
   const { register, isLoading } = useAuth();
   const { showSuccess } = useNotification();
@@ -56,7 +51,7 @@ export default function Register() {
     }
 
     try {
-      await register(username, password, email || undefined, role);
+      await register(username, password, email || undefined, 'farmer');
       showSuccess('Registration successful! Please sign in.');
       navigate(ROUTES.LOGIN);
     } catch (err: any) {
@@ -104,18 +99,6 @@ export default function Register() {
             autoComplete="email"
             disabled={isLoading}
           />
-          <FormControl fullWidth margin="normal" disabled={isLoading}>
-            <InputLabel id="account-type-label">Account Type</InputLabel>
-            <Select
-              labelId="account-type-label"
-              label="Account Type"
-              value={role}
-              onChange={(e) => setRole(e.target.value as 'user' | 'farmer')}
-            >
-              <MenuItem value="user">General User</MenuItem>
-              <MenuItem value="farmer">Farmer</MenuItem>
-            </Select>
-          </FormControl>
           <TextField
             fullWidth
             label="Password"

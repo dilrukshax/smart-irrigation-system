@@ -1,5 +1,5 @@
 /**
- * Admin User List Page
+ * Authority User List Page
  * Displays all users with role and status management
  */
 
@@ -43,12 +43,13 @@ import {
   Add as AddIcon,
   Delete as DeleteIcon,
 } from '@mui/icons-material';
-import { adminApi, User, AdminUserCreate, AdminUserUpdate } from '@api/auth.api';
+import { authorityApi, User, AdminUserCreate, AdminUserUpdate } from '@api/auth.api';
 import { useNotification } from '@contexts/NotificationContext';
 import { useAuth } from '@contexts/AuthContext';
 
 // Available roles for selection
-const AVAILABLE_ROLES = ['admin', 'user', 'farmer', 'officer'];
+const AVAILABLE_ROLES = ['authority', 'officer', 'farmer'] as const;
+type ManagedRole = (typeof AVAILABLE_ROLES)[number];
 
 export default function AdminUserList() {
   const [users, setUsers] = useState<User[]>([]);
@@ -63,7 +64,7 @@ export default function AdminUserList() {
   // Role edit dialog state
   const [editRoleDialogOpen, setEditRoleDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const [selectedRoles, setSelectedRoles] = useState<ManagedRole[]>([]);
   const [updating, setUpdating] = useState(false);
 
   // Create user dialog state
@@ -72,7 +73,7 @@ export default function AdminUserList() {
     username: '',
     password: '',
     email: '',
-    roles: ['user'],
+    roles: ['farmer'],
     is_active: true,
   });
   const [creating, setCreating] = useState(false);
@@ -93,7 +94,7 @@ export default function AdminUserList() {
     setError(null);
 
     try {
-      const response = await adminApi.getUsers(
+      const response = await authorityApi.getUsers(
         page + 1, // API is 1-indexed
         rowsPerPage,
         search || undefined
@@ -163,7 +164,7 @@ export default function AdminUserList() {
 
     setUpdating(true);
     try {
-      const updatedUser = await adminApi.updateUserRoles(selectedUser.id, selectedRoles);
+      const updatedUser = await authorityApi.updateUserRoles(selectedUser.id, selectedRoles);
       
       // Update local state
       setUsers((prev) =>
@@ -188,7 +189,7 @@ export default function AdminUserList() {
       username: '',
       password: '',
       email: '',
-      roles: ['user'],
+      roles: ['farmer'],
       is_active: true,
     });
     setCreateDialogOpen(true);
@@ -203,7 +204,7 @@ export default function AdminUserList() {
       username: '',
       password: '',
       email: '',
-      roles: ['user'],
+      roles: ['farmer'],
       is_active: true,
     });
   };
@@ -216,7 +217,7 @@ export default function AdminUserList() {
 
     setCreating(true);
     try {
-      const createdUser = await adminApi.createUser(newUser);
+      const createdUser = await authorityApi.createUser(newUser);
       showSuccess(`User ${createdUser.username} created successfully`);
       handleCloseCreateDialog();
       fetchUsers(); // Refresh list
@@ -267,7 +268,7 @@ export default function AdminUserList() {
       if (editUser.roles && editUser.roles.length > 0) updatePayload.roles = editUser.roles;
       if (editUser.is_active !== undefined) updatePayload.is_active = editUser.is_active;
 
-      const updatedUser = await adminApi.updateUser(editingUserId, updatePayload);
+      const updatedUser = await authorityApi.updateUser(editingUserId, updatePayload);
       
       // Update local state
       setUsers((prev) =>
@@ -298,7 +299,7 @@ export default function AdminUserList() {
     }
 
     try {
-      await adminApi.deleteUser(user.id, true); // Hard delete
+      await authorityApi.deleteUser(user.id, true); // Hard delete
       showSuccess(`User ${user.username} deleted successfully`);
       fetchUsers(); // Refresh list
     } catch (err: any) {
@@ -318,7 +319,7 @@ export default function AdminUserList() {
     }
 
     try {
-      const updatedUser = await adminApi.updateUserStatus(user.id, !user.is_active);
+      const updatedUser = await authorityApi.updateUserStatus(user.id, !user.is_active);
       
       // Update local state
       setUsers((prev) =>
@@ -349,10 +350,10 @@ export default function AdminUserList() {
   return (
     <Box>
       <Typography variant="h4" gutterBottom fontWeight={600}>
-        User Management
+        Authority User Management
       </Typography>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-        Manage user accounts, roles, and access permissions
+        Manage farmer, officer, and authority accounts with role-safe controls
       </Typography>
 
       {/* Search and Refresh */}
@@ -450,8 +451,8 @@ export default function AdminUserList() {
                             key={role}
                             label={role}
                             size="small"
-                            color={role === 'admin' ? 'error' : 'default'}
-                            variant={role === 'admin' ? 'filled' : 'outlined'}
+                            color={role === 'authority' ? 'error' : 'default'}
+                            variant={role === 'authority' ? 'filled' : 'outlined'}
                           />
                         ))}
                       </Box>
@@ -531,7 +532,7 @@ export default function AdminUserList() {
               <Select
                 multiple
                 value={selectedRoles}
-                onChange={(e) => setSelectedRoles(e.target.value as string[])}
+                onChange={(e) => setSelectedRoles(e.target.value as ManagedRole[])}
                 input={<OutlinedInput label="Roles" />}
                 renderValue={(selected) => (
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
@@ -546,10 +547,10 @@ export default function AdminUserList() {
                     key={role}
                     value={role}
                     disabled={
-                      // Prevent removing your own admin role
+                      // Prevent removing your own authority role
                       selectedUser?.id === currentUser?.id &&
-                      role === 'admin' &&
-                      selectedRoles.includes('admin')
+                      role === 'authority' &&
+                      selectedRoles.includes('authority')
                     }
                   >
                     {role}
@@ -559,7 +560,7 @@ export default function AdminUserList() {
             </FormControl>
             {selectedUser?.id === currentUser?.id && (
               <Alert severity="warning" sx={{ mt: 2 }}>
-                You cannot remove your own admin role
+                You cannot remove your own authority role
               </Alert>
             )}
             {selectedRoles.length === 0 && (
@@ -619,8 +620,8 @@ export default function AdminUserList() {
               <InputLabel>Roles</InputLabel>
               <Select
                 multiple
-                value={newUser.roles || ['user']}
-                onChange={(e) => setNewUser({ ...newUser, roles: e.target.value as string[] })}
+                value={newUser.roles || ['farmer']}
+                onChange={(e) => setNewUser({ ...newUser, roles: e.target.value as ManagedRole[] })}
                 input={<OutlinedInput label="Roles" />}
                 renderValue={(selected) => (
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
@@ -696,7 +697,7 @@ export default function AdminUserList() {
               <Select
                 multiple
                 value={editUser.roles || []}
-                onChange={(e) => setEditUser({ ...editUser, roles: e.target.value as string[] })}
+                onChange={(e) => setEditUser({ ...editUser, roles: e.target.value as ManagedRole[] })}
                 input={<OutlinedInput label="Roles" />}
                 renderValue={(selected) => (
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
@@ -712,8 +713,8 @@ export default function AdminUserList() {
                     value={role}
                     disabled={
                       editingUserId === currentUser?.id &&
-                      role === 'admin' &&
-                      editUser.roles?.includes('admin')
+                      role === 'authority' &&
+                      editUser.roles?.includes('authority')
                     }
                   >
                     {role}
@@ -733,7 +734,7 @@ export default function AdminUserList() {
             />
             {editingUserId === currentUser?.id && (
               <Alert severity="warning">
-                You cannot deactivate your own account or remove your admin role
+                You cannot deactivate your own account or remove your authority role
               </Alert>
             )}
           </Box>

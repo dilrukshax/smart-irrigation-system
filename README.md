@@ -177,7 +177,7 @@ This platform is an end-to-end smart irrigation and crop-planning system designe
 | **Kustomize** | K8s configuration management |
 | **Skaffold** | K8s development workflow |
 | **Terraform** | Infrastructure as Code (Azure) |
-| **NGINX** | API Gateway / Reverse Proxy |
+| **FastAPI Gateway** | API Gateway / Reverse Proxy |
 | **Prometheus** | Metrics collection |
 | **Grafana** | Monitoring dashboards |
 
@@ -188,14 +188,13 @@ This platform is an end-to-end smart irrigation and crop-planning system designe
 ```
 smart-irrigation-system/
 │
-├── 📂 gateway/                          # API Gateway
-│   ├── gateway.py                       # FastAPI gateway (local dev)
-│   ├── nginx.conf                       # Production NGINX config
-│   ├── nginx.local.conf                 # Local NGINX config
-│   ├── Dockerfile
-│   └── requirements.txt
-│
 ├── 📂 services/                         # Backend Microservices
+│   │
+│   ├── 📂 gateway_service/              # API Gateway Service
+│   │   ├── app/                         # FastAPI gateway app
+│   │   ├── tests/
+│   │   ├── Dockerfile
+│   │   └── requirements.txt
 │   │
 │   ├── 📂 auth_service/                 # F0 - Authentication Service
 │   │   ├── app/
@@ -406,11 +405,11 @@ uvicorn app.main:app --reload --port 8004
 
 ```powershell
 # Terminal 5 - Gateway
-cd gateway
+cd services/gateway_service
 python -m venv venv
 .\venv\Scripts\activate
 pip install -r requirements.txt
-python gateway.py
+uvicorn app.main:app --reload --port 8000
 ```
 
 **Step 5: Start frontend**
@@ -948,4 +947,3 @@ This project is part of a 4th-year Software Engineering research project at SLII
 Made with ❤️ by the Smart Irrigation Team
 
 </div>
-

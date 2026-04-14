@@ -31,7 +31,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'farmer' | 'officer' | 'admin';
+  role: 'farmer' | 'officer' | 'authority';
   phone?: string;
   assignedFields?: string[];
 }

@@ -1,703 +1,652 @@
-"""Decision-loop and auth integration tests for crop-fields routes."""
+"""Contract and decision-loop tests for grouped farmer-first irrigation routes."""
 
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict
-from unittest.mock import patch
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api import crop_fields
-from app.api.crop_fields import (
-    AutoControlDecision,
-    CropFieldConfig,
-    IoTSensorData,
-    _apply_blocked_open_metadata,
-    _make_auto_control_decision,
-)
+from app.api import farm_ops
 from app.dependencies.auth import get_current_user_context
 
 
-def _sample_config() -> CropFieldConfig:
-    defaults = crop_fields.CROP_DEFAULTS["rice"]
-    return CropFieldConfig(
-        field_id="field-rice-01",
-        field_name="Rice Field",
-        crop_type="rice",
-        area_hectares=1.5,
-        device_id="esp32-rice-01",
-        water_level_min_pct=defaults["water_level_min_pct"],
-        water_level_max_pct=defaults["water_level_max_pct"],
-        water_level_optimal_pct=defaults["water_level_optimal_pct"],
-        water_level_critical_pct=defaults["water_level_critical_pct"],
-        soil_moisture_min_pct=defaults["soil_moisture_min_pct"],
-        soil_moisture_max_pct=defaults["soil_moisture_max_pct"],
-        soil_moisture_optimal_pct=defaults["soil_moisture_optimal_pct"],
-        soil_moisture_critical_pct=defaults["soil_moisture_critical_pct"],
-        irrigation_duration_minutes=defaults["irrigation_duration_minutes"],
-        auto_control_enabled=True,
-    )
+@asynccontextmanager
+async def _fake_session_scope():
+    yield object()
 
 
-def _sample_sensor_data(water_level: float, soil_moisture: float) -> IoTSensorData:
-    return IoTSensorData(
-        device_id="esp32-rice-01",
-        timestamp="2026-03-07T00:00:00Z",
-        water_level_pct=water_level,
-        soil_moisture_pct=soil_moisture,
-        soil_ao=2200,
-        water_ao=1500,
-    )
+async def _async_none(*_args: Any, **_kwargs: Any):
+    return None
 
 
-@patch("app.api.crop_fields._fetch_forecast_adjustment")
-@patch("app.api.crop_fields._fetch_stress_summary")
-def test_auto_decision_uses_forecast_and_stress(mock_stress, mock_forecast):
-    config = _sample_config()
-    valve = {"position_pct": 0, "status": "CLOSED"}
-
-    mock_forecast.return_value = {
-        "adjustment_pct": 135.0,
-        "overall_recommendation": "INCREASE",
-        "net_water_balance_mm": -22.0,
-        "alert": "Increase irrigation demand expected",
-        "data_available": True,
-    }
-    mock_stress.return_value = {
-        "stress_index": 0.82,
-        "priority": "high",
-        "stress_penalty_factor": 0.35,
-        "data_available": True,
-    }
-
-    decision = _make_auto_control_decision(
-        field_id="field-rice-01",
-        config=config,
-        sensor_data=_sample_sensor_data(water_level=40.0, soil_moisture=58.0),
-        current_valve=valve,
-    )
-
-    assert decision.action == "OPEN"
-    assert decision.priority in {"high", "critical"}
-    assert decision.ml_prediction is not None
-    assert decision.ml_prediction["forecast_adjustment_pct"] == 135.0
-    assert decision.ml_prediction["stress_priority"] == "high"
-
-
-@patch("app.api.crop_fields._fetch_forecast_adjustment")
-@patch("app.api.crop_fields._fetch_stress_summary")
-def test_auto_decision_can_reduce_irrigation_with_wet_forecast(mock_stress, mock_forecast):
-    config = _sample_config()
-    valve = {"position_pct": 40, "status": "OPEN"}
-
-    mock_forecast.return_value = {
-        "adjustment_pct": 70.0,
-        "overall_recommendation": "REDUCE",
-        "net_water_balance_mm": 18.0,
-        "alert": "Rainfall surplus expected; reduce irrigation",
-        "data_available": True,
-    }
-    mock_stress.return_value = {
-        "stress_index": 0.1,
-        "priority": "low",
-        "stress_penalty_factor": 0.03,
-        "data_available": True,
-    }
-
-    decision = _make_auto_control_decision(
-        field_id="field-rice-01",
-        config=config,
-        sensor_data=_sample_sensor_data(water_level=88.0, soil_moisture=90.0),
-        current_valve=valve,
-    )
-
-    assert decision.action == "CLOSE"
-
-
-@patch("app.api.crop_fields.requests.get")
-def test_fetch_forecast_adjustment_handles_contract_unavailable(mock_get):
-    class _Response:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {
-                "status": "source_unavailable",
-                "source": "forecasting_service",
-                "data_available": False,
-                "message": "upstream timeout",
-            }
-
-    mock_get.return_value = _Response()
-
-    payload = crop_fields._fetch_forecast_adjustment()
-
-    assert payload["data_available"] is False
-    assert payload["status"] == "source_unavailable"
-    assert payload["source"] == "forecasting_service"
-
-
-@patch("app.api.crop_fields.requests.get")
-def test_fetch_forecast_adjustment_accepts_stale_simulated(mock_get):
-    class _Response:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {
-                "status": "stale",
-                "source": "simulated",
-                "data_available": True,
-                "weekly_outlook": {
-                    "average_irrigation_adjustment_percent": 110,
-                    "net_water_balance_mm": -5,
-                },
-                "overall_recommendation": "INCREASE",
-            }
-
-    mock_get.return_value = _Response()
-
-    payload = crop_fields._fetch_forecast_adjustment()
-
-    assert payload["data_available"] is True
-    assert payload["status"] == "stale"
-    assert payload["source"] == "simulated"
-    assert payload["adjustment_pct"] == 110.0
-
-
-@pytest.mark.asyncio
-async def test_blocked_open_creates_manual_request(monkeypatch: pytest.MonkeyPatch):
-    @asynccontextmanager
-    async def fake_session_scope():
-        yield object()
-
-    async def fake_get_snapshot(_session: object) -> Dict[str, Any]:
-        return {"water_level_mmsl": 75.0, "timestamp": datetime.utcnow().isoformat()}
-
-    async def fake_create_manual_request(
-        _session: object,
-        **_kwargs: Any,
-    ) -> Dict[str, Any]:
-        return {
-            "request_id": "req-001",
-            "status": "PENDING",
-            "reason": "low reservoir",
-        }
-
-    monkeypatch.setattr(crop_fields, "session_scope", fake_session_scope)
-    monkeypatch.setattr(crop_fields, "get_latest_reservoir_snapshot", fake_get_snapshot)
-    monkeypatch.setattr(crop_fields, "create_manual_request", fake_create_manual_request)
-    monkeypatch.setattr(crop_fields, "_emit_event", lambda *_args, **_kwargs: None)
-
-    decision = AutoControlDecision(
-        field_id="field-rice-01",
-        timestamp=datetime.utcnow().isoformat(),
-        water_level_pct=20.0,
-        soil_moisture_pct=40.0,
-        water_level_min=50.0,
-        water_level_max=80.0,
-        soil_moisture_min=70.0,
-        soil_moisture_max=95.0,
-        action="OPEN",
-        valve_position_pct=90,
-        reason="Needs water",
-        priority="high",
-    )
-
-    updated = await _apply_blocked_open_metadata(
-        "field-rice-01",
-        decision,
-        create_request=True,
-        actor_id="system:auto-control",
-        actor_roles=["system"],
-    )
-
-    assert updated.action == "HOLD"
-    assert updated.manual_request_required is True
-    assert updated.manual_request_id == "req-001"
-    assert updated.manual_request_status == "PENDING"
+async def _async_empty_list(*_args: Any, **_kwargs: Any):
+    return []
 
 
 def _test_app() -> FastAPI:
     app = FastAPI()
-    app.include_router(crop_fields.router)
+    app.include_router(farm_ops.router)
     return app
 
 
-def test_admin_endpoint_returns_401_without_token():
-    app = _test_app()
-    client = TestClient(app)
-    response = client.get("/api/v1/crop-fields/manual-requests")
-    assert response.status_code == 401
-
-
-def test_admin_endpoint_returns_403_for_non_admin():
+@pytest.mark.asyncio
+async def test_create_field_starts_configured(monkeypatch: pytest.MonkeyPatch):
     app = _test_app()
 
-    async def _non_admin_context() -> Dict[str, Any]:
-        return {"id": "u1", "username": "farmer-01", "roles": ["farmer"]}
+    async def _farmer_context() -> Dict[str, Any]:
+        return {"id": "u-farmer-01", "username": "farmer", "roles": ["farmer"]}
 
-    app.dependency_overrides[get_current_user_context] = _non_admin_context
+    async def _none_field(_session: object, _field_id: str):
+        return None
+
+    async def _create_field(_session: object, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return payload
+
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    monkeypatch.setattr(farm_ops, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(farm_ops, "get_crop_field", _none_field)
+    monkeypatch.setattr(farm_ops, "upsert_crop_field", _create_field)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/farm/fields",
+        json={
+            "field_name": "Field A",
+            "crop_type": "rice",
+            "area_hectares": 1.2,
+            "scheme_id": "scheme-1",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["lifecycle_state"] == "CONFIGURED"
+    assert payload["pairing_status"] == "UNPAIRED"
+
+
+@pytest.mark.asyncio
+async def test_pairing_initiate_sets_devicelinked(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
+
+    async def _farmer_context() -> Dict[str, Any]:
+        return {"id": "u-farmer-01", "username": "farmer", "roles": ["farmer"]}
+
+    async def _field(_session: object, _field_id: str):
+        return {
+            "field_id": "field-1",
+            "owner_id": "u-farmer-01",
+            "crop_type": "rice",
+            "field_name": "Field A",
+            "scheme_id": "scheme-1",
+        }
+
+    updated_payload: Dict[str, Any] = {}
+
+    async def _patch(_session: object, _field_id: str, patch: Dict[str, Any]):
+        updated_payload.update(patch)
+        return patch
+
+    async def _create_pairing(_session: object, **kwargs: Any):
+        return {
+            "pairing_id": "pair-1",
+            "field_id": kwargs["field_id"],
+            "device_id": kwargs["device_id"],
+            "status": "PENDING",
+            "challenge_code": kwargs["challenge_code"],
+        }
+
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    monkeypatch.setattr(farm_ops, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(farm_ops, "get_crop_field", _field)
+    monkeypatch.setattr(farm_ops, "update_crop_field_partial", _patch)
+    monkeypatch.setattr(farm_ops, "create_pairing_session", _create_pairing)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/devices/pairing/initiate",
+        json={"field_id": "field-1", "device_id": "esp32-01"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "PENDING"
+    assert updated_payload["lifecycle_state"] == "DEVICELINKED"
+
+
+@pytest.mark.asyncio
+async def test_list_field_pairings_returns_items(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
+
+    async def _farmer_context() -> Dict[str, Any]:
+        return {"id": "u-farmer-01", "username": "farmer", "roles": ["farmer"]}
+
+    async def _field(_session: object, _field_id: str):
+        return {
+            "field_id": "field-1",
+            "owner_id": "u-farmer-01",
+            "crop_type": "rice",
+            "field_name": "Field A",
+            "scheme_id": "scheme-1",
+        }
+
+    async def _list_pairings(_session: object, *, field_id: str, limit: int = 50):
+        assert field_id == "field-1"
+        assert limit == 50
+        return [
+            {
+                "pairing_id": "pair-1",
+                "field_id": "field-1",
+                "device_id": "esp32-01",
+                "status": "CONFIRMED",
+                "challenge_code": "123456",
+                "first_telemetry_at": datetime.utcnow().isoformat(),
+            }
+        ]
+
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    monkeypatch.setattr(farm_ops, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(farm_ops, "get_crop_field", _field)
+    monkeypatch.setattr(farm_ops, "list_pairing_sessions_for_field", _list_pairings)
+
+    client = TestClient(app)
+    response = client.get("/api/v1/devices/fields/field-1/pairings")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["field_id"] == "field-1"
+    assert body["count"] == 1
+    assert body["items"][0]["device_id"] == "esp32-01"
+
+
+@pytest.mark.asyncio
+async def test_resolve_device_falls_back_to_confirmed_pairing(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
+
+    async def _none_field_by_device(_session: object, _device_id: str):
+        return None
+
+    async def _confirmed_pairing(_session: object, _device_id: str):
+        return {"pairing_id": "pair-1", "field_id": "field-9", "device_id": "esp32-09", "status": "CONFIRMED"}
+
+    async def _field(_session: object, field_id: str):
+        assert field_id == "field-9"
+        return {"field_id": "field-9", "scheme_id": "scheme-1"}
+
+    monkeypatch.setattr(farm_ops, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(farm_ops, "get_crop_field_by_device", _none_field_by_device)
+    monkeypatch.setattr(farm_ops, "get_confirmed_pairing_by_device", _confirmed_pairing)
+    monkeypatch.setattr(farm_ops, "get_crop_field", _field)
+
+    client = TestClient(app)
+    response = client.get("/api/v1/farm/devices/esp32-09/field")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["device_id"] == "esp32-09"
+    assert body["field_id"] == "field-9"
+    assert body["scheme_id"] == "scheme-1"
+
+
+@pytest.mark.asyncio
+async def test_ingest_blocked_open_creates_manual_request(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
+
+    async def _field_by_device(_session: object, _device_id: str):
+        return {
+            "field_id": "field-1",
+            "field_name": "Field A",
+            "crop_type": "rice",
+            "auto_control_enabled": True,
+            "scheme_id": "scheme-1",
+            "water_level_min_pct": 50,
+            "water_level_max_pct": 80,
+            "soil_moisture_min_pct": 70,
+            "soil_moisture_max_pct": 95,
+        }
+
+    async def _add_reading(_session: object, field_id: str, payload: Dict[str, Any]):
+        return {
+            "field_id": field_id,
+            "timestamp": payload["timestamp"],
+            "water_level_pct": payload["water_level_pct"],
+            "soil_moisture_pct": payload["soil_moisture_pct"],
+        }
+
+    async def _noop(*_args: Any, **_kwargs: Any):
+        return None
+
+    async def _valve(_session: object, _field_id: str):
+        return {"status": "CLOSED", "position_pct": 0}
+
+    async def _policy(_session: object, scheme_id: str):
+        return {"scheme_id": scheme_id, "max_field_open_pct": 20, "emergency_mode": "drought"}
+
+    async def _decision(*_args: Any, **_kwargs: Any):
+        return {
+            "action": "OPEN",
+            "valve_position_pct": 90,
+            "blocked": True,
+            "blocked_reason": "Policy blocked",
+            "water_level_pct": 10.0,
+            "soil_moisture_pct": 20.0,
+        }
+
+    async def _create_manual(_session: object, **_kwargs: Any):
+        return {"request_id": "req-1", "status": "PENDING", "reason": "Policy blocked"}
+
+    monkeypatch.setattr(farm_ops, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(farm_ops, "get_crop_field", _async_none)
+    monkeypatch.setattr(farm_ops, "get_crop_field_by_device", _field_by_device)
+    monkeypatch.setattr(farm_ops, "get_pending_pairing_by_device", _async_none)
+    monkeypatch.setattr(farm_ops, "add_sensor_reading", _add_reading)
+    monkeypatch.setattr(farm_ops, "purge_sensor_history", _noop)
+    monkeypatch.setattr(farm_ops, "update_crop_field_partial", _noop)
+    monkeypatch.setattr(farm_ops, "get_valve_state", _valve)
+    monkeypatch.setattr(farm_ops, "get_active_authority_policy", _policy)
+    monkeypatch.setattr(farm_ops, "_compute_auto_decision", _decision)
+    monkeypatch.setattr(farm_ops, "create_manual_request", _create_manual)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/telemetry/ingest",
+        json={
+            "device_id": "esp32-01",
+            "timestamp": datetime.utcnow().isoformat(),
+            "soil_moisture_pct": 20,
+            "water_level_pct": 10,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["manual_request_required"] is True
+    assert body["manual_request_id"] == "req-1"
+
+
+def test_manual_request_queue_forbidden_for_farmer():
+    app = _test_app()
+
+    async def _farmer_context() -> Dict[str, Any]:
+        return {"id": "u-farmer-01", "username": "farmer", "roles": ["farmer"]}
+
+    app.dependency_overrides[get_current_user_context] = _farmer_context
     client = TestClient(app)
 
-    response = client.get("/api/v1/crop-fields/manual-requests")
+    response = client.get("/api/v1/irrigation/manual-requests")
     assert response.status_code == 403
 
 
-def test_admin_endpoint_returns_200_for_admin(monkeypatch: pytest.MonkeyPatch):
+def test_manual_request_queue_officer_allowed(monkeypatch: pytest.MonkeyPatch):
     app = _test_app()
 
-    async def _admin_context() -> Dict[str, Any]:
-        return {"id": "a1", "username": "admin-01", "roles": ["admin"]}
+    async def _officer_context() -> Dict[str, Any]:
+        return {
+            "id": "u-officer-01",
+            "username": "officer",
+            "roles": ["officer"],
+            "scheme_ids": ["scheme-1"],
+        }
 
-    @asynccontextmanager
-    async def fake_session_scope():
-        yield object()
-
-    async def fake_list_manual_requests(
-        _session: object,
-        *,
-        status: str | None = None,
-        field_id: str | None = None,
-        limit: int = 100,
-    ) -> list[Dict[str, Any]]:
-        del status, field_id, limit
+    async def _list(_session: object, **_kwargs: Any):
         return []
 
-    app.dependency_overrides[get_current_user_context] = _admin_context
-    monkeypatch.setattr(crop_fields, "session_scope", fake_session_scope)
-    monkeypatch.setattr(crop_fields, "list_manual_requests", fake_list_manual_requests)
+    app.dependency_overrides[get_current_user_context] = _officer_context
+    monkeypatch.setattr(farm_ops, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(farm_ops, "list_manual_requests", _list)
+    monkeypatch.setattr(farm_ops, "get_manual_request_audit", _async_empty_list)
 
     client = TestClient(app)
-    response = client.get("/api/v1/crop-fields/manual-requests")
-
+    response = client.get("/api/v1/irrigation/manual-requests")
     assert response.status_code == 200
     assert response.json() == {"count": 0, "items": []}
 
 
-def test_sensor_ingest_returns_manual_request_when_blocked(monkeypatch: pytest.MonkeyPatch):
+def test_manual_request_queue_exposes_policy_context(monkeypatch: pytest.MonkeyPatch):
     app = _test_app()
-    client = TestClient(app)
 
-    @asynccontextmanager
-    async def fake_session_scope():
-        yield object()
-
-    async def fake_get_crop_field(_session: object, _field_id: str) -> Dict[str, Any]:
-        return _sample_config().model_dump()
-
-    async def fake_add_sensor_reading(_session: object, _field_id: str, _payload: Dict[str, Any]) -> Dict[str, Any]:
-        return {}
-
-    async def fake_noop(*_args: Any, **_kwargs: Any) -> None:
-        return None
-
-    async def fake_get_valve_state(_session: object, _field_id: str) -> Dict[str, Any]:
-        return {"status": "CLOSED", "position_pct": 0}
-
-    def fake_decision(*_args: Any, **_kwargs: Any) -> AutoControlDecision:
-        return AutoControlDecision(
-            field_id="field-rice-01",
-            timestamp=datetime.utcnow().isoformat(),
-            water_level_pct=20.0,
-            soil_moisture_pct=40.0,
-            water_level_min=50.0,
-            water_level_max=80.0,
-            soil_moisture_min=70.0,
-            soil_moisture_max=95.0,
-            action="OPEN",
-            valve_position_pct=100,
-            reason="Open needed",
-            priority="high",
-        )
-
-    async def fake_blocked(
-        _field_id: str,
-        decision: AutoControlDecision,
-        **_kwargs: Any,
-    ) -> AutoControlDecision:
-        decision.action = "HOLD"
-        decision.manual_request_required = True
-        decision.manual_request_id = "req-blocked"
-        decision.manual_request_reason = "Reservoir too low"
-        return decision
-
-    async def fail_if_called(*_args: Any, **_kwargs: Any) -> Dict[str, Any]:
-        raise AssertionError("Valve state update should not happen for blocked OPEN")
-
-    monkeypatch.setattr(crop_fields, "session_scope", fake_session_scope)
-    monkeypatch.setattr(crop_fields, "get_crop_field", fake_get_crop_field)
-    monkeypatch.setattr(crop_fields, "add_sensor_reading", fake_add_sensor_reading)
-    monkeypatch.setattr(crop_fields, "purge_sensor_history", fake_noop)
-    monkeypatch.setattr(crop_fields, "get_valve_state", fake_get_valve_state)
-    monkeypatch.setattr(crop_fields, "_make_auto_control_decision", fake_decision)
-    monkeypatch.setattr(crop_fields, "_apply_blocked_open_metadata", fake_blocked)
-    monkeypatch.setattr(crop_fields, "upsert_valve_state", fail_if_called)
-    monkeypatch.setattr(crop_fields, "_emit_event", lambda *_args, **_kwargs: None)
-
-    response = client.post(
-        "/api/v1/crop-fields/fields/field-rice-01/sensor-data",
-        json={
-            "device_id": "esp32-rice-01",
-            "timestamp": "2026-03-09T00:00:00Z",
-            "soil_moisture_pct": 40.0,
-            "water_level_pct": 20.0,
-        },
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["auto_control_triggered"] is False
-    assert payload["manual_request_required"] is True
-    assert payload["manual_request_id"] == "req-blocked"
-
-
-def test_sensor_ingest_updates_valve_when_open_allowed(monkeypatch: pytest.MonkeyPatch):
-    app = _test_app()
-    client = TestClient(app)
-    valve_updates: Dict[str, Any] = {"called": False}
-
-    @asynccontextmanager
-    async def fake_session_scope():
-        yield object()
-
-    async def fake_get_crop_field(_session: object, _field_id: str) -> Dict[str, Any]:
-        return _sample_config().model_dump()
-
-    async def fake_add_sensor_reading(_session: object, _field_id: str, _payload: Dict[str, Any]) -> Dict[str, Any]:
-        return {}
-
-    async def fake_noop(*_args: Any, **_kwargs: Any) -> None:
-        return None
-
-    async def fake_get_valve_state(_session: object, _field_id: str) -> Dict[str, Any]:
-        return {"status": "CLOSED", "position_pct": 0}
-
-    def fake_decision(*_args: Any, **_kwargs: Any) -> AutoControlDecision:
-        return AutoControlDecision(
-            field_id="field-rice-01",
-            timestamp=datetime.utcnow().isoformat(),
-            water_level_pct=20.0,
-            soil_moisture_pct=40.0,
-            water_level_min=50.0,
-            water_level_max=80.0,
-            soil_moisture_min=70.0,
-            soil_moisture_max=95.0,
-            action="OPEN",
-            valve_position_pct=85,
-            reason="Open needed",
-            priority="high",
-        )
-
-    async def passthrough(
-        _field_id: str,
-        decision: AutoControlDecision,
-        **_kwargs: Any,
-    ) -> AutoControlDecision:
-        return decision
-
-    async def fake_upsert_valve_state(*_args: Any, **_kwargs: Any) -> Dict[str, Any]:
-        valve_updates["called"] = True
-        return {"status": "OPEN", "position_pct": 85}
-
-    monkeypatch.setattr(crop_fields, "session_scope", fake_session_scope)
-    monkeypatch.setattr(crop_fields, "get_crop_field", fake_get_crop_field)
-    monkeypatch.setattr(crop_fields, "add_sensor_reading", fake_add_sensor_reading)
-    monkeypatch.setattr(crop_fields, "purge_sensor_history", fake_noop)
-    monkeypatch.setattr(crop_fields, "get_valve_state", fake_get_valve_state)
-    monkeypatch.setattr(crop_fields, "_make_auto_control_decision", fake_decision)
-    monkeypatch.setattr(crop_fields, "_apply_blocked_open_metadata", passthrough)
-    monkeypatch.setattr(crop_fields, "upsert_valve_state", fake_upsert_valve_state)
-    monkeypatch.setattr(crop_fields, "_emit_event", lambda *_args, **_kwargs: None)
-
-    response = client.post(
-        "/api/v1/crop-fields/fields/field-rice-01/sensor-data",
-        json={
-            "device_id": "esp32-rice-01",
-            "timestamp": "2026-03-09T00:00:00Z",
-            "soil_moisture_pct": 40.0,
-            "water_level_pct": 20.0,
-        },
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["auto_control_triggered"] is True
-    assert payload["decision"]["action"] == "OPEN"
-    assert valve_updates["called"] is True
-
-
-def test_create_manual_request_emits_event(monkeypatch: pytest.MonkeyPatch):
-    app = _test_app()
-    emitted: list[tuple[str, Dict[str, Any]]] = []
-
-    async def _farmer_context() -> Dict[str, Any]:
-        return {"id": "u-farmer-1", "username": "farmer-01", "roles": ["farmer"]}
-
-    @asynccontextmanager
-    async def fake_session_scope():
-        yield object()
-
-    async def fake_get_crop_field(_session: object, _field_id: str) -> Dict[str, Any]:
-        return _sample_config().model_dump()
-
-    async def fake_create_manual_request(_session: object, **_kwargs: Any) -> Dict[str, Any]:
+    async def _officer_context() -> Dict[str, Any]:
         return {
-            "request_id": "req-manual-001",
-            "field_id": "field-rice-01",
-            "requested_action": "OPEN",
-            "requested_position_pct": 80,
-            "reason": "Need irrigation now",
-            "source_decision": None,
-            "status": "PENDING",
-            "created_by": "u-farmer-1",
-            "reviewed_by": None,
-            "review_note": None,
-            "reviewed_at": None,
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
+            "id": "u-officer-01",
+            "username": "officer",
+            "roles": ["officer"],
+            "scheme_ids": ["scheme-1"],
         }
 
-    async def fake_get_manual_request_audit(_session: object, *, request_id: str) -> list[Dict[str, Any]]:
-        _ = request_id
-        return []
+    async def _list(_session: object, **_kwargs: Any):
+        return [
+            {
+                "request_id": "req-1",
+                "field_id": "field-1",
+                "scheme_id": "scheme-1",
+                "status": "PENDING",
+                "reason": "Policy blocked open",
+                "source_decision": {
+                    "policy_id": "policy-1",
+                    "policy_version": 2,
+                    "blocked_reason": "quota exhausted",
+                },
+                "created_at": datetime.utcnow().isoformat(),
+            }
+        ]
 
-    def fake_emit(event_name: str, payload: Dict[str, Any]) -> None:
-        emitted.append((event_name, payload))
-
-    app.dependency_overrides[get_current_user_context] = _farmer_context
-    monkeypatch.setattr(crop_fields, "session_scope", fake_session_scope)
-    monkeypatch.setattr(crop_fields, "get_crop_field", fake_get_crop_field)
-    monkeypatch.setattr(crop_fields, "create_manual_request", fake_create_manual_request)
-    monkeypatch.setattr(crop_fields, "get_manual_request_audit", fake_get_manual_request_audit)
-    monkeypatch.setattr(crop_fields, "_emit_event", fake_emit)
-
-    client = TestClient(app)
-    response = client.post(
-        "/api/v1/crop-fields/fields/field-rice-01/manual-requests",
-        json={
-            "requested_action": "OPEN",
-            "requested_position_pct": 80,
-            "reason": "Need irrigation now",
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["request_id"] == "req-manual-001"
-    assert emitted
-    assert emitted[0][0] == "irrigation.manual_request.v1"
-    assert emitted[0][1]["request_id"] == "req-manual-001"
-
-
-def test_control_valve_close_persists_closed_status(monkeypatch: pytest.MonkeyPatch):
-    app = _test_app()
-    captured: Dict[str, Any] = {}
-
-    async def _admin_context() -> Dict[str, Any]:
-        return {"id": "a1", "username": "admin-01", "roles": ["admin"]}
-
-    @asynccontextmanager
-    async def fake_session_scope():
-        yield object()
-
-    async def fake_get_crop_field(_session: object, _field_id: str) -> Dict[str, Any]:
-        return _sample_config().model_dump()
-
-    async def fake_get_valve_state(_session: object, _field_id: str) -> Dict[str, Any]:
-        return {"status": "OPEN", "position_pct": 90}
-
-    async def fake_upsert_crop_field(_session: object, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return payload
-
-    async def fake_upsert_valve_state(
-        _session: object,
-        _field_id: str,
-        *,
-        status: str,
-        position_pct: int,
-        last_action: str | None,
-        last_action_time: datetime | None = None,
-    ) -> Dict[str, Any]:
-        _ = last_action_time
-        captured["status"] = status
-        captured["position_pct"] = position_pct
-        captured["last_action"] = last_action
-        return {"status": status, "position_pct": position_pct}
-
-    app.dependency_overrides[get_current_user_context] = _admin_context
-    monkeypatch.setattr(crop_fields, "session_scope", fake_session_scope)
-    monkeypatch.setattr(crop_fields, "get_crop_field", fake_get_crop_field)
-    monkeypatch.setattr(crop_fields, "get_valve_state", fake_get_valve_state)
-    monkeypatch.setattr(crop_fields, "upsert_crop_field", fake_upsert_crop_field)
-    monkeypatch.setattr(crop_fields, "upsert_valve_state", fake_upsert_valve_state)
+    app.dependency_overrides[get_current_user_context] = _officer_context
+    monkeypatch.setattr(farm_ops, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(farm_ops, "list_manual_requests", _list)
+    monkeypatch.setattr(farm_ops, "get_manual_request_audit", _async_empty_list)
 
     client = TestClient(app)
-    response = client.post(
-        "/api/v1/crop-fields/fields/field-rice-01/valve",
-        json={
-            "action": "CLOSE",
-            "position_pct": 0,
-            "reason": "Stop watering",
-        },
-    )
-
-    assert response.status_code == 200
-    assert captured["status"] == "CLOSED"
-    assert captured["position_pct"] == 0
-    assert captured["last_action"] == "CLOSE"
-
-
-def test_review_manual_request_rejects_already_reviewed(monkeypatch: pytest.MonkeyPatch):
-    app = _test_app()
-
-    async def _admin_context() -> Dict[str, Any]:
-        return {"id": "a1", "username": "admin-01", "roles": ["admin"]}
-
-    @asynccontextmanager
-    async def fake_session_scope():
-        yield object()
-
-    async def fake_get_manual_request(_session: object, _request_id: str) -> Dict[str, Any]:
-        return {
-            "request_id": "req-reviewed-01",
-            "field_id": "field-rice-01",
-            "requested_action": "OPEN",
-            "requested_position_pct": 100,
-            "reason": "Existing review",
-            "source_decision": None,
-            "status": "APPROVED",
-            "created_by": "u-farmer-1",
-            "reviewed_by": "a0",
-            "review_note": "already done",
-            "reviewed_at": datetime.utcnow().isoformat(),
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-
-    async def fail_review_manual_request(*_args: Any, **_kwargs: Any) -> Dict[str, Any]:
-        raise AssertionError("review_manual_request should not be called for already reviewed requests")
-
-    app.dependency_overrides[get_current_user_context] = _admin_context
-    monkeypatch.setattr(crop_fields, "session_scope", fake_session_scope)
-    monkeypatch.setattr(crop_fields, "get_manual_request", fake_get_manual_request)
-    monkeypatch.setattr(crop_fields, "review_manual_request", fail_review_manual_request)
-
-    client = TestClient(app)
-    response = client.post(
-        "/api/v1/crop-fields/manual-requests/req-reviewed-01/review",
-        json={"decision": "APPROVE", "note": "repeat"},
-    )
-
-    assert response.status_code == 409
-
-
-def test_create_field_defaults_crop_type_and_sync_success(monkeypatch: pytest.MonkeyPatch):
-    app = _test_app()
-    client = TestClient(app)
-    captured_payload: Dict[str, Any] = {}
-    sync_state = {"called": False}
-
-    @asynccontextmanager
-    async def fake_session_scope():
-        yield object()
-
-    async def fake_get_crop_field(_session: object, _field_id: str):
-        return None
-
-    async def fake_upsert_crop_field(_session: object, payload: Dict[str, Any]) -> Dict[str, Any]:
-        captured_payload.update(payload)
-        return payload
-
-    def fake_sync(_config: crop_fields.CropFieldConfig) -> None:
-        sync_state["called"] = True
-
-    monkeypatch.setattr(crop_fields, "session_scope", fake_session_scope)
-    monkeypatch.setattr(crop_fields, "get_crop_field", fake_get_crop_field)
-    monkeypatch.setattr(crop_fields, "upsert_crop_field", fake_upsert_crop_field)
-    monkeypatch.setattr(crop_fields, "_sync_field_to_optimization", fake_sync)
-
-    response = client.post(
-        "/api/v1/crop-fields/fields",
-        json={
-            "field_id": "field-new-01",
-            "field_name": "Vegetable Block",
-            "area_hectares": 2.0,
-            "device_id": None,
-        },
-    )
-
+    response = client.get("/api/v1/irrigation/manual-requests?scheme_id=scheme-1")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["crop_type"] == "vegetables"
-    assert captured_payload["crop_type"] == "vegetables"
-    assert captured_payload["water_level_min_pct"] == crop_fields.CROP_DEFAULTS["vegetables"]["water_level_min_pct"]
-    assert captured_payload["soil_moisture_min_pct"] == crop_fields.CROP_DEFAULTS["vegetables"]["soil_moisture_min_pct"]
-    assert sync_state["called"] is True
+    assert payload["count"] == 1
+    item = payload["items"][0]
+    assert item["scheme_id"] == "scheme-1"
+    assert item["policy_context"]["policy_id"] == "policy-1"
+    assert item["policy_context"]["policy_version"] == 2
+    assert "quota" in item["policy_context"]["blocked_reason"]
 
 
-def test_create_field_returns_502_when_optimizer_sync_fails(monkeypatch: pytest.MonkeyPatch):
+def test_manual_request_queue_officer_without_scheme_forbidden():
     app = _test_app()
+
+    async def _officer_context() -> Dict[str, Any]:
+        return {"id": "u-officer-01", "username": "officer", "roles": ["officer"], "scheme_ids": []}
+
+    app.dependency_overrides[get_current_user_context] = _officer_context
     client = TestClient(app)
 
-    @asynccontextmanager
-    async def fake_session_scope():
-        yield object()
+    response = client.get("/api/v1/irrigation/manual-requests")
+    assert response.status_code == 403
 
-    async def fake_get_crop_field(_session: object, _field_id: str):
+
+def test_close_manual_request_lifecycle(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
+
+    async def _officer_context() -> Dict[str, Any]:
+        return {
+            "id": "u-officer-01",
+            "username": "officer",
+            "roles": ["officer"],
+            "scheme_ids": ["scheme-1"],
+        }
+
+    async def _manual(_session: object, _request_id: str):
+        return {"request_id": "req-1", "field_id": "field-1", "status": "REJECTED"}
+
+    async def _field(_session: object, _field_id: str):
+        return {"field_id": "field-1", "scheme_id": "scheme-1", "owner_id": "u-farmer-01"}
+
+    async def _close(_session: object, **_kwargs: Any):
+        return {"request_id": "req-1", "field_id": "field-1", "status": "CLOSED"}
+
+    app.dependency_overrides[get_current_user_context] = _officer_context
+    monkeypatch.setattr(farm_ops, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(farm_ops, "get_manual_request", _manual)
+    monkeypatch.setattr(farm_ops, "get_crop_field", _field)
+    monkeypatch.setattr(farm_ops, "close_manual_request", _close)
+    monkeypatch.setattr(farm_ops, "get_manual_request_audit", _async_empty_list)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/irrigation/manual-requests/req-1/close",
+        json={"note": "resolved"},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "CLOSED"
+
+
+def test_authority_policy_list_requires_scheme_assignment():
+    app = _test_app()
+
+    async def _authority_context() -> Dict[str, Any]:
+        return {"id": "u-auth-01", "username": "authority", "roles": ["authority"], "scheme_ids": []}
+
+    app.dependency_overrides[get_current_user_context] = _authority_context
+    client = TestClient(app)
+
+    response = client.get("/api/v1/authority/policies")
+    assert response.status_code == 403
+
+
+def test_network_schedule_rejected_by_policy_constraint(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
+
+    async def _officer_context() -> Dict[str, Any]:
+        return {
+            "id": "u-officer-01",
+            "username": "officer",
+            "roles": ["officer"],
+            "scheme_ids": ["scheme-1"],
+        }
+
+    async def _node(_session: object, node_id: str):
+        mapping = {
+            "canal-1": {"node_id": "canal-1", "scheme_id": "scheme-1", "node_type": "canal", "parent_node_id": None},
+            "tunnel-1": {"node_id": "tunnel-1", "scheme_id": "scheme-1", "node_type": "tunnel", "parent_node_id": "canal-1"},
+            "channel-1": {"node_id": "channel-1", "scheme_id": "scheme-1", "node_type": "channel", "parent_node_id": "tunnel-1"},
+            "turnout-1": {"node_id": "turnout-1", "scheme_id": "scheme-1", "node_type": "turnout", "parent_node_id": "channel-1"},
+        }
+        return mapping.get(node_id)
+
+    async def _noop_conflict(*_args: Any, **_kwargs: Any):
         return None
 
-    async def fake_upsert_crop_field(_session: object, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def _policy(_session: object, scheme_id: str):
+        return {
+            "policy_id": "policy-1",
+            "scheme_id": scheme_id,
+            "version": 2,
+            "status": "PUBLISHED",
+            "quota_mcm": 10,
+            "max_field_open_pct": 80,
+            "emergency_mode": "drought",
+            "constraints": {},
+            "published_at": datetime.utcnow().isoformat(),
+        }
+
+    async def _scheduled(*_args: Any, **_kwargs: Any):
+        return 0.0
+
+    async def _create(_session: object, payload: Dict[str, Any]):
         return payload
 
-    def fail_sync(_config: crop_fields.CropFieldConfig) -> None:
-        raise HTTPException(status_code=502, detail="Optimization sync failed for test")
+    app.dependency_overrides[get_current_user_context] = _officer_context
+    monkeypatch.setattr(farm_ops, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(farm_ops, "get_hydraulic_topology_node", _node)
+    monkeypatch.setattr(farm_ops, "find_conflicting_hydraulic_schedule", _noop_conflict)
+    monkeypatch.setattr(farm_ops, "get_active_authority_policy", _policy)
+    monkeypatch.setattr(farm_ops, "estimate_accepted_schedule_volume_mcm", _scheduled)
+    monkeypatch.setattr(farm_ops, "create_hydraulic_schedule", _create)
 
-    monkeypatch.setattr(crop_fields, "session_scope", fake_session_scope)
-    monkeypatch.setattr(crop_fields, "get_crop_field", fake_get_crop_field)
-    monkeypatch.setattr(crop_fields, "upsert_crop_field", fake_upsert_crop_field)
-    monkeypatch.setattr(crop_fields, "_sync_field_to_optimization", fail_sync)
+    start = datetime.utcnow().replace(microsecond=0) + timedelta(hours=1)
+    end = start + timedelta(hours=1)
 
+    client = TestClient(app)
     response = client.post(
-        "/api/v1/crop-fields/fields",
+        "/api/v1/irrigation/network/schedules",
         json={
-            "field_id": "field-new-02",
-            "field_name": "Vegetable Block B",
-            "area_hectares": 1.2,
-            "device_id": None,
+            "scheme_id": "scheme-1",
+            "canal_id": "canal-1",
+            "tunnel_id": "tunnel-1",
+            "channel_id": "channel-1",
+            "turnout_id": "turnout-1",
+            "action": "OPEN",
+            "expected_flow_m3s": 2.0,
+            "start_time": start.isoformat(),
+            "end_time": end.isoformat(),
+            "reason": "test",
         },
     )
 
-    assert response.status_code == 502
-    assert "Optimization sync failed" in str(response.json())
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "REJECTED"
+    assert "emergency mode" in body["conflict_reason"].lower()
 
 
-def test_delete_field_returns_502_when_optimizer_delete_sync_fails(monkeypatch: pytest.MonkeyPatch):
+def test_patch_field_outside_assigned_scheme_forbidden(monkeypatch: pytest.MonkeyPatch):
     app = _test_app()
+
+    async def _officer_context() -> Dict[str, Any]:
+        return {
+            "id": "u-officer-01",
+            "username": "officer",
+            "roles": ["officer"],
+            "scheme_ids": ["scheme-1"],
+        }
+
+    async def _field(_session: object, _field_id: str):
+        return {
+            "field_id": "field-2",
+            "field_name": "Field B",
+            "scheme_id": "scheme-2",
+            "owner_id": "u-farmer-01",
+        }
+
+    app.dependency_overrides[get_current_user_context] = _officer_context
+    monkeypatch.setattr(farm_ops, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(farm_ops, "get_crop_field", _field)
+
     client = TestClient(app)
-    delete_called = {"value": False}
+    response = client.patch(
+        "/api/v1/farm/fields/field-2",
+        json={"field_name": "Updated Name"},
+    )
+    assert response.status_code == 403
 
-    @asynccontextmanager
-    async def fake_session_scope():
-        yield object()
 
-    async def fake_get_crop_field(_session: object, _field_id: str):
-        return _sample_config().model_dump()
+def test_patch_field_scheme_change_requires_target_assignment(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
 
-    async def fake_delete_crop_field(_session: object, _field_id: str) -> bool:
-        delete_called["value"] = True
-        return True
+    async def _officer_context() -> Dict[str, Any]:
+        return {
+            "id": "u-officer-01",
+            "username": "officer",
+            "roles": ["officer"],
+            "scheme_ids": ["scheme-1"],
+        }
 
-    def fail_delete_sync(_field_id: str) -> None:
-        raise HTTPException(status_code=502, detail="Optimization delete sync failed for test")
+    async def _field(_session: object, _field_id: str):
+        return {
+            "field_id": "field-1",
+            "field_name": "Field A",
+            "scheme_id": "scheme-1",
+            "owner_id": "u-farmer-01",
+        }
 
-    monkeypatch.setattr(crop_fields, "session_scope", fake_session_scope)
-    monkeypatch.setattr(crop_fields, "get_crop_field", fake_get_crop_field)
-    monkeypatch.setattr(crop_fields, "delete_crop_field", fake_delete_crop_field)
-    monkeypatch.setattr(crop_fields, "_delete_field_in_optimization", fail_delete_sync)
+    app.dependency_overrides[get_current_user_context] = _officer_context
+    monkeypatch.setattr(farm_ops, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(farm_ops, "get_crop_field", _field)
 
-    response = client.delete("/api/v1/crop-fields/fields/field-rice-01")
+    client = TestClient(app)
+    response = client.patch(
+        "/api/v1/farm/fields/field-1",
+        json={"scheme_id": "scheme-2"},
+    )
+    assert response.status_code == 403
 
-    assert response.status_code == 502
-    assert delete_called["value"] is False
+
+def test_officer_overview_requires_scheme_assignment():
+    app = _test_app()
+
+    async def _officer_context() -> Dict[str, Any]:
+        return {"id": "u-officer-01", "username": "officer", "roles": ["officer"], "scheme_ids": []}
+
+    app.dependency_overrides[get_current_user_context] = _officer_context
+    client = TestClient(app)
+
+    response = client.get("/api/v1/irrigation/officer/overview")
+    assert response.status_code == 403
+
+
+def test_officer_overview_contract(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
+    now = datetime.utcnow().replace(microsecond=0)
+
+    async def _officer_context() -> Dict[str, Any]:
+        return {
+            "id": "u-officer-01",
+            "username": "officer",
+            "roles": ["officer"],
+            "scheme_ids": ["scheme-1"],
+        }
+
+    async def _fields(_session: object):
+        return [
+            {
+                "field_id": "field-1",
+                "field_name": "Field A",
+                "scheme_id": "scheme-1",
+                "lifecycle_state": "LIVE",
+            },
+            {
+                "field_id": "field-2",
+                "field_name": "Field B",
+                "scheme_id": "scheme-2",
+                "lifecycle_state": "LIVE",
+            },
+        ]
+
+    async def _manual(_session: object, **_kwargs: Any):
+        return [
+            {
+                "request_id": "req-1",
+                "field_id": "field-1",
+                "scheme_id": "scheme-1",
+                "status": "PENDING",
+                "reason": "Policy blocked",
+                "source_decision": {"policy_id": "pol-1", "policy_version": 3, "blocked_reason": "quota"},
+                "created_at": (now - timedelta(minutes=3)).isoformat(),
+            },
+            {
+                "request_id": "req-2",
+                "field_id": "field-1",
+                "scheme_id": "scheme-1",
+                "status": "APPROVED",
+                "reason": "approved",
+                "source_decision": None,
+                "created_at": (now - timedelta(minutes=6)).isoformat(),
+            },
+        ]
+
+    async def _latest(_session: object, _field_id: str):
+        return {"timestamp": (now - timedelta(seconds=40)).isoformat()}
+
+    async def _schedules(_session: object, **_kwargs: Any):
+        return [
+            {
+                "schedule_id": "sch-1",
+                "scheme_id": "scheme-1",
+                "status": "ACCEPTED",
+                "start_time": (now + timedelta(hours=1)).isoformat(),
+                "created_at": (now - timedelta(minutes=10)).isoformat(),
+            }
+        ]
+
+    app.dependency_overrides[get_current_user_context] = _officer_context
+    monkeypatch.setattr(farm_ops, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(farm_ops, "list_crop_fields", _fields)
+    monkeypatch.setattr(farm_ops, "list_manual_requests", _manual)
+    monkeypatch.setattr(farm_ops, "get_latest_sensor_reading", _latest)
+    monkeypatch.setattr(farm_ops, "list_hydraulic_schedules", _schedules)
+
+    client = TestClient(app)
+    response = client.get("/api/v1/irrigation/officer/overview?scheme_id=scheme-1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 1
+    assert body["status"] in {"ok", "stale", "data_unavailable"}
+    assert body["data_available"] is True
+    assert "observed_at" in body
+    assert "staleness_sec" in body
+    summary = body["items"][0]
+    assert summary["scheme_id"] == "scheme-1"
+    assert summary["queue"]["pending_requests"] == 1
+    assert summary["telemetry"]["total_fields"] == 1
+    assert summary["hydraulic"]["accepted_schedules"] == 1
+    assert "status" in summary
+    assert "data_available" in summary
+    assert "observed_at" in summary
+    assert "staleness_sec" in summary

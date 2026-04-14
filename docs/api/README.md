@@ -4,6 +4,24 @@
 
 The Smart Irrigation System exposes a RESTful API through the API Gateway. All endpoints require authentication unless otherwise noted.
 
+### Officer Hard-Cutover Note (2026-04)
+
+Officer operations are now strictly scheme-scoped and follow workflow-only hydraulic planning:
+- Scope source of truth: `GET /api/v1/auth/me` -> `scheme_ids`
+- Empty `scheme_ids` for `officer`/`authority` returns `403` on scoped irrigation endpoints
+- Hydraulic planning APIs create and review schedule workflow states only (`ACCEPTED`, `REJECTED`, optional `CANCELLED`)
+- No direct physical gate execution endpoint is exposed in this release
+
+Primary officer endpoints:
+- `GET /api/v1/irrigation/officer/overview`
+- `GET /api/v1/irrigation/manual-requests`
+- `POST /api/v1/irrigation/manual-requests/{request_id}/review`
+- `POST /api/v1/irrigation/manual-requests/{request_id}/close`
+- `GET /api/v1/irrigation/network/topology`
+- `GET /api/v1/irrigation/network/schedules`
+- `GET /api/v1/irrigation/network/schedules/{schedule_id}`
+- `POST /api/v1/irrigation/network/schedules`
+
 ## Base URL
 
 | Environment | URL |

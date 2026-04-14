@@ -255,7 +255,7 @@ export default function OptimizationPlanner() {
             </Button>
             {!isAdmin && (
               <Alert severity="info" sx={{ mt: 2 }}>
-                Admin role required to run optimization.
+                Authority role required to run optimization.
               </Alert>
             )}
           </Paper>

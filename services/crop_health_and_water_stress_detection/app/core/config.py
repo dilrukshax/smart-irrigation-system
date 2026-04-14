@@ -6,6 +6,10 @@ from pydantic_settings import BaseSettings
 from functools import lru_cache
 import os
 from typing import Optional
+from app.core.config_bootstrap import apply_remote_config
+
+
+apply_remote_config(default_service_name="crop_health_and_water_stress_detection")
 
 
 class Settings(BaseSettings):
@@ -24,11 +28,11 @@ class Settings(BaseSettings):
     PORT: int = 8007
 
     # Event broker
-    MQTT_BROKER: str = "mosquitto"
+    MQTT_BROKER: str = "localhost"
     MQTT_PORT: int = 1883
 
     # Cross-service integrations
-    AUTH_SERVICE_URL: str = "http://auth_service:8001"
+    AUTH_SERVICE_URL: str = "http://localhost:8001"
     
     # Model
     MODEL_PATH: str = os.path.join(

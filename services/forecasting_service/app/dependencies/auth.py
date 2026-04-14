@@ -66,10 +66,10 @@ async def get_current_user_context(
 async def require_admin(
     user_context: Dict[str, Any] = Depends(get_current_user_context),
 ) -> Dict[str, Any]:
-    roles = user_context.get("roles") or []
-    if "admin" not in roles:
+    roles = {str(role).strip().lower() for role in (user_context.get("roles") or [])}
+    if not roles.intersection({"authority", "admin"}):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required",
+            detail="Authority privileges required",
         )
     return user_context

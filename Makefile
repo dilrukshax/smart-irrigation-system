@@ -11,7 +11,7 @@ help:
 	@echo ""
 	@echo "Build:"
 	@echo "  make build          - Build all Docker images"
-	@echo "  make build-<svc>    - Build specific service (auth, irrigation, forecasting, optimize, iot, crop-health)"
+	@echo "  make build-<svc>    - Build specific service (auth, irrigation, forecasting, optimize, iot, crop-health, gateway, web)"
 	@echo ""
 	@echo "Testing:"
 	@echo "  make test           - Run all tests"
@@ -70,13 +70,13 @@ build-crop-health:
 build-optimization: build-optimize
 
 build-gateway:
-	docker build -t $(REGISTRY)/gateway:$(TAG) -f gateway/Dockerfile .
+	docker build -t $(REGISTRY)/gateway:$(TAG) -f services/gateway_service/Dockerfile services/gateway_service
 
 build-web:
 	docker build -t $(REGISTRY)/web:$(TAG) -f web/Dockerfile .
 
 # Testing
-test: test-auth test-irrigation test-forecasting test-optimize test-iot
+test: test-auth test-irrigation test-forecasting test-optimize test-iot test-gateway
 
 test-auth:
 	cd services/auth_service && python -m pytest tests/ -v
@@ -92,6 +92,9 @@ test-optimize:
 
 test-iot:
 	cd services/iot_service && python -m pytest tests/ -v
+
+test-gateway:
+	cd services/gateway_service && python -m pytest tests/ -v
 
 test-optimization: test-optimize
 

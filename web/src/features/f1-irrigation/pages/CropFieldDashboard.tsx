@@ -461,7 +461,7 @@ export default function CropFieldDashboard() {
 
   // Add field form state
   const [newFieldName, setNewFieldName] = useState('');
-  const [newCropType, setNewCropType] = useState('rice');
+  const [newCropType, setNewCropType] = useState('unassigned');
   const [newDeviceId, setNewDeviceId] = useState('');
   const [newAreaHectares, setNewAreaHectares] = useState(1);
   const [newFieldThresholds, setNewFieldThresholds] = useState({
@@ -600,7 +600,7 @@ export default function CropFieldDashboard() {
   // Reset add field form
   const resetAddFieldForm = () => {
     setNewFieldName('');
-    setNewCropType('rice');
+    setNewCropType('unassigned');
     setNewDeviceId('');
     setNewAreaHectares(1);
   };

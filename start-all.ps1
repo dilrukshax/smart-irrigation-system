@@ -14,6 +14,7 @@
 # ============================================================
 
 $Root = $PSScriptRoot
+$GatewayDir = "$Root\services\gateway_service"
 
 function Start-Service {
   param(
@@ -43,17 +44,17 @@ Start-Sleep -Seconds 2
 # ------------------------------------------------------------------
 # 2. API Gateway (Python FastAPI) - port 8000
 # ------------------------------------------------------------------
-$gwVenv = "$Root\gateway\venv\Scripts\uvicorn.exe"
+$gwVenv = "$GatewayDir\venv\Scripts\uvicorn.exe"
 if (Test-Path $gwVenv) {
   Start-Service -Title "API Gateway (port 8000)" `
-    -WorkDir "$Root\gateway" `
-    -Command ".\venv\Scripts\uvicorn.exe gateway:app --host 0.0.0.0 --port 8000 --reload"
+    -WorkDir "$GatewayDir" `
+    -Command ".\venv\Scripts\uvicorn.exe app.main:app --host 0.0.0.0 --port 8000 --reload"
 }
 else {
   Write-Host "WARNING: Gateway venv not found. Setting up..." -ForegroundColor Yellow
   Start-Service -Title "API Gateway Setup + Start (port 8000)" `
-    -WorkDir "$Root\gateway" `
-    -Command "python -m venv venv; .\venv\Scripts\pip install -r requirements.txt; .\venv\Scripts\uvicorn.exe gateway:app --host 0.0.0.0 --port 8000 --reload"
+    -WorkDir "$GatewayDir" `
+    -Command "python -m venv venv; .\venv\Scripts\pip install -r requirements.txt; .\venv\Scripts\uvicorn.exe app.main:app --host 0.0.0.0 --port 8000 --reload"
 }
 
 # ------------------------------------------------------------------

@@ -5,13 +5,41 @@ Async database engine/session management for forecasting service.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import logging
+import socket
 import re
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
 from app.db.base import Base
+
+logger = logging.getLogger(__name__)
+
+_LOCAL_DOCKER_DB_HOSTS = {"postgres", "postgresql", "db"}
+
+
+def _normalize_local_db_host(url: str) -> str:
+    """
+    Rewrite Docker-only DB hosts to localhost when running outside containers.
+    """
+    parsed = make_url(url)
+    host = parsed.host
+    if not host:
+        return url
+
+    if host not in _LOCAL_DOCKER_DB_HOSTS:
+        return url
+
+    try:
+        socket.getaddrinfo(host, None)
+        return url
+    except OSError:
+        normalized = str(parsed.set(host="localhost"))
+        logger.warning("Database host '%s' is unreachable locally. Falling back to localhost.", host)
+        return normalized
 
 
 def _build_async_url(url: str) -> tuple[str, dict]:
@@ -31,7 +59,8 @@ def _build_async_url(url: str) -> tuple[str, dict]:
     return clean_url, connect_args
 
 
-_async_url, _connect_args = _build_async_url(settings.database_url)
+_database_url = _normalize_local_db_host(settings.database_url)
+_async_url, _connect_args = _build_async_url(_database_url)
 
 engine = create_async_engine(
     _async_url,

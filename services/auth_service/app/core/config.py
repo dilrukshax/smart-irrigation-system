@@ -7,6 +7,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 from functools import lru_cache
 from pathlib import Path
+from app.core.config_bootstrap import apply_remote_config
+
+
+apply_remote_config(default_service_name="auth_service")
 
 
 # Get the directory where this config file is located, then navigate to auth_service root
@@ -31,6 +35,10 @@ class Settings(BaseSettings):
 
     # PostgreSQL (Neon)
     DATABASE_URL: str = "postgresql://localhost:5432/auth_db"
+    AUTO_CREATE_SCHEMA: bool = False
+    ENSURE_CORE_AUTH_SCHEMA: bool = True
+    SEED_DEFAULT_USERS_ON_STARTUP: bool = True
+    DEFAULT_SCHEME_ID: str = "scheme-default"
 
     # JWT Settings
     JWT_SECRET_KEY: str = "your-super-secret-key-change-in-production"

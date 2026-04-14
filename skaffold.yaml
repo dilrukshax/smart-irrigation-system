@@ -32,7 +32,7 @@ build:
     - image: gateway
       context: .
       docker:
-        dockerfile: gateway/Dockerfile
+        dockerfile: services/gateway_service/Dockerfile
     - image: web
       context: .
       docker:

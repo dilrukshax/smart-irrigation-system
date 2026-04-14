@@ -22,7 +22,7 @@ import {
   Cloud as ForecastIcon,
   Groups as UsersIcon,
   Opacity as WaterIcon,
-  Security as AdminIcon,
+  Security as AuthorityIcon,
   Science as ScienceIcon,
   Timeline as TimelineIcon,
 } from '@mui/icons-material';
@@ -63,8 +63,8 @@ const platformFeatures = [
   {
     title: 'Role-Based Access',
     description:
-      'Separate experiences for farmers, operators, and administrators with focused tools.',
-    icon: <AdminIcon color="primary" />,
+      'Separate experiences for farmers, officers, and authority users with focused tools.',
+    icon: <AuthorityIcon color="primary" />,
   },
 ];
 
@@ -80,9 +80,9 @@ const userRoles = [
     icon: <UsersIcon color="primary" />,
   },
   {
-    title: 'Administrators',
-    detail: 'Manage users, security, and system-level operations.',
-    icon: <AdminIcon color="primary" />,
+    title: 'Authority',
+    detail: 'Manage users, security, and system-level policy operations.',
+    icon: <AuthorityIcon color="primary" />,
   },
 ];
 
@@ -231,11 +231,8 @@ export default function FarmerLanding() {
                 <Button component={RouterLink} to={ROUTES.PUBLIC.ANALYTICS} size="small">Analytics</Button>
                 <Button component={RouterLink} to={ROUTES.PUBLIC.CONTACT} size="small">Contact</Button>
               </Stack>
-              <Button component={RouterLink} to={ROUTES.FARMER.LOGIN} variant="outlined" size="small">
-                Farmer Login
-              </Button>
-              <Button component={RouterLink} to={ROUTES.ADMIN.LOGIN} variant="outlined" color="error" size="small">
-                Admin
+              <Button component={RouterLink} to={ROUTES.LOGIN} variant="outlined" size="small">
+                Login
               </Button>
             </Stack>
           </Stack>
@@ -633,13 +630,12 @@ export default function FarmerLanding() {
           >
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
               <Box>
-                <Typography variant="h5" fontWeight={900}>Open the right portal</Typography>
-                <Typography sx={{ opacity: 0.95 }}>Farmer, admin, and standard user flows are available from this homepage.</Typography>
+                <Typography variant="h5" fontWeight={900}>Use one login for all roles</Typography>
+                <Typography sx={{ opacity: 0.95 }}>Farmer, officer, and authority accounts all sign in from the same page.</Typography>
               </Box>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                <Button component={RouterLink} to={ROUTES.FARMER.LOGIN} variant="contained" color="secondary">Farmer</Button>
-                <Button component={RouterLink} to={ROUTES.ADMIN.LOGIN} variant="outlined" sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.85)' }}>Admin</Button>
-                <Button component={RouterLink} to={ROUTES.LOGIN} variant="outlined" sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.85)' }}>User</Button>
+                <Button component={RouterLink} to={ROUTES.LOGIN} variant="contained" color="secondary">Login</Button>
+                <Button component={RouterLink} to={ROUTES.FARMER.REGISTER} variant="outlined" sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.85)' }}>Register Farmer</Button>
               </Stack>
             </Stack>
           </Box>

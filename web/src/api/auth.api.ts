@@ -1,6 +1,6 @@
 /**
  * Auth Service API
- * Handles all authentication and admin user management API calls
+ * Handles authentication and authority user-management API calls
  * All requests go through the API Gateway
  */
 
@@ -12,8 +12,9 @@ export interface User {
   id: string;
   username: string;
   email?: string;
-  roles: string[];
+  roles: Array<'farmer' | 'officer' | 'authority'>;
   is_active: boolean;
+  scheme_ids?: string[];
   created_at?: string;
   updated_at?: string;
 }
@@ -30,7 +31,7 @@ export interface LoginResponse {
   user: {
     id: string;
     username: string;
-    roles: string[];
+    roles: Array<'farmer' | 'officer' | 'authority'>;
   };
 }
 
@@ -38,7 +39,7 @@ export interface RegisterRequest {
   username: string;
   password: string;
   email?: string;
-  role?: 'user' | 'farmer';
+  role?: 'farmer';
 }
 
 export interface RefreshTokenRequest {
@@ -63,16 +64,18 @@ export interface AdminUserCreate {
   username: string;
   password: string;
   email?: string;
-  roles?: string[];
+  roles?: Array<'farmer' | 'officer' | 'authority'>;
   is_active?: boolean;
+  scheme_ids?: string[];
 }
 
 export interface AdminUserUpdate {
   username?: string;
   email?: string;
   password?: string;
-  roles?: string[];
+  roles?: Array<'farmer' | 'officer' | 'authority'>;
   is_active?: boolean;
+  scheme_ids?: string[];
 }
 
 export interface UserListResponse {
@@ -95,11 +98,12 @@ const AUTH_ENDPOINTS = {
   ME: '/auth/me',
 };
 
-const ADMIN_ENDPOINTS = {
-  USERS: '/admin/users',
-  USER: (id: string) => `/admin/users/${id}`,
-  USER_ROLE: (id: string) => `/admin/users/${id}/role`,
-  USER_STATUS: (id: string) => `/admin/users/${id}/status`,
+const AUTHORITY_ENDPOINTS = {
+  USERS: '/authority/users',
+  USER: (id: string) => `/authority/users/${id}`,
+  USER_ROLE: (id: string) => `/authority/users/${id}/roles`,
+  USER_STATUS: (id: string) => `/authority/users/${id}/status`,
+  USER_SCHEMES: (id: string) => `/authority/users/${id}/schemes`,
 };
 
 // Auth API functions
@@ -146,18 +150,18 @@ export const authApi = {
   },
 };
 
-// Admin API functions
-export const adminApi = {
+// Authority API functions
+export const authorityApi = {
   /**
-   * Create a new user (admin only)
+   * Create a new user (authority only)
    */
   createUser: async (userData: AdminUserCreate): Promise<User> => {
-    const response = await apiClient.post<User>(ADMIN_ENDPOINTS.USERS, userData);
+    const response = await apiClient.post<User>(AUTHORITY_ENDPOINTS.USERS, userData);
     return response.data;
   },
 
   /**
-   * Get paginated list of users (admin only)
+   * Get paginated list of users (authority only)
    */
   getUsers: async (
     page: number = 1,
@@ -172,60 +176,74 @@ export const adminApi = {
     if (isActive !== undefined) params.append('is_active', isActive.toString());
 
     const response = await apiClient.get<UserListResponse>(
-      `${ADMIN_ENDPOINTS.USERS}?${params.toString()}`
+      `${AUTHORITY_ENDPOINTS.USERS}?${params.toString()}`
     );
     return response.data;
   },
 
   /**
-   * Get a single user by ID (admin only)
+   * Get a single user by ID (authority only)
    */
   getUser: async (userId: string): Promise<User> => {
-    const response = await apiClient.get<User>(ADMIN_ENDPOINTS.USER(userId));
+    const response = await apiClient.get<User>(AUTHORITY_ENDPOINTS.USER(userId));
     return response.data;
   },
 
   /**
-   * Update user details (admin only)
+   * Update user details (authority only)
    */
   updateUser: async (userId: string, userData: AdminUserUpdate): Promise<User> => {
     const response = await apiClient.put<User>(
-      ADMIN_ENDPOINTS.USER(userId),
+      AUTHORITY_ENDPOINTS.USER(userId),
       userData
     );
     return response.data;
   },
 
   /**
-   * Update user roles (admin only)
+   * Update user roles (authority only)
    */
   updateUserRoles: async (userId: string, roles: string[]): Promise<User> => {
     const response = await apiClient.patch<User>(
-      ADMIN_ENDPOINTS.USER_ROLE(userId),
+      AUTHORITY_ENDPOINTS.USER_ROLE(userId),
       { roles }
     );
     return response.data;
   },
 
   /**
-   * Update user active status (admin only)
+   * Update user active status (authority only)
    */
   updateUserStatus: async (userId: string, isActive: boolean): Promise<User> => {
     const response = await apiClient.patch<User>(
-      ADMIN_ENDPOINTS.USER_STATUS(userId),
+      AUTHORITY_ENDPOINTS.USER_STATUS(userId),
       { is_active: isActive }
     );
     return response.data;
   },
 
   /**
-   * Delete user (admin only)
+   * Replace user scheme assignments (authority only)
+   */
+  setUserSchemes: async (userId: string, schemeIds: string[]): Promise<User> => {
+    const response = await apiClient.put<User>(
+      AUTHORITY_ENDPOINTS.USER_SCHEMES(userId),
+      { scheme_ids: schemeIds }
+    );
+    return response.data;
+  },
+
+  /**
+   * Delete user (authority only)
    */
   deleteUser: async (userId: string, hardDelete: boolean = false): Promise<void> => {
     await apiClient.delete(
-      `${ADMIN_ENDPOINTS.USER(userId)}?hard_delete=${hardDelete}`
+      `${AUTHORITY_ENDPOINTS.USER(userId)}?hard_delete=${hardDelete}`
     );
   },
 };
+
+// Backward-compatibility alias during cutover.
+export const adminApi = authorityApi;
 
 export default apiClient;

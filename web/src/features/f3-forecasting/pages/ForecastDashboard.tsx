@@ -218,7 +218,7 @@ export default function ForecastDashboard() {
           <Typography variant="body1" color="text.secondary">
             {isAdmin
               ? 'ML-powered time-series forecasts with multi-model ensemble'
-              : 'Forecast administration requires admin role; weather intelligence remains available for all users'}
+              : 'Forecast administration requires authority role; weather intelligence remains available for all users'}
           </Typography>
         </Box>
         <Box display="flex" gap={2}>
@@ -252,7 +252,7 @@ export default function ForecastDashboard() {
 
       {!isAdmin && (
         <Alert severity="info" sx={{ mb: 3 }}>
-          Admin access is required for forecast generation, risk assessment, model comparison, and model training.
+          Authority access is required for forecast generation, risk assessment, model comparison, and model training.
         </Alert>
       )}
 
@@ -384,7 +384,7 @@ export default function ForecastDashboard() {
         <Alert severity="info">
           {isAdmin
             ? 'No forecast data is currently available from the forecasting service.'
-            : 'Forecast generation endpoints are admin-only. Use the Weather tab for farmer forecast consumption.'}
+            : 'Forecast generation endpoints are authority-only. Use the Weather tab for farmer forecast consumption.'}
         </Alert>
       )}
 

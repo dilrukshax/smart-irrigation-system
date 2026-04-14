@@ -76,11 +76,11 @@ export function ProtectedRoute() {
 }
 
 /**
- * Admin Route - requires admin role
+ * Authority Route - requires authority role
  * Uses Outlet for nested routes
  */
-export function AdminRoute() {
-  const { isAuthenticated, isAdmin, isInitialized, isLoading } = useAuth();
+export function AuthorityRoute() {
+  const { isAuthenticated, isAuthority, isInitialized, isLoading } = useAuth();
   const location = useLocation();
 
   // Show loading while initializing
@@ -93,13 +93,16 @@ export function AdminRoute() {
     return <Navigate to="/" state={{ from: location }} replace />;
   }
 
-  // Show not authorized if not admin
-  if (!isAdmin) {
+  // Show not authorized if not authority
+  if (!isAuthority) {
     return <NotAuthorized />;
   }
 
   return <Outlet />;
 }
+
+// Backward compatibility alias while route names are migrated.
+export const AdminRoute = AuthorityRoute;
 
 interface RoleRouteProps {
   allowedRoles: string[];
@@ -141,8 +144,10 @@ export function RoleRoute({ allowedRoles }: RoleRouteProps) {
 export function PublicRoute() {
   const { isAuthenticated, isInitialized, isLoading, hasRole } = useAuth();
   const location = useLocation();
-  const defaultRoute = hasRole('admin')
-    ? ROUTES.ADMIN.USERS
+  const defaultRoute = hasRole('authority')
+    ? ROUTES.AUTHORITY.USERS
+    : hasRole('officer')
+    ? ROUTES.OFFICER.OVERVIEW
     : hasRole('farmer')
     ? ROUTES.FARMER.ROOT
     : ROUTES.HOME;

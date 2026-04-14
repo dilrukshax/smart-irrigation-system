@@ -1,37 +1,9 @@
 /**
- * IoT Telemetry API - ESP32 Sensor Data
- *
- * API functions for IoT device telemetry ingestion and queries.
- * Calls the IoT service directly at VITE_IOT_SERVICE_URL (default: http://localhost:8006)
+ * IoT Telemetry API (via grouped gateway routes).
  */
 
-import axios from 'axios';
-import { AUTH_TOKEN_KEY } from '@config/constants';
+import { apiClient } from './index';
 
-const IOT_BASE_URL = import.meta.env.VITE_IOT_SERVICE_URL || 'http://localhost:8006';
-
-// Dedicated IoT API client (direct to IoT service, bypasses gateway)
-const iotClient = axios.create({
-  baseURL: `${IOT_BASE_URL}/api/v1/iot`,
-  headers: { 'Content-Type': 'application/json' },
-});
-
-iotClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem('token');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
-
-// IoT API Endpoints
-const IOT_ENDPOINTS = {
-  DEVICES: '/devices',
-  DEVICE_LATEST: (deviceId: string) => `/devices/${deviceId}/latest`,
-  DEVICE_RANGE: (deviceId: string) => `/devices/${deviceId}/range`,
-  DEVICE_CMD: (deviceId: string) => `/devices/${deviceId}/cmd`,
-  TELEMETRY: '/telemetry',
-};
-
-// Type Definitions
 export interface TelemetryReading {
   device_id: string;
   timestamp: string;
@@ -46,6 +18,7 @@ export interface TelemetryReading {
 
 export interface DeviceInfo {
   device_id: string;
+  field_id?: string;
   last_seen?: string;
   latest_reading?: TelemetryReading;
   is_online: boolean;
@@ -78,6 +51,7 @@ export interface DeviceCommandResponse {
 }
 
 export interface TelemetryPayload {
+  field_id?: string;
   device_id: string;
   ts: string | number;
   soil_ao: number;
@@ -85,23 +59,56 @@ export interface TelemetryPayload {
   soil_do?: number;
   rssi?: number;
   battery_v?: number;
+  soil_moisture_pct?: number;
+  water_level_pct?: number;
 }
 
-// IoT API functions
 export const iotApi = {
-  getDevices: () => iotClient.get<DeviceListResponse>(IOT_ENDPOINTS.DEVICES),
+  getDevices: async () => {
+    const response = await apiClient.get<{ count: number; devices: Array<Record<string, unknown>> }>('/devices');
+    const devices = Array.isArray(response.data.devices)
+      ? response.data.devices.map((row) => ({
+          device_id: String(row.device_id || ''),
+          field_id: typeof row.field_id === 'string' ? row.field_id : undefined,
+          last_seen:
+            typeof row.last_handshake_at === 'string'
+              ? row.last_handshake_at
+              : typeof row.last_seen === 'string'
+              ? row.last_seen
+              : undefined,
+          is_online: typeof row.pairing_status === 'string' ? row.pairing_status === 'CONFIRMED' : true,
+        }))
+      : [];
 
-  getLatest: (deviceId: string) =>
-    iotClient.get<TelemetryReading>(IOT_ENDPOINTS.DEVICE_LATEST(deviceId)),
+    return {
+      ...response,
+      data: {
+        count: devices.length,
+        devices,
+      } as DeviceListResponse,
+    };
+  },
+
+  getLatest: (deviceId: string) => apiClient.get<TelemetryReading>(`/devices/${deviceId}/latest`),
 
   getRange: (deviceId: string, from?: string, to?: string, limit?: number) =>
-    iotClient.get<TelemetryRangeResponse>(IOT_ENDPOINTS.DEVICE_RANGE(deviceId), {
+    apiClient.get<TelemetryRangeResponse>(`/devices/${deviceId}/range`, {
       params: { from, to, limit },
     }),
 
   sendCommand: (deviceId: string, command: DeviceCommand) =>
-    iotClient.post<DeviceCommandResponse>(IOT_ENDPOINTS.DEVICE_CMD(deviceId), command),
+    apiClient.post<DeviceCommandResponse>(`/devices/${deviceId}/cmd`, command),
 
   ingestTelemetry: (payload: TelemetryPayload) =>
-    iotClient.post<TelemetryReading>(IOT_ENDPOINTS.TELEMETRY, payload),
+    apiClient.post('/telemetry/ingest', {
+      field_id: payload.field_id,
+      device_id: payload.device_id,
+      timestamp: typeof payload.ts === 'number' ? new Date(payload.ts).toISOString() : payload.ts,
+      soil_ao: payload.soil_ao,
+      water_ao: payload.water_ao,
+      soil_moisture_pct: payload.soil_moisture_pct,
+      water_level_pct: payload.water_level_pct,
+      rssi: payload.rssi,
+      battery_v: payload.battery_v,
+    }),
 };

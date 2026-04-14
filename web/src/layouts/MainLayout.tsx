@@ -37,6 +37,8 @@ import {
   AutoGraph as AdaptiveIcon,
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
+  Gavel as AuthorityIcon,
+  ManageAccounts as UsersIcon,
 } from '@mui/icons-material';
 import { DRAWER_WIDTH } from '@config/constants';
 import { ROUTES } from '@config/routes';
@@ -61,9 +63,10 @@ const defaultMenuItems: MenuItemDefinition[] = [
 ];
 
 const farmerMenuItems: MenuItemDefinition[] = [
-  { text: 'Farmer Portal', icon: <FarmerIcon />, path: ROUTES.FARMER.ROOT },
-  { text: 'Crop Fields', icon: <CropIcon />, path: ROUTES.IRRIGATION.CROP_FIELDS },
-  { text: 'Scenarios', icon: <ForecastIcon />, path: ROUTES.OPTIMIZATION.SCENARIOS },
+  { text: 'My Fields', icon: <FarmerIcon />, path: ROUTES.FARMER.FIELDS },
+  { text: 'Onboarding Wizard', icon: <SettingsIcon />, path: ROUTES.FARMER.ONBOARDING },
+  { text: 'Irrigation', icon: <WaterIcon />, path: ROUTES.IRRIGATION.ROOT },
+  { text: 'Sensor Telemetry', icon: <SensorsIcon />, path: ROUTES.IRRIGATION.TELEMETRY },
   { text: 'Adaptive Simulation', icon: <AdaptiveIcon />, path: ROUTES.OPTIMIZATION.ADAPTIVE },
 ];
 
@@ -78,8 +81,24 @@ export default function MainLayout() {
   });
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout, isAdmin, isFarmer } = useAuth();
-  const menuItems = isFarmer ? farmerMenuItems : defaultMenuItems;
+  const { user, logout, isAuthority, isOfficer, isFarmer } = useAuth();
+  const menuItems = useMemo(
+    () =>
+      isFarmer
+        ? farmerMenuItems
+        : [
+            ...defaultMenuItems,
+            ...(isOfficer || isAuthority
+              ? [{ text: 'Operations Board', icon: <DashboardIcon />, path: ROUTES.OFFICER.OVERVIEW }]
+              : []),
+            ...(isOfficer ? [{ text: 'Manual Requests', icon: <UsersIcon />, path: ROUTES.OFFICER.REQUESTS }] : []),
+            ...(isOfficer || isAuthority
+              ? [{ text: 'Hydraulic Ops', icon: <WaterIcon />, path: ROUTES.OFFICER.HYDRAULICS }]
+              : []),
+            ...(isAuthority ? [{ text: 'Policy Publish', icon: <AuthorityIcon />, path: ROUTES.AUTHORITY.POLICIES }] : []),
+          ],
+    [isAuthority, isFarmer, isOfficer]
+  );
   const desktopDrawerWidth = desktopDrawerCollapsed ? COLLAPSED_DRAWER_WIDTH : DRAWER_WIDTH;
 
   useEffect(() => {
@@ -115,14 +134,26 @@ export default function MainLayout() {
   );
 
   const pageTitle = useMemo(() => {
-    if (location.pathname.startsWith(ROUTES.ADMIN.ROOT)) {
+    if (location.pathname.startsWith(ROUTES.AUTHORITY.ROOT)) {
       return 'User Management';
+    }
+    if (location.pathname.startsWith(ROUTES.FARMER.FIELD_WORKSPACE_BASE)) {
+      return 'Field Workspace';
+    }
+    if (location.pathname.startsWith(ROUTES.FARMER.FIELD_PROFILE_BASE)) {
+      return 'Field Profile';
     }
     const activeItem = menuItems.find((item) => isRouteActive(item.path));
     return activeItem?.text ?? 'Smart Irrigation';
   }, [isRouteActive, location.pathname, menuItems]);
 
-  const workspaceLabel = isAdmin ? 'Administrator workspace' : isFarmer ? 'Farmer workspace' : 'Operations workspace';
+  const workspaceLabel = isAuthority
+    ? 'Authority workspace'
+    : isOfficer
+    ? 'Officer workspace'
+    : isFarmer
+    ? 'Farmer workspace'
+    : 'Operations workspace';
 
   const renderNavItem = (item: MenuItemDefinition, collapsed: boolean, closeMobileOnNavigate: boolean) => {
     const isActive = isRouteActive(item.path);
@@ -210,12 +241,52 @@ export default function MainLayout() {
       </List>
       <Divider />
       <List sx={{ py: 1 }}>
-        {isAdmin &&
+        {isAuthority &&
           renderNavItem(
             {
-              text: 'User Management',
+              text: 'Authority Users',
               icon: <AdminIcon />,
-              path: ROUTES.ADMIN.USERS,
+              path: ROUTES.AUTHORITY.USERS,
+            },
+            collapsed,
+            closeMobileOnNavigate
+          )}
+        {(isOfficer || isAuthority) &&
+          renderNavItem(
+            {
+              text: 'Operations Board',
+              icon: <DashboardIcon />,
+              path: ROUTES.OFFICER.OVERVIEW,
+            },
+            collapsed,
+            closeMobileOnNavigate
+          )}
+        {(isOfficer || isAuthority) &&
+          renderNavItem(
+            {
+              text: 'Manual Requests',
+              icon: <UsersIcon />,
+              path: ROUTES.OFFICER.REQUESTS,
+            },
+            collapsed,
+            closeMobileOnNavigate
+          )}
+        {(isOfficer || isAuthority) &&
+          renderNavItem(
+            {
+              text: 'Hydraulic Ops',
+              icon: <WaterIcon />,
+              path: ROUTES.OFFICER.HYDRAULICS,
+            },
+            collapsed,
+            closeMobileOnNavigate
+          )}
+        {isAuthority &&
+          renderNavItem(
+            {
+              text: 'Policies',
+              icon: <AuthorityIcon />,
+              path: ROUTES.AUTHORITY.POLICIES,
             },
             collapsed,
             closeMobileOnNavigate
@@ -285,10 +356,13 @@ export default function MainLayout() {
             <Typography variant="body2" color="text.secondary" sx={{ display: { xs: 'none', md: 'block' } }}>
               {user?.username}
             </Typography>
-            {isAdmin && (
-              <Chip label="Admin" size="small" color="error" variant="outlined" />
+            {isAuthority && (
+              <Chip label="Authority" size="small" color="error" variant="outlined" />
             )}
-            {!isAdmin && isFarmer && (
+            {!isAuthority && isOfficer && (
+              <Chip label="Officer" size="small" color="warning" variant="outlined" />
+            )}
+            {!isAuthority && !isOfficer && isFarmer && (
               <Chip label="Farmer" size="small" color="success" variant="outlined" />
             )}
           </Box>

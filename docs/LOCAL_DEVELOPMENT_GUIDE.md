@@ -23,7 +23,7 @@ This guide explains how to run the Smart Irrigation System locally with each ser
 | 3 | Irrigation Service | 8002 | `services/irrigation_service` | `uvicorn app.main:app --reload --port 8002` |
 | 4 | Forecasting Service | 8003 | `services/forecasting_service` | `uvicorn app.main:app --reload --port 8003` |
 | 5 | ACA-O Service | 8004 | `services/optimize_service` | `uvicorn app.main:app --reload --port 8004` |
-| 6 | API Gateway | 8000 | `gateway` | `python gateway.py` |
+| 6 | API Gateway | 8000 | `services/gateway_service` | `uvicorn app.main:app --reload --port 8000` |
 | 7 | Web Frontend | 8005 | `web` | `npm run dev` |
 
 ---
@@ -48,8 +48,8 @@ The API Gateway routes all requests to the appropriate backend services.
 ### Gateway Setup
 
 ```powershell
-# Navigate to gateway directory
-cd gateway
+# Navigate to gateway service directory
+cd services/gateway_service
 
 # Create virtual environment (first time only)
 python3.11 -m venv venv
@@ -61,7 +61,7 @@ python3.11 -m venv venv
 python -m pip install -r requirements.txt
 
 # Run the gateway
-python -m uvicorn gateway:app --reload --port 8000
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
 ### Gateway Details

@@ -17,7 +17,7 @@ services=(
   "services/optimize_service:optimization-service"
   "services/iot_service:iot-service"
   "services/crop_health_and_water_stress_detection:crop-health-service"
-  "gateway:gateway"
+  "services/gateway_service:gateway"
   "web:web"
 )
 
@@ -28,7 +28,7 @@ for service_info in "${services[@]}"; do
   docker build \
     -t "${REGISTRY}/${name}:${TAG}" \
     -f "${PROJECT_ROOT}/${path}/Dockerfile" \
-    "${PROJECT_ROOT}"
+    "${PROJECT_ROOT}/${path}"
     
   echo "✓ Built ${name}"
 done

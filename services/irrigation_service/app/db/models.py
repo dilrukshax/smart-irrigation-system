@@ -18,8 +18,21 @@ class CropField(Base):
     field_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     field_name: Mapped[str] = mapped_column(String(255), nullable=False)
     crop_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    soil_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     area_hectares: Mapped[float] = mapped_column(Float, nullable=False)
     device_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+
+    owner_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    scheme_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    location_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    lifecycle_state: Mapped[str] = mapped_column(String(32), nullable=False, default="CONFIGURED")
+    pairing_status: Mapped[str] = mapped_column(String(32), nullable=False, default="UNPAIRED")
+    last_handshake_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    live_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    suspended_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     water_level_min_pct: Mapped[float] = mapped_column(Float, nullable=False)
     water_level_max_pct: Mapped[float] = mapped_column(Float, nullable=False)
@@ -35,6 +48,33 @@ class CropField(Base):
     auto_control_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+
+class DevicePairingSession(Base):
+    __tablename__ = "irrigation_device_pairings"
+
+    pairing_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    field_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("irrigation_crop_fields.field_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    device_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="PENDING", index=True)
+    challenge_code: Mapped[str] = mapped_column(String(16), nullable=False)
+    initiated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    confirmed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    first_telemetry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -120,8 +160,12 @@ class ManualRequest(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="PENDING", index=True)
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     reviewed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    closed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    execution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -148,6 +192,93 @@ class ManualRequestAudit(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
 
+class HydraulicSchedule(Base):
+    __tablename__ = "irrigation_hydraulic_schedules"
+
+    schedule_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    scheme_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    canal_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    tunnel_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    channel_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    turnout_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    expected_flow_m3s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    requested_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    requested_roles: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    policy_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    policy_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="ACCEPTED", index=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    conflict_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+
+class HydraulicTopologyNode(Base):
+    __tablename__ = "irrigation_hydraulic_topology_nodes"
+
+    node_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    scheme_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    node_type: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    parent_node_id: Mapped[str | None] = mapped_column(
+        String(128),
+        ForeignKey("irrigation_hydraulic_topology_nodes.node_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+
+class AuthorityPolicy(Base):
+    __tablename__ = "irrigation_authority_policies"
+
+    policy_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    scheme_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="DRAFT", index=True)
+    quota_mcm: Mapped[float] = mapped_column(Float, nullable=False)
+    max_field_open_pct: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    emergency_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    constraints: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    published_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+
+class AuthorityPolicyAudit(Base):
+    __tablename__ = "irrigation_authority_policy_audit"
+
+    audit_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    policy_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("irrigation_authority_policies.policy_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    scheme_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    actor_roles: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+
 class WaterManagementState(Base):
     __tablename__ = "irrigation_water_management_state"
 
@@ -163,4 +294,3 @@ class WaterManagementState(Base):
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
     )
-

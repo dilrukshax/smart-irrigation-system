@@ -45,8 +45,8 @@ def _risk_level_to_score(risk: Optional[str]) -> int:
     return mapping.get((risk or "medium").lower(), 2)
 
 
-def _is_admin(user_context: Dict[str, object]) -> bool:
-    return "admin" in (user_context.get("roles") or [])
+def _is_authority(user_context: Dict[str, object]) -> bool:
+    return "authority" in (user_context.get("roles") or [])
 
 
 def _merge_latest_recommendations(
@@ -271,10 +271,10 @@ async def list_recommendations(
 ):
     """List latest per-field recommendations for dashboards."""
     if refresh:
-        if not _is_admin(user_context):
+        if not _is_authority(user_context):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Admin privileges required for recommendation refresh.",
+                detail="Authority privileges required for recommendation refresh.",
             )
         _generate_for_fields(db=db, season=season, field_id=field_id)
 

@@ -19,27 +19,44 @@ export const ROUTES = {
   // Farmer
   FARMER: {
     ROOT: '/farmer',
+    FIELDS: '/farmer/fields',
     LANDING: '/farmer/landing',
-    LOGIN: '/farmer/login',
+    LOGIN: '/login',
     REGISTER: '/farmer/register',
+    ONBOARDING: '/farmer/onboarding',
+    FIELD_WORKSPACE: '/farmer/fields/:fieldId',
+    FIELD_WORKSPACE_BASE: '/farmer/fields',
+    FIELD_WORKSPACE_WITH_ID: (fieldId: string) => `/farmer/fields/${fieldId}`,
+    FIELD_PROFILE: '/farmer/field-profile/:fieldId',
+    FIELD_PROFILE_BASE: '/farmer/field-profile',
+    FIELD_PROFILE_WITH_ID: (fieldId: string) => `/farmer/field-profile/${fieldId}`,
   },
 
-  // Admin
-  ADMIN: {
-    ROOT: '/admin',
-    LOGIN: '/admin/login',
-    USERS: '/admin/users',
+  // Authority
+  AUTHORITY: {
+    ROOT: '/authority',
+    LOGIN: '/login',
+    USERS: '/authority/users',
+    POLICIES: '/authority/policies',
+  },
+
+  // Officer
+  OFFICER: {
+    ROOT: '/officer',
+    OVERVIEW: '/officer/overview',
+    REQUESTS: '/officer/manual-requests',
+    HYDRAULICS: '/officer/hydraulics',
   },
 
   // F1 - Irrigation
   IRRIGATION: {
     ROOT: '/irrigation',
     TELEMETRY: '/irrigation/telemetry',
+    DEVICE_TELEMETRY: '/devices/telemetry',
     MONITORING: '/irrigation/monitoring',
     HISTORY: '/irrigation/history',
     WATER_MANAGEMENT: '/irrigation/water-management',
     CROP_FIELDS: '/irrigation/crop-fields',
-    TELEMETRY: '/iot/telemetry',
   },
 
   // F2 - Crop Health

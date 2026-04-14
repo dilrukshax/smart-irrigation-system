@@ -45,8 +45,12 @@ export default function Login() {
     }
 
     try {
-      const authenticatedUser = await login(username, password);
-      const defaultRoute = authenticatedUser.roles.includes('farmer')
+      const authenticatedUser = await login(username.trim(), password);
+      const defaultRoute = authenticatedUser.roles.includes('authority')
+        ? ROUTES.AUTHORITY.USERS
+        : authenticatedUser.roles.includes('officer')
+        ? ROUTES.OFFICER.OVERVIEW
+        : authenticatedUser.roles.includes('farmer')
         ? ROUTES.FARMER.ROOT
         : ROUTES.HOME;
       const nextRoute = from && from !== ROUTES.LOGIN ? from : defaultRoute;
@@ -91,7 +95,7 @@ export default function Login() {
         <Box component="form" onSubmit={handleSubmit}>
           <TextField
             fullWidth
-            label="Username"
+            label="Username or Email"
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}

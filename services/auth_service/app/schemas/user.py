@@ -1,317 +1,192 @@
 """
-Pydantic schemas for user management.
+Pydantic schemas for user and authority management.
 """
 
-from pydantic import BaseModel, Field, EmailStr, field_validator
-from typing import List, Optional, Literal
 from datetime import datetime
+from typing import List, Optional, Literal
+
+from pydantic import BaseModel, Field, field_validator
+
+ALLOWED_ROLES = {"farmer", "officer", "authority"}
 
 
 class UserCreate(BaseModel):
-    """Request body for user registration."""
-    
-    username: str = Field(
-        ...,
-        min_length=3,
-        max_length=50,
-        description="Unique username"
-    )
-    password: str = Field(
-        ...,
-        min_length=6,
-        max_length=100,
-        description="Password (min 6 characters)"
-    )
-    email: Optional[str] = Field(
-        None,
-        description="Optional email address"
-    )
-    role: Literal["user", "farmer"] = Field(
-        default="user",
-        description="Public registration role"
-    )
-    
+    """Request body for farmer self-registration."""
+
+    username: str = Field(..., min_length=3, max_length=50, description="Unique username")
+    password: str = Field(..., min_length=6, max_length=100, description="Password (min 6 characters)")
+    email: Optional[str] = Field(None, description="Optional email address")
+    role: Literal["farmer"] = Field(default="farmer", description="Public registration role")
+
     @field_validator("username")
     @classmethod
-    def validate_username(cls, v: str) -> str:
-        """Validate username contains only allowed characters."""
-        if not v.replace("_", "").replace("-", "").isalnum():
-            raise ValueError(
-                "Username can only contain letters, numbers, underscores, and hyphens"
-            )
-        return v.lower()
-    
+    def validate_username(cls, value: str) -> str:
+        if not value.replace("_", "").replace("-", "").isalnum():
+            raise ValueError("Username can only contain letters, numbers, underscores, and hyphens")
+        return value.lower().strip()
+
     @field_validator("email")
     @classmethod
-    def validate_email(cls, v: Optional[str]) -> Optional[str]:
-        """Validate email format if provided."""
-        if v is not None and v.strip() == "":
+    def validate_email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
             return None
-        if v is not None:
-            # Basic email validation
-            if "@" not in v or "." not in v:
-                raise ValueError("Invalid email format")
-        return v.lower() if v else None
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "username": "johndoe",
-                "password": "secretpassword123",
-                "email": "john@example.com",
-                "role": "farmer"
-            }
-        }
+        normalized = value.strip().lower()
+        if normalized == "":
+            return None
+        if "@" not in normalized or "." not in normalized:
+            raise ValueError("Invalid email format")
+        return normalized
 
 
 class UserOut(BaseModel):
-    """Response model for user data (without sensitive fields)."""
-    
-    id: str = Field(..., description="User ID")
-    username: str = Field(..., description="Username")
-    email: Optional[str] = Field(None, description="Email address")
-    roles: List[str] = Field(default=["user"], description="User roles")
-    is_active: bool = Field(default=True, description="Account status")
-    created_at: Optional[datetime] = Field(None, description="Creation timestamp")
-    updated_at: Optional[datetime] = Field(None, description="Last update timestamp")
-    
+    """Response model for user data."""
+
+    id: str
+    username: str
+    email: Optional[str] = None
+    roles: List[str] = Field(default_factory=lambda: ["farmer"])
+    is_active: bool = True
+    scheme_ids: List[str] = Field(default_factory=list)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
     class Config:
         from_attributes = True
-        json_schema_extra = {
-            "example": {
-                "id": "507f1f77bcf86cd799439011",
-                "username": "johndoe",
-                "email": "john@example.com",
-                "roles": ["user"],
-                "is_active": True,
-                "created_at": "2024-01-01T00:00:00Z",
-                "updated_at": "2024-01-01T00:00:00Z"
-            }
-        }
-
-
-class UserUpdate(BaseModel):
-    """Request body for updating user profile."""
-    
-    email: Optional[str] = Field(None, description="New email address")
-    password: Optional[str] = Field(
-        None,
-        min_length=6,
-        max_length=100,
-        description="New password"
-    )
-    
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, v: Optional[str]) -> Optional[str]:
-        """Validate email format if provided."""
-        if v is not None and v.strip() == "":
-            return None
-        if v is not None:
-            if "@" not in v or "." not in v:
-                raise ValueError("Invalid email format")
-        return v.lower() if v else None
 
 
 class UserRoleUpdate(BaseModel):
-    """Request body for updating user roles (admin only)."""
-    
-    roles: List[str] = Field(
-        ...,
-        min_length=1,
-        description="New list of roles"
-    )
-    
+    """Request body for updating roles (authority only)."""
+
+    roles: List[str] = Field(..., min_length=1)
+
     @field_validator("roles")
     @classmethod
-    def validate_roles(cls, v: List[str]) -> List[str]:
-        """Validate and normalize roles."""
-        normalized = [role.lower().strip() for role in v if role.strip()]
+    def validate_roles(cls, value: List[str]) -> List[str]:
+        normalized = sorted({role.lower().strip() for role in value if role.strip()})
         if not normalized:
             raise ValueError("At least one role is required")
+        unknown = [role for role in normalized if role not in ALLOWED_ROLES]
+        if unknown:
+            raise ValueError(f"Unsupported roles: {', '.join(unknown)}")
         return normalized
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "roles": ["admin", "user"]
-            }
-        }
 
 
 class UserStatusUpdate(BaseModel):
-    """Request body for updating user status (admin only)."""
-    
-    is_active: bool = Field(..., description="Account active status")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "is_active": False
-            }
-        }
+    """Request body for updating user status (authority only)."""
+
+    is_active: bool
 
 
 class UserListResponse(BaseModel):
     """Paginated response for user list."""
-    
-    users: List[UserOut] = Field(..., description="List of users")
-    total: int = Field(..., description="Total number of users")
-    page: int = Field(..., description="Current page")
-    limit: int = Field(..., description="Items per page")
-    pages: int = Field(..., description="Total number of pages")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "users": [],
-                "total": 100,
-                "page": 1,
-                "limit": 10,
-                "pages": 10
-            }
-        }
+
+    users: List[UserOut]
+    total: int
+    page: int
+    limit: int
+    pages: int
 
 
 class AdminUserCreate(BaseModel):
-    """Request body for admin to create a new user."""
-    
-    username: str = Field(
-        ...,
-        min_length=3,
-        max_length=50,
-        description="Unique username"
-    )
-    password: str = Field(
-        ...,
-        min_length=6,
-        max_length=100,
-        description="Password (min 6 characters)"
-    )
-    email: Optional[str] = Field(
-        None,
-        description="Optional email address"
-    )
-    roles: List[str] = Field(
-        default=["user"],
-        description="User roles"
-    )
-    is_active: bool = Field(
-        default=True,
-        description="Account active status"
-    )
-    
+    """Request body for authority to create users."""
+
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=6, max_length=100)
+    email: Optional[str] = None
+    roles: List[str] = Field(default_factory=lambda: ["farmer"])
+    is_active: bool = True
+    scheme_ids: List[str] = Field(default_factory=list)
+
     @field_validator("username")
     @classmethod
-    def validate_username(cls, v: str) -> str:
-        """Validate username contains only allowed characters."""
-        if not v.replace("_", "").replace("-", "").isalnum():
-            raise ValueError(
-                "Username can only contain letters, numbers, underscores, and hyphens"
-            )
-        return v.lower().strip()
-    
+    def validate_username(cls, value: str) -> str:
+        if not value.replace("_", "").replace("-", "").isalnum():
+            raise ValueError("Username can only contain letters, numbers, underscores, and hyphens")
+        return value.lower().strip()
+
     @field_validator("email")
     @classmethod
-    def validate_email(cls, v: Optional[str]) -> Optional[str]:
-        """Validate email format if provided."""
-        if v is not None and v.strip() == "":
+    def validate_email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
             return None
-        if v is not None:
-            if "@" not in v or "." not in v:
-                raise ValueError("Invalid email format")
-        return v.lower().strip() if v else None
-    
+        normalized = value.strip().lower()
+        if normalized == "":
+            return None
+        if "@" not in normalized or "." not in normalized:
+            raise ValueError("Invalid email format")
+        return normalized
+
     @field_validator("roles")
     @classmethod
-    def validate_roles(cls, v: List[str]) -> List[str]:
-        """Validate and normalize roles."""
-        normalized = [role.lower().strip() for role in v if role.strip()]
+    def validate_roles(cls, value: List[str]) -> List[str]:
+        normalized = sorted({role.lower().strip() for role in value if role.strip()})
         if not normalized:
-            return ["user"]
+            return ["farmer"]
+        unknown = [role for role in normalized if role not in ALLOWED_ROLES]
+        if unknown:
+            raise ValueError(f"Unsupported roles: {', '.join(unknown)}")
         return normalized
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "username": "newuser",
-                "password": "password123",
-                "email": "newuser@example.com",
-                "roles": ["user", "farmer"],
-                "is_active": True
-            }
-        }
 
 
 class AdminUserUpdate(BaseModel):
-    """Request body for admin to update user details."""
-    
-    username: Optional[str] = Field(
-        None,
-        min_length=3,
-        max_length=50,
-        description="New username"
-    )
-    email: Optional[str] = Field(
-        None,
-        description="New email address"
-    )
-    password: Optional[str] = Field(
-        None,
-        min_length=6,
-        max_length=100,
-        description="New password"
-    )
-    roles: Optional[List[str]] = Field(
-        None,
-        description="New list of roles"
-    )
-    is_active: Optional[bool] = Field(
-        None,
-        description="Account active status"
-    )
-    
+    """Request body for authority to update users."""
+
+    username: Optional[str] = Field(None, min_length=3, max_length=50)
+    email: Optional[str] = None
+    password: Optional[str] = Field(None, min_length=6, max_length=100)
+    roles: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+    scheme_ids: Optional[List[str]] = None
+
     @field_validator("username")
     @classmethod
-    def validate_username(cls, v: Optional[str]) -> Optional[str]:
-        """Validate username contains only allowed characters."""
-        if v is None:
+    def validate_username(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
             return None
-        if not v.replace("_", "").replace("-", "").isalnum():
-            raise ValueError(
-                "Username can only contain letters, numbers, underscores, and hyphens"
-            )
-        return v.lower().strip()
-    
+        if not value.replace("_", "").replace("-", "").isalnum():
+            raise ValueError("Username can only contain letters, numbers, underscores, and hyphens")
+        return value.lower().strip()
+
     @field_validator("email")
     @classmethod
-    def validate_email(cls, v: Optional[str]) -> Optional[str]:
-        """Validate email format if provided."""
-        if v is not None and v.strip() == "":
+    def validate_email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
             return None
-        if v is not None:
-            if "@" not in v or "." not in v:
-                raise ValueError("Invalid email format")
-        return v.lower().strip() if v else None
-    
+        normalized = value.strip().lower()
+        if normalized == "":
+            return None
+        if "@" not in normalized or "." not in normalized:
+            raise ValueError("Invalid email format")
+        return normalized
+
     @field_validator("roles")
     @classmethod
-    def validate_roles(cls, v: Optional[List[str]]) -> Optional[List[str]]:
-        """Validate and normalize roles."""
-        if v is None:
+    def validate_roles(cls, value: Optional[List[str]]) -> Optional[List[str]]:
+        if value is None:
             return None
-        normalized = [role.lower().strip() for role in v if role.strip()]
+        normalized = sorted({role.lower().strip() for role in value if role.strip()})
         if not normalized:
             raise ValueError("At least one role is required")
+        unknown = [role for role in normalized if role not in ALLOWED_ROLES]
+        if unknown:
+            raise ValueError(f"Unsupported roles: {', '.join(unknown)}")
         return normalized
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "username": "updateduser",
-                "email": "updated@example.com",
-                "password": "newpassword123",
-                "roles": ["user", "officer"],
-                "is_active": True
-            }
-        }
+
+
+class UserSchemeUpdate(BaseModel):
+    """Assign schemes to user (authority only)."""
+
+    scheme_ids: List[str] = Field(default_factory=list)
+
+    @field_validator("scheme_ids")
+    @classmethod
+    def validate_scheme_ids(cls, value: List[str]) -> List[str]:
+        normalized = sorted({item.strip() for item in value if item and item.strip()})
+        return normalized
+
+
+class SchemeAssignmentOut(BaseModel):
+    assignment_id: str
+    user_id: str
+    scheme_id: str
+    created_at: Optional[datetime] = None

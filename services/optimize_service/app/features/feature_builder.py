@@ -382,8 +382,7 @@ class FeatureBuilder:
         }
         try:
             response = requests.get(
-                f"{settings.irrigation_service_url}/api/v1/crop-fields/fields/{field_id}/status",
-                params={"use_simulated": False},
+                f"{settings.irrigation_service_url}/api/v1/irrigation/fields/{field_id}/status",
                 timeout=5,
             )
             response.raise_for_status()
