@@ -1,0 +1,154 @@
+.page {
+  --background: #f4f9f4;
+  --surface: #ffffff;
+  --text-primary: #152214;
+  --text-secondary: #3f5a3d;
+  --primary: #255c2a;
+  --primary-hover: #18431e;
+  --secondary-border: #c7ddc3;
+  --secondary-hover: #e6f0e4;
+  --card-border: #d4e5d1;
+
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  font-family: var(--font-geist-sans);
+  background: radial-gradient(circle at top left, #e7f4e4, var(--background));
+  padding: 32px 24px;
+}
+
+.main {
+  display: flex;
+  width: 100%;
+  max-width: 920px;
+  flex-direction: column;
+  gap: 20px;
+  color: var(--text-primary);
+  background-color: var(--surface);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  padding: 40px;
+}
+
+.badge {
+  width: fit-content;
+  border: 1px solid var(--secondary-border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.main h1 {
+  font-size: 40px;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.subtitle {
+  max-width: 760px;
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 16px;
+  background: #fbfefb;
+}
+
+.card h2 {
+  font-size: 16px;
+}
+
+.card p {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.ctas {
+  display: flex;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.ctas a {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  transition: 0.18s ease;
+  cursor: pointer;
+  width: fit-content;
+  font-weight: 600;
+}
+
+a.primary {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+a.secondary {
+  border-color: var(--secondary-border);
+  color: var(--text-primary);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  a.primary:hover {
+    background: var(--primary-hover);
+    border-color: transparent;
+  }
+
+  a.secondary:hover {
+    background: var(--secondary-hover);
+    border-color: transparent;
+  }
+}
+
+@media (max-width: 900px) {
+  .cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 16px;
+  }
+
+  .main {
+    padding: 24px 18px;
+    border-radius: 14px;
+  }
+
+  .main h1 {
+    font-size: 30px;
+  }
+
+  .subtitle {
+    font-size: 16px;
+  }
+
+  .ctas {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
