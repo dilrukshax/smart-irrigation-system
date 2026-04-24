@@ -33,7 +33,10 @@ class Settings(BaseSettings):
 
     # Cross-service integrations
     AUTH_SERVICE_URL: str = "http://localhost:8001"
-    
+
+    # Database (optional; enables DB-backed stress summary persistence)
+    DATABASE_URL: Optional[str] = None
+
     # Model
     MODEL_PATH: str = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
@@ -55,8 +58,10 @@ class Settings(BaseSettings):
         "http://localhost:8006",
         "http://localhost:8007",
         "http://localhost:5173",
+        "http://localhost:3000",
         "http://127.0.0.1:8005",
         "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
         "http://localhost:8000",
     ]
 

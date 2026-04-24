@@ -23,6 +23,7 @@ from app.services.zone_generator import get_zone_generator
 from app.services.vegetation_validator import ValidationStatus
 from app.core.config import settings
 from app.dependencies.auth import require_admin
+from app.db import stress_repo
 from pydantic import BaseModel, Field
 
 try:
@@ -60,26 +61,20 @@ class FieldStressSummary(BaseModel):
 _analysis_artifacts: dict = {}
 
 
-def _persist_artifacts() -> None:
+def _persist_artifact(field_id: str, payload: dict) -> None:
+    """Upsert a single field's artifact via the repository."""
+    _analysis_artifacts[field_id] = payload
     try:
-        path = settings.ANALYSIS_ARTIFACTS_PATH
-        parent = os.path.dirname(path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(_analysis_artifacts, fh)
+        stress_repo.upsert_summary(field_id, payload)
     except Exception as exc:
-        logger.warning("Failed to persist analysis artifacts: %s", exc)
+        logger.warning("Failed to persist stress artifact for %s: %s", field_id, exc)
 
 
 def _load_artifacts() -> None:
+    """Load all artifacts from repository into the in-memory cache."""
     try:
-        path = settings.ANALYSIS_ARTIFACTS_PATH
-        if not path or not os.path.exists(path):
-            return
-        with open(path, "r", encoding="utf-8") as fh:
-            payload = json.load(fh)
-        _analysis_artifacts.update(payload or {})
+        _analysis_artifacts.clear()
+        _analysis_artifacts.update(stress_repo.load_all())
     except Exception as exc:
         logger.warning("Failed to load analysis artifacts: %s", exc)
 
@@ -145,6 +140,8 @@ def _apply_stress_contract_defaults(summary: FieldStressSummary) -> FieldStressS
     return FieldStressSummary(**payload)
 
 
+# Initialize persistence (DB schema if enabled, then load existing artifacts)
+stress_repo.init_schema()
 _load_artifacts()
 
 
@@ -495,7 +492,7 @@ async def get_field_stress_summary(
     center_lon = lon if lon is not None else settings.DEFAULT_LON
 
     try:
-        artifact = _analysis_artifacts.get(field_id)
+        artifact = stress_repo.get_summary(field_id) or _analysis_artifacts.get(field_id)
         if artifact:
             response = FieldStressSummary(**artifact)
             return _apply_stress_contract_defaults(response)
@@ -531,8 +528,7 @@ async def get_field_stress_summary(
         )
 
         response = _summary_to_stress(field_id, summary)
-        _analysis_artifacts[field_id] = response.model_dump()
-        _persist_artifacts()
+        _persist_artifact(field_id, response.model_dump())
 
         _emit_stress_event(response)
         return _apply_stress_contract_defaults(response)
@@ -565,8 +561,7 @@ async def ingest_field_stress_summary(
             "observed_at": payload.observed_at or payload.generated_at,
         }
     )
-    _analysis_artifacts[field_id] = summary.model_dump()
-    _persist_artifacts()
+    _persist_artifact(field_id, summary.model_dump())
     return {
         "status": "ok",
         "message": "Stress summary artifact stored",

@@ -4,112 +4,107 @@
 /* eslint-disable */
 
 import * as React from 'react';
+import Link from 'next/link';
 import {
   Icon,
-  LogoMark,
-  Logo,
-  AppBar,
-  Sidebar,
   Chip,
-  Progress,
-  Gauge,
-  Sparkline,
-  LineChart,
-  BarChart,
-  ForecastChart,
-  Donut,
-  SchemeMap,
   Frame,
+  BarChart,
 } from '@/components/asi/ui';
-import { farmerNav, officerNav, authorityNav, irrigationNav, optNav } from '@/components/asi/nav';
-import { PublicTop } from '@/components/asi/public-top';
+import { optNav } from '@/components/asi/nav';
+import { ApiState } from '@/components/asi/api-state';
+import { apiGet } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 
-const OptScenarios = () => (
-  <Frame sidebar={optNav('sce')} breadcrumb={['F4 · ACA-O', 'Scenarios']} user="R. Silva" role="Officer">
-    <div className="page-head">
-      <div><div className="page-title">Scenarios</div><div className="page-sub">Save what-if plans and compare side-by-side</div></div>
-      <button className="btn btn-primary btn-sm"><Icon name="plus" size={13}/> New scenario</button>
-    </div>
+const OptScenarios = () => {
+  const { user } = useAuth();
+  const [scenarios, setScenarios] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
 
-    <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 14 }}>
-      <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }} className="between">
-        <div className="card-title">Saved scenarios</div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <Chip kind="info" dot={false}>5 scenarios</Chip>
-          <Chip kind="live">3 selected for compare</Chip>
+  const loadData = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiGet<any>('/planning/recommendations');
+      const list = Array.isArray(res) ? res : res?.recommendations || res?.data || [];
+      setScenarios(list);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load scenarios');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const displayName = user?.username || 'Authority';
+
+  return (
+    <Frame sidebar={optNav('sce')} breadcrumb={['F4 · ACA-O', 'Scenarios']} user={displayName} role="Authority">
+      <div className="page-head">
+        <div>
+          <div className="page-title">Scenarios</div>
+          <div className="page-sub">Past optimization runs · {scenarios.length} saved</div>
         </div>
+        <Link href="/optimization/planner" className="btn btn-primary btn-sm"><Icon name="plus" size={13}/> New scenario</Link>
       </div>
-      <table className="tbl">
-        <thead><tr><th><input type="checkbox"/></th><th>Name</th><th>Saved</th><th>Status</th><th>Rainfall</th><th>Profit</th><th>Risk</th><th></th></tr></thead>
-        <tbody>
-          {[
-            [true, 'Normal season (P50)', 'Yesterday', 'live', '78 mm', 'LKR 1.99M', 0.28],
-            [true, 'Drought scenario (P10)', '2d ago', 'warn', '22 mm', 'LKR 1.42M', 0.46],
-            [true, 'Groundnut-heavy pivot', '4d ago', 'sim', '78 mm', 'LKR 2.14M', 0.31],
-            [false, 'Paddy continuity', '5d ago', 'sim', '78 mm', 'LKR 1.76M', 0.24],
-            [false, 'Low risk (profit floor)', '7d ago', 'sim', 'P50', 'LKR 1.58M', 0.19],
-          ].map((r, i) => (
-            <tr key={i}>
-              <td><input type="checkbox" defaultChecked={r[0]}/></td>
-              <td style={{ fontWeight: 600 }}>{r[1]}</td>
-              <td className="muted">{r[2]}</td>
-              <td><Chip kind={r[3]}>{r[3] === 'live' ? 'Baseline' : r[3] === 'warn' ? 'Risky' : 'Draft'}</Chip></td>
-              <td className="tabular">{r[4]}</td>
-              <td className="tabular" style={{ fontWeight: 700 }}>{r[5]}</td>
-              <td className="tabular">{r[6]}</td>
-              <td><div style={{ display: 'flex', gap: 6 }}><button className="btn btn-ghost btn-sm">Open</button><Icon name="more" size={14}/></div></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
 
-    {/* Comparison */}
-    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-      <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }} className="between">
-        <div className="card-title">Comparison · 3 scenarios</div>
-        <button className="btn btn-ghost btn-sm">Export</button>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '200px repeat(3, 1fr)', fontSize: 12 }}>
-        <div style={{ padding: 14, borderRight: '1px solid var(--border)', background: '#FBFBF8', fontWeight: 600, color: 'var(--muted)' }}>Metric</div>
-        {['Normal season (P50)', 'Drought (P10)', 'Groundnut pivot'].map((n, i) => (
-          <div key={i} style={{ padding: 14, borderRight: i < 2 ? '1px solid var(--border)' : 'none', background: '#FBFBF8', fontWeight: 600 }}>{n}</div>
-        ))}
-        {[
-          ['Total area', '9.1 ha', '9.1 ha', '9.1 ha'],
-          ['Total water', '2,900 mm', '2,400 mm', '2,780 mm'],
-          ['Projected yield', '34.3 t', '28.1 t', '36.2 t'],
-          ['Projected profit', 'LKR 1.99M', 'LKR 1.42M', 'LKR 2.14M'],
-          ['Risk score', '0.28', '0.46', '0.31'],
-          ['Paddy share', '58%', '42%', '35%'],
-        ].map((row, i) => (
-          <React.Fragment key={i}>
-            <div style={{ padding: 14, borderRight: '1px solid var(--border)', borderTop: '1px solid var(--line)', color: 'var(--muted)' }}>{row[0]}</div>
-            {row.slice(1).map((v, c) => (
-              <div key={c} style={{ padding: 14, borderRight: c < 2 ? '1px solid var(--border)' : 'none', borderTop: '1px solid var(--line)', fontWeight: 600 }} className="tabular">{v}</div>
-            ))}
-          </React.Fragment>
-        ))}
-      </div>
-      <div style={{ padding: 14, borderTop: '1px solid var(--border)' }}>
-        <div className="card-title" style={{ marginBottom: 8 }}>Diff chart · profit / yield / water</div>
-        <BarChart
-          data={[
-            [1.99, 1.42, 2.14],
-            [3.43, 2.81, 3.62],
-            [2.90, 2.40, 2.78],
-          ]}
-          stacked
-          width={900} height={140}
-          color={['var(--primary)', 'var(--accent)', 'var(--secondary)']}
-          labels={['Normal', 'Drought', 'Groundnut']}
-        />
-      </div>
-    </div>
-  </Frame>
-);
-
-// [18] ADAPTIVE RECOMMENDATIONS
+      <ApiState loading={loading && scenarios.length === 0} error={error} onRetry={loadData}>
+        {scenarios.length === 0 ? (
+          <div className="card" style={{ padding: 40, textAlign: 'center' }}>
+            <Icon name="play" size={40} color="var(--muted)"/>
+            <div style={{ fontSize: 14, fontWeight: 600, marginTop: 12 }}>No scenarios yet</div>
+            <div className="tiny muted" style={{ marginTop: 4 }}>
+              Run an optimization from the <Link href="/optimization/planner" style={{ color: 'var(--primary-600)' }}>Planner</Link> to save scenarios
+            </div>
+          </div>
+        ) : (
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
+              <div className="card-title">Saved scenarios</div>
+            </div>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>Field/Scheme</th>
+                  <th>Season</th>
+                  <th>Generated</th>
+                  <th>Source</th>
+                  <th>Crops</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {scenarios.map((s: any, i: number) => {
+                  const cropCount = (s.recommendations || s.response_data?.recommendations || []).length;
+                  return (
+                    <tr key={s.id || i}>
+                      <td style={{ fontWeight: 600 }}>
+                        {s.field_name || s.scheme_id || s.field_id || '—'}
+                      </td>
+                      <td className="muted">{s.season || '—'}</td>
+                      <td className="muted">
+                        {s.generated_at || s.created_at ? new Date(s.generated_at || s.created_at).toLocaleString() : '—'}
+                      </td>
+                      <td><Chip kind={s.source === 'model' ? 'live' : 'sim'}>{s.source || 'model'}</Chip></td>
+                      <td className="tabular">{cropCount}</td>
+                      <td>
+                        <Link href={`/farmer/field/${s.field_id}`} className="btn btn-ghost btn-sm">View</Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </ApiState>
+    </Frame>
+  );
+};
 
 export default function Page() {
   return (

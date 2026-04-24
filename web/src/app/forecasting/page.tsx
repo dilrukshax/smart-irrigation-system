@@ -23,146 +23,214 @@ import {
 } from '@/components/asi/ui';
 import { farmerNav, officerNav, authorityNav, irrigationNav, optNav } from '@/components/asi/nav';
 import { PublicTop } from '@/components/asi/public-top';
+import { ApiState } from '@/components/asi/api-state';
+import { apiGet } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 
-const Forecasting = () => (
-  <Frame sidebar={[
-    { label: 'F3 · Forecasting', items: [
-      { name: 'Overview', icon: 'home', active: true },
-      { name: 'Reservoir', icon: 'wave' },
-      { name: 'Rainfall', icon: 'cloud' },
-      { name: 'Alerts', icon: 'bell' },
-    ]},
-    { label: 'Modules', items: [
-      { name: 'Irrigation', icon: 'droplet' },
-      { name: 'Crop Health', icon: 'shield_check' },
-      { name: 'Optimization', icon: 'target' },
-    ]},
-  ]} breadcrumb={['Modules', 'F3 · Forecasting']} user="R. Silva" role="Officer">
-    <div className="page-head">
-      <div><div className="page-title">Forecasting · reservoir + rainfall</div><div className="page-sub">Ensemble model v2.4 · 14-day horizon · updated 06:00 UTC</div></div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button className="btn btn-ghost btn-sm">Model cards</button>
-        <button className="btn btn-primary btn-sm">Publish brief</button>
-      </div>
-    </div>
+const Forecasting = () => {
+  const { user } = useAuth();
+  const [weather, setWeather] = React.useState<any>(null);
+  const [predictions, setPredictions] = React.useState<any>(null);
+  const [risk, setRisk] = React.useState<any>(null);
+  const [recommendation, setRecommendation] = React.useState<any>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
 
-    {/* Hero row */}
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.1fr', gap: 14, marginBottom: 14 }}>
-      <div className="card" style={{ textAlign: 'center' }}>
-        <div className="card-head"><div className="card-title">Reservoir · Ulhitiya</div><Chip kind="live">Live</Chip></div>
-        <Gauge value={68} size={180} stroke={20} color="var(--secondary)" label="68%" sub="98.6 / 145 MCM"/>
-      </div>
-      <div className="card">
-        <div className="card-head"><div className="card-title">14-day risk level</div><Chip kind="warn">Medium</Chip></div>
-        <div style={{ fontSize: 42, fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--accent)' }}>MEDIUM</div>
-        <div className="tiny muted">Drought risk peaks day 7 · P(flood) &lt; 0.05</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 6, marginTop: 16 }}>
-          {['Low','Medium','High','Crit'].map((l, i) => (
-            <div key={i} style={{ padding: '8px 0', textAlign: 'center', borderRadius: 6, background: i === 1 ? 'var(--accent-50)' : '#F6F8F4', border: i === 1 ? '1px solid #F2D6A5' : '1px solid transparent', fontSize: 11, fontWeight: 600, color: i === 1 ? '#7A5200' : 'var(--muted)' }}>
-              {l}
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="card" style={{ background: 'linear-gradient(135deg, #F1F8E9, #E1F5FE)', border: '1px solid var(--primary)' }}>
-        <div className="card-head"><div className="card-title" style={{ color: 'var(--primary-600)' }}>Irrigation recommendation</div><Chip kind="live">ACA-O</Chip></div>
-        <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.4 }}>
-          Reduce irrigation by <span style={{ color: 'var(--primary)', fontSize: 22 }}>15%</span> for the next <span style={{ fontWeight: 700 }}>3 days</span>.
-        </div>
-        <div className="tiny muted" style={{ marginTop: 8, lineHeight: 1.5 }}>
-          Rainfall expected days 4–5 (P50 = 38 mm). Preserving quota now avoids critical risk on day 7.
-        </div>
-        <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
-          <button className="btn btn-primary btn-sm">Apply to all fields</button>
-          <button className="btn btn-ghost btn-sm">Ignore</button>
-        </div>
-      </div>
-    </div>
+  const loadData = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [weatherRes, predRes, riskRes, recRes] = await Promise.allSettled([
+        apiGet<any>('/forecast/weather'),
+        apiGet<any>('/forecast/predictions'),
+        apiGet<any>('/forecast/risk'),
+        apiGet<any>('/forecast/weather/irrigation-recommendation'),
+      ]);
+      if (weatherRes.status === 'fulfilled') setWeather(weatherRes.value);
+      if (predRes.status === 'fulfilled') setPredictions(predRes.value);
+      if (riskRes.status === 'fulfilled') setRisk(riskRes.value);
+      if (recRes.status === 'fulfilled') setRecommendation(recRes.value);
 
-    {/* Forecast chart */}
-    <div className="card" style={{ marginBottom: 14 }}>
-      <div className="card-head">
+      if ([weatherRes, predRes, riskRes, recRes].every(r => r.status === 'rejected')) {
+        setError('Unable to load forecasting data');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Extract values
+  const waterLevelPct = weather?.reservoir_level_percent ?? weather?.water_level_percent ?? 0;
+  const riskLevel = risk?.risk_level || risk?.overall_risk || 'UNKNOWN';
+  const recText = recommendation?.recommendation || recommendation?.narrative || 'No recommendation available';
+  const adjustmentPct = recommendation?.adjustment_percent ?? 0;
+
+  // Extract forecast series
+  const forecastDays = predictions?.forecasts || predictions?.predictions || [];
+  const waterLevelSeries = forecastDays.map((d: any) => d.water_level_p50 ?? d.water_level ?? 0);
+  const rainfallSeries = forecastDays.map((d: any) => d.rainfall_p50 ?? d.rainfall ?? 0);
+
+  const displayName = user?.username || 'Officer';
+
+  return (
+    <Frame
+      sidebar={[
+        { label: 'F3 · Forecasting', items: [
+          { name: 'Overview', icon: 'home', active: true },
+          { name: 'Reservoir', icon: 'wave' },
+          { name: 'Rainfall', icon: 'cloud' },
+          { name: 'Alerts', icon: 'bell' },
+        ]},
+        { label: 'Modules', items: [
+          { name: 'Irrigation', icon: 'droplet' },
+          { name: 'Crop Health', icon: 'shield_check' },
+          { name: 'Optimization', icon: 'target' },
+        ]},
+      ]}
+      breadcrumb={['Modules', 'F3 · Forecasting']}
+      user={displayName}
+      role="Officer"
+    >
+      <div className="page-head">
         <div>
-          <div className="card-title">14-day forecast</div>
-          <div className="tiny muted">Water level (%, left) · Rainfall (mm, right) · P10/P50/P90 bands</div>
+          <div className="page-title">Forecasting · reservoir + rainfall</div>
+          <div className="page-sub">
+            {predictions?.model_name || 'LinearRegression baseline'}
+            {predictions?.horizon_days ? ` · ${predictions.horizon_days}-day horizon` : ' · 14-day horizon'}
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 12, fontSize: 11 }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 2, background: 'var(--primary)' }}/>Water level P50</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 10, background: 'var(--primary)', opacity: 0.14 }}/>P10–P90 band</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 6, background: 'var(--secondary)', opacity: 0.3 }}/>Rain</span>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-ghost btn-sm" onClick={loadData}>
+            <Icon name="download" size={13}/> Refresh
+          </button>
         </div>
       </div>
-      <ForecastChart width={1100} height={240} days={14}/>
-    </div>
 
-    {/* Risk timeline + Alerts + What-if */}
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div className="card">
-          <div className="card-head"><div className="card-title">Risk timeline · next 14 days</div><span className="tiny muted">Per day</span></div>
-          <div style={{ display: 'flex', height: 36, borderRadius: 8, overflow: 'hidden', marginTop: 6 }}>
-            {['#66BB6A','#66BB6A','#81C784','#F9A825','#F9A825','#EF5350','#C62828','#EF5350','#F9A825','#81C784','#66BB6A','#66BB6A','#66BB6A','#81C784'].map((c, i) => (
-              <div key={i} style={{ flex: 1, background: c, position: 'relative', borderRight: i < 13 ? '1px solid rgba(255,255,255,0.3)' : 'none' }}>
-                <div style={{ position: 'absolute', top: 2, left: 0, right: 0, textAlign: 'center', fontSize: 9, color: 'white', fontWeight: 700 }}>{i+1}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ display: 'flex', gap: 10, marginTop: 10, fontSize: 11 }}>
-            {[['Low','#66BB6A'],['Med','#F9A825'],['High','#EF5350'],['Crit','#C62828']].map(l => (
-              <span key={l[0]} style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 10, background: l[1], borderRadius: 2 }}/>{l[0]}</span>
-            ))}
-          </div>
-        </div>
-        <div className="card">
-          <div className="card-head"><div className="card-title">Active alerts</div><Chip kind="crit">2</Chip></div>
-          {[
-            { s: 'crit', t: 'Drought peak · day 7', d: 'Rainfall deficit 22 mm, reservoir forecast 54%', dismiss: true },
-            { s: 'warn', t: 'High evaporation · days 4–6', d: 'ET forecast 6.8 mm/d above seasonal mean' },
-          ].map((a, i) => (
-            <div key={i} style={{ padding: 12, borderRadius: 8, background: a.s === 'crit' ? 'var(--danger-50)' : 'var(--accent-50)', marginTop: i ? 8 : 4, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Icon name="bell" size={18} color={a.s === 'crit' ? 'var(--danger)' : 'var(--accent)'}/>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600 }}>{a.t}</div>
-                <div className="tiny muted">{a.d}</div>
-              </div>
-              <button className="btn btn-ghost btn-sm">Dismiss</button>
+      <ApiState loading={loading && !weather} error={error} onRetry={loadData}>
+        {/* Hero row */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.1fr', gap: 14, marginBottom: 14 }}>
+          <div className="card" style={{ textAlign: 'center' }}>
+            <div className="card-head" style={{ width: '100%' }}>
+              <div className="card-title">Reservoir · Current</div>
+              <Chip kind={weather?.is_live ? 'live' : 'sim'}>{weather?.is_live ? 'Live' : 'Cached'}</Chip>
             </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-head"><div className="card-title">What-if simulator</div><Chip kind="sim" dot={false}>Simulated</Chip></div>
-        <div className="tiny muted" style={{ marginBottom: 10 }}>Adjust rainfall scenario to see projected reservoir level</div>
-
-        <div style={{ marginBottom: 14 }}>
-          <div className="between small" style={{ marginBottom: 2 }}><span className="muted">Assumed total rainfall (14d)</span><span className="tabular" style={{ fontWeight: 700 }}>52 mm</span></div>
-          <input type="range" defaultValue="52" min="0" max="200" style={{ width: '100%', accentColor: 'var(--primary)' }}/>
-          <div className="between" style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}><span>Drought (0)</span><span>Normal (80)</span><span>Flood (200)</span></div>
-        </div>
-
-        <div style={{ marginBottom: 14 }}>
-          <div className="between small" style={{ marginBottom: 2 }}><span className="muted">Outflow multiplier</span><span className="tabular" style={{ fontWeight: 700 }}>1.0×</span></div>
-          <input type="range" defaultValue="10" min="5" max="20" style={{ width: '100%', accentColor: 'var(--secondary)' }}/>
-        </div>
-
-        <div style={{ padding: 12, background: '#F6F8F4', borderRadius: 8 }}>
-          <div className="tiny muted">Projected reservoir at day 14</div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
-            <div style={{ fontSize: 28, fontWeight: 700 }} className="tabular">54.2%</div>
-            <div style={{ fontSize: 11, color: 'var(--accent)' }}>↓ 13.8 pts vs today</div>
+            <Gauge
+              value={Math.round(waterLevelPct)}
+              size={180}
+              stroke={20}
+              color="var(--secondary)"
+              label={`${Math.round(waterLevelPct)}%`}
+              sub={`${weather?.temperature_celsius?.toFixed(1) ?? '—'}°C`}
+            />
           </div>
-          <LineChart width={440} height={110} series={[{ name: '', color: 'var(--secondary)', data: [68,67,66,65,64,63,61,59,58,57,56,55,55,54] }]}/>
+          <div className="card">
+            <div className="card-head">
+              <div className="card-title">14-day risk level</div>
+              <Chip kind={riskLevel === 'HIGH' || riskLevel === 'CRITICAL' ? 'crit' : riskLevel === 'MEDIUM' ? 'warn' : 'live'}>
+                {riskLevel}
+              </Chip>
+            </div>
+            <div style={{ fontSize: 42, fontWeight: 700, letterSpacing: '-0.03em', color: riskLevel === 'HIGH' ? 'var(--danger)' : riskLevel === 'MEDIUM' ? 'var(--accent)' : 'var(--primary)' }}>
+              {riskLevel}
+            </div>
+            <div className="tiny muted">
+              {risk?.narrative || risk?.summary || 'Risk assessment pending'}
+            </div>
+          </div>
+          <div className="card" style={{ background: 'linear-gradient(135deg, #F1F8E9, #E1F5FE)', border: '1px solid var(--primary)' }}>
+            <div className="card-head">
+              <div className="card-title" style={{ color: 'var(--primary-600)' }}>Irrigation recommendation</div>
+              <Chip kind="live">ACA-O</Chip>
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.4 }}>
+              {adjustmentPct !== 0 && (
+                <>
+                  {adjustmentPct > 0 ? 'Increase' : 'Reduce'} irrigation by <span style={{ color: 'var(--primary)', fontSize: 22 }}>{Math.abs(adjustmentPct)}%</span>
+                </>
+              )}
+              {adjustmentPct === 0 && 'Continue normal irrigation schedule'}
+            </div>
+            <div className="tiny muted" style={{ marginTop: 8, lineHeight: 1.5 }}>
+              {recText}
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
-  </Frame>
-);
 
+        {/* Forecast chart */}
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="card-head">
+            <div>
+              <div className="card-title">14-day forecast</div>
+              <div className="tiny muted">
+                {waterLevelSeries.length > 0 ? `${waterLevelSeries.length} forecasted points` : 'Generated from model'}
+              </div>
+            </div>
+            <Chip kind={predictions?.is_live ? 'live' : 'sim'}>
+              Source: {predictions?.source || 'model'}
+            </Chip>
+          </div>
+          {waterLevelSeries.length > 0 ? (
+            <LineChart
+              width={1100}
+              height={240}
+              legend
+              series={[
+                { name: 'Water level %', color: 'var(--primary)', data: waterLevelSeries },
+                { name: 'Rainfall mm', color: 'var(--secondary)', data: rainfallSeries },
+              ]}
+              xLabels={waterLevelSeries.map((_: any, i: number) => i % 2 === 0 ? `d${i+1}` : '')}
+            />
+          ) : (
+            <ForecastChart width={1100} height={240} days={14}/>
+          )}
+        </div>
 
-/* F4 Optimization (5 pages) + Officer (3) + Authority (2) + Mobile */
-
-// [14] ACA-O DASHBOARD
+        {/* Risk timeline */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
+          <div className="card">
+            <div className="card-head">
+              <div className="card-title">Current weather</div>
+              {weather?.is_live && <Chip kind="live">Live</Chip>}
+            </div>
+            {weather ? (
+              <div style={{ fontSize: 13, lineHeight: 1.8 }}>
+                <div>Temperature: <b>{weather.temperature_celsius?.toFixed(1) ?? '—'}°C</b></div>
+                <div>Humidity: <b>{weather.humidity_percent?.toFixed(0) ?? '—'}%</b></div>
+                <div>Condition: <b>{weather.condition || weather.description || '—'}</b></div>
+                {weather.rainfall_mm !== undefined && <div>Rainfall: <b>{weather.rainfall_mm} mm</b></div>}
+                {weather.wind_speed_ms !== undefined && <div>Wind: <b>{weather.wind_speed_ms} m/s</b></div>}
+                {weather.source && <div className="tiny muted" style={{ marginTop: 8 }}>Source: {weather.source}</div>}
+              </div>
+            ) : (
+              <div className="tiny muted">No weather data</div>
+            )}
+          </div>
+          <div className="card">
+            <div className="card-head">
+              <div className="card-title">Risk assessment</div>
+            </div>
+            {risk ? (
+              <div style={{ fontSize: 13, lineHeight: 1.8 }}>
+                <div>Overall risk: <b>{riskLevel}</b></div>
+                {risk.drought_risk_14d !== undefined && <div>Drought risk (14d): <b>{(risk.drought_risk_14d * 100).toFixed(0)}%</b></div>}
+                {risk.flood_risk_14d !== undefined && <div>Flood risk (14d): <b>{(risk.flood_risk_14d * 100).toFixed(0)}%</b></div>}
+                {risk.source && <div className="tiny muted" style={{ marginTop: 8 }}>Source: {risk.source}</div>}
+              </div>
+            ) : (
+              <div className="tiny muted">No risk data</div>
+            )}
+          </div>
+        </div>
+      </ApiState>
+    </Frame>
+  );
+};
 
 export default function Page() {
   return (

@@ -22,6 +22,7 @@ from app.core.logging_config import setup_logging
 from app.api.health import router as health_router
 from app.api.iot import router as iot_router
 from app.iot.pg_repo import pg_repo
+from app.iot.influx_repo import influx_repo
 from app.iot.mqtt_client import create_mqtt_client, get_mqtt_client
 from app.iot.service import iot_service
 from app.iot.schemas import TelemetryPayload

@@ -6,97 +6,213 @@
 import * as React from 'react';
 import {
   Icon,
-  LogoMark,
-  Logo,
-  AppBar,
-  Sidebar,
   Chip,
-  Progress,
-  Gauge,
-  Sparkline,
-  LineChart,
-  BarChart,
-  ForecastChart,
-  Donut,
-  SchemeMap,
   Frame,
 } from '@/components/asi/ui';
-import { farmerNav, officerNav, authorityNav, irrigationNav, optNav } from '@/components/asi/nav';
-import { PublicTop } from '@/components/asi/public-top';
+import { officerNav } from '@/components/asi/nav';
+import { ApiState } from '@/components/asi/api-state';
+import { apiGet, apiPost } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 
 const ManualRequests = () => {
-  const [tab, setTab] = React.useState(0);
+  const { user } = useAuth();
+  const [tab, setTab] = React.useState<'PENDING' | 'APPROVED' | 'REJECTED'>('PENDING');
+  const [requests, setRequests] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+  const [actingOn, setActingOn] = React.useState<string | null>(null);
+  const [rejectReason, setRejectReason] = React.useState<Record<string, string>>({});
+
+  const loadData = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiGet<any>('/irrigation/manual-requests');
+      const list = Array.isArray(res) ? res : res?.requests || res?.data || [];
+      setRequests(list);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load requests');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleReview = async (requestId: string, decision: 'APPROVE' | 'REJECT', reason?: string) => {
+    setActingOn(requestId);
+    try {
+      await apiPost(`/irrigation/manual-requests/${requestId}/review`, {
+        decision,
+        note: reason || '',
+      });
+      await loadData();
+    } catch (err: any) {
+      alert(`Failed: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setActingOn(null);
+    }
+  };
+
+  const filteredRequests = requests.filter((r: any) => {
+    const status = (r.status || '').toUpperCase();
+    return status === tab;
+  });
+
+  const pendingCount = requests.filter((r: any) => (r.status || '').toUpperCase() === 'PENDING').length;
+  const approvedCount = requests.filter((r: any) => (r.status || '').toUpperCase() === 'APPROVED').length;
+  const rejectedCount = requests.filter((r: any) => (r.status || '').toUpperCase() === 'REJECTED').length;
+
+  const displayName = user?.username || 'Officer';
+
   return (
-    <Frame sidebar={officerNav.map(g => ({ ...g, items: g.items.map(i => ({ ...i, active: i.name === 'Manual Requests' })) }))} breadcrumb={['Operations', 'Manual Requests']} user="R. Silva" role="Officer">
+    <Frame
+      sidebar={officerNav.map(g => ({ ...g, items: g.items.map(i => ({ ...i, active: i.name === 'Manual Requests' })) }))}
+      breadcrumb={['Operations', 'Manual Requests']}
+      user={displayName}
+      role="Officer"
+    >
       <div className="page-head">
-        <div><div className="page-title">Manual request review</div><div className="page-sub">Approve, partial, or reject with reason · 12 pending</div></div>
+        <div>
+          <div className="page-title">Manual request review</div>
+          <div className="page-sub">Approve or reject with reason · {pendingCount} pending</div>
+        </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-ghost btn-sm"><Icon name="filter" size={13}/> Filter</button>
-          <button className="btn btn-primary btn-sm">Bulk approve (3)</button>
+          <button className="btn btn-ghost btn-sm" onClick={loadData}><Icon name="download" size={13}/> Refresh</button>
         </div>
       </div>
 
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border)', marginBottom: 14 }}>
-        {['Pending (12)', 'Approved (48)', 'Rejected (6)'].map((t, i) => (
-          <button key={t} onClick={() => setTab(i)} className="btn btn-sm" style={{
-            borderRadius: 0, background: 'transparent', height: 34, padding: '0 14px',
-            color: tab === i ? 'var(--primary-600)' : 'var(--muted)', fontWeight: 600,
-            borderBottom: tab === i ? '2px solid var(--primary)' : '2px solid transparent', marginBottom: -1
-          }}>{t}</button>
+        {[
+          ['PENDING', `Pending (${pendingCount})`],
+          ['APPROVED', `Approved (${approvedCount})`],
+          ['REJECTED', `Rejected (${rejectedCount})`],
+        ].map(([val, label]: any) => (
+          <button
+            key={val}
+            onClick={() => setTab(val)}
+            className="btn btn-sm"
+            style={{
+              borderRadius: 0,
+              background: 'transparent',
+              height: 34,
+              padding: '0 14px',
+              color: tab === val ? 'var(--primary-600)' : 'var(--muted)',
+              fontWeight: 600,
+              borderBottom: tab === val ? '2px solid var(--primary)' : '2px solid transparent',
+              marginBottom: -1,
+            }}
+          >
+            {label}
+          </button>
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
-        {[
-          { n: 'Nimal Perera', nic: '199112345678', f: 'H-04 · Home paddy', v: '25 mm', t: '1h ago', r: 'Soil crusting on east section, requesting extra 7 mm beyond auto plan.', m: 62, rec: 'Approve · within quota' },
-          { n: 'Asela Jayasuriya', nic: '198856782134', f: 'H-04 · East plot', v: '20 mm', t: '3h ago', r: 'Tillering stage, moisture dropped after yesterday\'s heat.', m: 48, rec: 'Approve · moisture below target' },
-          { n: 'K. Tilak', nic: '197634512765', f: 'H-05 · Maize A', v: '18 mm', t: '4h ago', r: 'Requesting post-weeding irrigation.', m: 55, rec: 'Partial · 12 mm recommended' },
-          { n: 'T. Rathnayake', nic: '199245671234', f: 'H-07 · Lower chili', v: '30 mm', t: '6h ago', r: 'Flowering stage, need heavier irrigation before heat window.', m: 41, rec: 'Hold · scheduled release Tue' },
-        ].map((r, i) => (
-          <div key={i} className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--line)' }} className="between">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div className="avatar" style={{ width: 32, height: 32 }}>{r.n.split(' ').map(w => w[0]).join('')}</div>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 13 }}>{r.n}</div>
-                  <div className="tiny muted">NIC {r.nic} · {r.t}</div>
-                </div>
-              </div>
-              <div className="tabular" style={{ fontSize: 18, fontWeight: 700, color: 'var(--secondary)' }}>{r.v}</div>
-            </div>
-            <div style={{ padding: 14 }}>
-              <div className="between small muted"><span>Field</span><span style={{ color: 'var(--text)', fontWeight: 600 }}>{r.f}</span></div>
-              <div style={{ fontSize: 12.5, marginTop: 8, padding: 10, background: '#FBFCF9', borderRadius: 6, borderLeft: '2px solid var(--border)', fontStyle: 'italic' }}>"{r.r}"</div>
+      <ApiState loading={loading && requests.length === 0} error={error} onRetry={loadData}>
+        {filteredRequests.length === 0 ? (
+          <div className="card" style={{ padding: 40, textAlign: 'center' }}>
+            <Icon name="bell" size={40} color="var(--muted)"/>
+            <div style={{ fontSize: 14, fontWeight: 600, marginTop: 12 }}>No {tab.toLowerCase()} requests</div>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 12 }}>
+            {filteredRequests.map((r: any) => {
+              const requestId = r.request_id || r.id;
+              const fieldName = r.field_name || r.field_id || '—';
+              const farmerName = r.farmer_name || r.requested_by || 'Unknown';
+              const action = r.requested_action || 'OPEN';
+              const positionPct = r.requested_position_pct ?? 100;
+              const reason = r.reason || '';
+              const decision = r.source_decision || {};
+              const status = (r.status || '').toUpperCase();
+              const createdAt = r.created_at || r.submitted_at;
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 10, marginTop: 12 }}>
-                <div>
-                  <div className="tiny muted">Current moisture</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div className="prog" style={{ flex: 1 }}><div className="prog-fill" style={{ width: r.m+'%', background: r.m<45?'var(--accent)':'var(--primary)' }}/></div>
-                    <span className="tabular small" style={{ fontWeight: 600 }}>{r.m}%</span>
+              return (
+                <div key={requestId} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                  <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--line)' }} className="between">
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{fieldName}</div>
+                      <div className="tiny muted">
+                        {farmerName} · {createdAt ? new Date(createdAt).toLocaleString() : '—'}
+                      </div>
+                    </div>
+                    <Chip kind={status === 'PENDING' ? 'warn' : status === 'APPROVED' ? 'live' : 'crit'}>
+                      {status}
+                    </Chip>
+                  </div>
+                  <div style={{ padding: 14 }}>
+                    <div className="between small">
+                      <span className="muted">Action</span>
+                      <span style={{ color: 'var(--text)', fontWeight: 600 }}>
+                        {action} {positionPct !== null && `(${positionPct}%)`}
+                      </span>
+                    </div>
+                    {reason && (
+                      <div style={{
+                        fontSize: 12.5,
+                        marginTop: 8,
+                        padding: 10,
+                        background: '#FBFCF9',
+                        borderRadius: 6,
+                        borderLeft: '2px solid var(--border)',
+                        fontStyle: 'italic',
+                      }}>
+                        "{reason}"
+                      </div>
+                    )}
+                    {decision.model_name && (
+                      <div style={{ marginTop: 10 }}>
+                        <div className="tiny muted">ML recommendation</div>
+                        <div className="small" style={{ fontWeight: 600, color: 'var(--primary-600)' }}>
+                          {decision.decision || '—'} (confidence {decision.confidence?.toFixed(2) ?? 'N/A'})
+                        </div>
+                      </div>
+                    )}
+
+                    {status === 'PENDING' && (
+                      <>
+                        <div className="field" style={{ marginTop: 14 }}>
+                          <label style={{ fontSize: 11 }}>Optional note</label>
+                          <input
+                            className="input"
+                            placeholder="Add a note..."
+                            value={rejectReason[requestId] || ''}
+                            onChange={(e) => setRejectReason(prev => ({ ...prev, [requestId]: e.target.value }))}
+                            disabled={actingOn === requestId}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            style={{ color: 'var(--danger)' }}
+                            onClick={() => handleReview(requestId, 'REJECT', rejectReason[requestId])}
+                            disabled={actingOn === requestId}
+                          >
+                            Reject
+                          </button>
+                          <div style={{ flex: 1 }}/>
+                          <button
+                            className="btn btn-primary btn-sm"
+                            onClick={() => handleReview(requestId, 'APPROVE', rejectReason[requestId])}
+                            disabled={actingOn === requestId}
+                          >
+                            {actingOn === requestId ? 'Processing...' : 'Approve'}
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
-                <div>
-                  <div className="tiny muted">ACA-O recommendation</div>
-                  <div className="small" style={{ fontWeight: 600, color: 'var(--primary-600)' }}>{r.rec}</div>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: 6, marginTop: 14 }}>
-                <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)', borderColor: 'var(--danger-50)' }}>Reject</button>
-                <button className="btn btn-ghost btn-sm">Partial…</button>
-                <div style={{ flex: 1 }}/>
-                <button className="btn btn-primary btn-sm">Approve {r.v}</button>
-              </div>
-            </div>
+              );
+            })}
           </div>
-        ))}
-      </div>
+        )}
+      </ApiState>
     </Frame>
   );
 };
-
-// [21] HYDRAULICS SCHEDULE
 
 export default function Page() {
   return (

@@ -56,10 +56,14 @@ async def get_current_user_context(
         )
 
     payload = response.json() if response.content else {}
+    scheme_ids = payload.get("scheme_ids")
+    if not isinstance(scheme_ids, list):
+        scheme_ids = []
     return {
         "id": str(payload.get("id") or ""),
         "username": str(payload.get("username") or ""),
         "roles": _extract_roles(payload),
+        "scheme_ids": scheme_ids,
     }
 
 

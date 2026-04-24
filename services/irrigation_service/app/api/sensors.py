@@ -208,19 +208,27 @@ async def get_sensor_data_by_id(sensor_id: str):
     return await get_sensor_data()
 
 
-@router.post("/irrigation-control", response_model=ManualControlResponse)
+@router.post("/irrigation-control", deprecated=True)
 async def irrigation_control(request: ManualControlRequest):
     """
-    Manual irrigation control endpoint.
-    
-    Allows manual override of irrigation system.
+    DEPRECATED: This endpoint is no longer supported.
+
+    Use `POST /api/v1/irrigation/fields/{field_id}/commands` instead,
+    which is field-scoped, updates valve state in the database, and
+    integrates with the auto-decision pipeline.
     """
-    logger.info(f"Manual irrigation control: {request.action}")
-    
-    return ManualControlResponse(
-        status="success",
-        action_taken=request.action,
-        timestamp=time.time(),
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "status": "gone",
+            "message": (
+                "This endpoint is deprecated. "
+                "Use POST /api/v1/irrigation/fields/{field_id}/commands "
+                "with {action, position_pct, reason}."
+            ),
+            "replacement": "/api/v1/irrigation/fields/{field_id}/commands",
+            "requested_action": request.action,
+        },
     )
 
 

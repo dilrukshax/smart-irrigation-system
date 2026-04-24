@@ -11,6 +11,7 @@ Uses linear regression with historical patterns for predictions.
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -64,6 +65,56 @@ async def lifespan(app: FastAPI):
     }
     loaded_models = ["baseline_linear_regression"]
     missing_models = []
+
+    # Load pre-trained advanced forecasting models if artifacts exist.
+    if ADVANCED_ML_AVAILABLE:
+        try:
+            from app.ml.advanced_forecasting import advanced_forecasting
+            if advanced_forecasting is not None:
+                models_dir = Path(advanced_forecasting.models_dir)
+                if (models_dir / "random_forest.pkl").exists():
+                    if advanced_forecasting.load_models():
+                        logger.info("Advanced forecasting models loaded from %s", models_dir)
+                        loaded_models.extend([
+                            "advanced_random_forest",
+                            "advanced_gradient_boosting",
+                            "advanced_lstm",
+                            "advanced_quantile",
+                        ])
+                        required_models.update({
+                            "advanced_random_forest": str(models_dir / "random_forest.pkl"),
+                            "advanced_gradient_boosting": str(models_dir / "gradient_boosting.pkl"),
+                            "advanced_lstm": str(models_dir / "lstm_model.keras"),
+                        })
+
+                        # Hydrate the advanced system's data buffer from recent observations
+                        # so v2 forecasts can run without waiting for a new /train call.
+                        if observations:
+                            try:
+                                historical_records = [
+                                    {
+                                        "timestamp": obs.observed_at.timestamp(),
+                                        "water_level_percent": float(obs.water_level_percent or 0),
+                                        "rainfall_mm": float(obs.rainfall_mm or 0),
+                                        "gate_opening_percent": float(obs.gate_opening_percent or 0),
+                                    }
+                                    for obs in observations
+                                    if getattr(obs, "observed_at", None) is not None
+                                ]
+                                if len(historical_records) >= 100:
+                                    advanced_forecasting.initialize_data(historical_records)
+                                    logger.info(
+                                        "Advanced forecasting data buffer hydrated with %d records",
+                                        len(historical_records),
+                                    )
+                            except Exception as hydrate_err:
+                                logger.warning("Advanced data hydration skipped: %s", hydrate_err)
+                    else:
+                        missing_models.append("advanced_forecasting (load failed)")
+                else:
+                    missing_models.append("advanced_forecasting (artifacts not generated)")
+        except Exception as exc:  # pragma: no cover - optional subsystem
+            logger.warning("Advanced forecasting startup hook failed: %s", exc)
 
     app.state.model_readiness = {
         "ml_only_mode": settings.is_ml_only_mode,

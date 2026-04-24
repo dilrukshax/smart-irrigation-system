@@ -4,121 +4,144 @@
 /* eslint-disable */
 
 import * as React from 'react';
+import Link from 'next/link';
 import {
   Icon,
-  LogoMark,
-  Logo,
-  AppBar,
-  Sidebar,
   Chip,
-  Progress,
   Gauge,
-  Sparkline,
+  Donut,
+  Frame,
   LineChart,
   BarChart,
-  ForecastChart,
-  Donut,
-  SchemeMap,
-  Frame,
 } from '@/components/asi/ui';
-import { farmerNav, officerNav, authorityNav, irrigationNav, optNav } from '@/components/asi/nav';
-import { PublicTop } from '@/components/asi/public-top';
+import { optNav } from '@/components/asi/nav';
+import { ApiState } from '@/components/asi/api-state';
+import { apiGet } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 
-const OptOverview = () => (
-  <Frame sidebar={optNav('over')} breadcrumb={['Modules', 'F4 · ACA-O', 'Overview']} user="R. Silva" role="Officer">
-    <div className="page-head">
-      <div><div className="page-title">ACA-O · Adaptive Crop Allocation & Optimization</div><div className="page-sub">Maha 2025–26 · Mahaweli H · 9.1 ha · solver v1.4</div></div>
-      <button className="btn btn-primary btn-sm"><Icon name="flash" size={13}/> Re-run optimizer</button>
-    </div>
+const OptOverview = () => {
+  const { user } = useAuth();
+  const [supply, setSupply] = React.useState<any>(null);
+  const [waterBudget, setWaterBudget] = React.useState<any>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
 
-    {/* Summary metrics */}
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 14 }}>
-      <div className="metric">
-        <div className="metric-label">Water quota utilization</div>
-        <div className="metric-value">62%</div>
-        <div className="prog slim" style={{ marginTop: 6 }}><div className="prog-fill" style={{ width: '62%', background: 'var(--accent)' }}/></div>
-        <div className="tiny muted" style={{ marginTop: 4 }}>607 / 980 mm used</div>
-      </div>
-      <div className="metric">
-        <div className="metric-label">Top recommended crop</div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-          <div className="metric-value" style={{ fontSize: 18 }}>Paddy Bg 352</div>
+  const loadData = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [supplyRes, budgetRes] = await Promise.allSettled([
+        apiGet<any>('/planning/supply'),
+        apiGet<any>('/planning/supply/water-budget'),
+      ]);
+      if (supplyRes.status === 'fulfilled') setSupply(supplyRes.value);
+      if (budgetRes.status === 'fulfilled') setWaterBudget(budgetRes.value);
+
+      if (supplyRes.status === 'rejected' && budgetRes.status === 'rejected') {
+        setError('Unable to load optimization data');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const totalFields = supply?.total_fields ?? supply?.field_count ?? 0;
+  const totalArea = supply?.total_area_ha ?? supply?.total_area ?? 0;
+  const totalWaterMm = supply?.total_water_allocated_mm ?? supply?.water_quota_mm ?? 0;
+  const totalProfit = supply?.total_projected_profit ?? 0;
+
+  const cropBreakdown = waterBudget?.breakdown || waterBudget?.crops || [];
+
+  const displayName = user?.username || 'Authority';
+
+  return (
+    <Frame sidebar={optNav('over')} breadcrumb={['Modules', 'F4 · ACA-O', 'Overview']} user={displayName} role="Authority">
+      <div className="page-head">
+        <div>
+          <div className="page-title">Adaptive Crop & Area Optimization</div>
+          <div className="page-sub">Scheme-wide optimization · national supply aggregation</div>
         </div>
-        <div className="tiny" style={{ color: 'var(--primary-600)', fontWeight: 600, marginTop: 4 }}>Suitability 0.94</div>
-        <Chip kind="live" dot={false}>5 of 5 fields</Chip>
-      </div>
-      <div className="metric">
-        <div className="metric-label">Optimization status</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-          <Chip kind="live">Converged</Chip>
-          <span className="tiny muted">gap 0.3%</span>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-ghost btn-sm" onClick={loadData}><Icon name="download" size={13}/> Refresh</button>
+          <Link href="/optimization/planner" className="btn btn-primary btn-sm"><Icon name="target" size={13}/> Run planner</Link>
         </div>
-        <div className="tiny muted" style={{ marginTop: 6 }}>Solved in 0.42s · 312 iterations</div>
-        <div className="tiny muted">Last run 12 min ago</div>
       </div>
-      <div className="metric">
-        <div className="metric-label">Projected profit</div>
-        <div className="metric-value">LKR 1.86M</div>
-        <div className="metric-delta up">↑ 18% vs baseline plan</div>
-      </div>
-    </div>
 
-    {/* Quick nav cards */}
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-      {[
-        { t: 'Field recommendations', d: 'See suitable crops by field with scores and profit.', icon: 'leaf', color: 'var(--primary)' },
-        { t: 'Optimization planner', d: 'Set constraints → get optimal crop allocation.', icon: 'target', color: 'var(--secondary)' },
-        { t: 'Scenarios', d: 'Save, compare, and share what-if scenarios.', icon: 'chart', color: 'var(--accent)' },
-        { t: 'Adaptive tuning', d: 'Weight risk, yield, price → live preview.', icon: 'flash', color: '#7B1FA2' },
-      ].map((c, i) => (
-        <div key={i} className="card" style={{ padding: 18, cursor: 'pointer' }}>
-          <div style={{ width: 34, height: 34, borderRadius: 8, background: c.color + '22', color: c.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name={c.icon} size={17}/>
+      <ApiState loading={loading && !supply} error={error} onRetry={loadData}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+          <div className="metric">
+            <div className="metric-label">Total fields</div>
+            <div className="metric-value">{totalFields}</div>
           </div>
-          <div style={{ fontSize: 13.5, fontWeight: 600, marginTop: 10 }}>{c.t}</div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>{c.d}</div>
-          <div style={{ fontSize: 11, color: c.color, fontWeight: 600, marginTop: 12, display: 'flex', alignItems: 'center', gap: 4 }}>Open <Icon name="arrow" size={12}/></div>
+          <div className="metric">
+            <div className="metric-label">Total area</div>
+            <div className="metric-value">{Number(totalArea).toFixed(1)} <span style={{ fontSize: 12, color: 'var(--muted)' }}>ha</span></div>
+          </div>
+          <div className="metric">
+            <div className="metric-label">Water allocated</div>
+            <div className="metric-value">{totalWaterMm} <span style={{ fontSize: 12, color: 'var(--muted)' }}>mm</span></div>
+          </div>
+          <div className="metric">
+            <div className="metric-label">Projected profit</div>
+            <div className="metric-value">LKR {Math.round(Number(totalProfit) / 1000)}k</div>
+          </div>
         </div>
-      ))}
-    </div>
 
-    <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 14, marginTop: 14 }}>
-      <div className="card">
-        <div className="card-head"><div className="card-title">Allocation plan · current season</div><Chip kind="info" dot={false}>Converged</Chip></div>
-        <BarChart
-          data={[
-            [2.4, 1.8, 3.1, 0, 0],
-            [0, 0, 0, 1.2, 0],
-            [0, 0, 0, 0, 0.6],
-          ]}
-          stacked width={560} height={160}
-          color={['var(--primary)', 'var(--secondary)', 'var(--accent)']}
-          labels={['H-04 Home','H-04 East','H-04 S','H-05 A','H-07 Up']}
-        />
-      </div>
-      <div className="card">
-        <div className="card-head"><div className="card-title">Constraint satisfaction</div><Chip kind="live">All met</Chip></div>
-        {[
-          ['Water quota ≤ 980 mm', true, '607 mm allocated'],
-          ['Paddy area ≥ 50%', true, '58% paddy (5.5 of 9.1 ha)'],
-          ['At least 2 rainfed crops', true, '2 (green gram, groundnut)'],
-          ['Risk tolerance ≤ 0.35', true, 'Scenario risk 0.28'],
-          ['Profit target LKR 1.5M', true, 'Projected 1.86M'],
-        ].map((r, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: i < 4 ? '1px solid var(--line)' : 'none' }}>
-            <div style={{ width: 22, height: 22, borderRadius: 50, background: 'var(--primary-50)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="check" size={13}/></div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 600 }}>{r[0]}</div>
-              <div className="tiny muted">{r[2]}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
+          <div className="card">
+            <div className="card-head">
+              <div className="card-title">Water budget by crop</div>
+            </div>
+            {cropBreakdown.length === 0 ? (
+              <div className="tiny muted" style={{ padding: 20 }}>No breakdown data available</div>
+            ) : (
+              <table className="tbl">
+                <thead>
+                  <tr><th>Crop</th><th>Area</th><th>Water</th><th>Share</th></tr>
+                </thead>
+                <tbody>
+                  {cropBreakdown.slice(0, 8).map((c: any, i: number) => (
+                    <tr key={i}>
+                      <td style={{ fontWeight: 600 }}>{c.crop_name || c.name || '—'}</td>
+                      <td className="tabular">{c.area_ha?.toFixed(1) ?? '—'} ha</td>
+                      <td className="tabular">{c.water_mm ?? c.water_allocated_mm ?? '—'} mm</td>
+                      <td className="tabular">{c.share_pct?.toFixed(0) ?? '—'}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+          <div className="card">
+            <div className="card-head">
+              <div className="card-title">Quick actions</div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+              <Link href="/optimization/recommendations" className="btn btn-ghost" style={{ width: '100%', justifyContent: 'flex-start' }}>
+                <Icon name="chart" size={14}/> View crop recommendations
+              </Link>
+              <Link href="/optimization/planner" className="btn btn-ghost" style={{ width: '100%', justifyContent: 'flex-start' }}>
+                <Icon name="target" size={14}/> Run new optimization
+              </Link>
+              <Link href="/optimization/scenarios" className="btn btn-ghost" style={{ width: '100%', justifyContent: 'flex-start' }}>
+                <Icon name="play" size={14}/> Evaluate scenarios
+              </Link>
+              <Link href="/optimization/adaptive" className="btn btn-ghost" style={{ width: '100%', justifyContent: 'flex-start' }}>
+                <Icon name="gear" size={14}/> Adaptive tuning
+              </Link>
             </div>
           </div>
-        ))}
-      </div>
-    </div>
-  </Frame>
-);
-
-// [15] FIELD RECOMMENDATIONS
+        </div>
+      </ApiState>
+    </Frame>
+  );
+};
 
 export default function Page() {
   return (

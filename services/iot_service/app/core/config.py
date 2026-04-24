@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     port: int = 8006
 
     # CORS Origins
-    cors_origins: list = ["http://localhost:8005", "http://localhost:5173", "http://localhost:8000"]
+    cors_origins: list = ["http://localhost:8005", "http://localhost:5173", "http://localhost:3000", "http://localhost:8000"]
 
     # Logging
     log_level: str = "INFO"

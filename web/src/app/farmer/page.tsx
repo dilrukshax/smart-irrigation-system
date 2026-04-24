@@ -4,6 +4,7 @@
 /* eslint-disable */
 
 import * as React from 'react';
+import Link from 'next/link';
 import {
   Icon,
   LogoMark,
@@ -23,191 +24,216 @@ import {
 } from '@/components/asi/ui';
 import { farmerNav, officerNav, authorityNav, irrigationNav, optNav } from '@/components/asi/nav';
 import { PublicTop } from '@/components/asi/public-top';
+import { ApiState, InlineLoader } from '@/components/asi/api-state';
+import { apiGet } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 
-const FarmerPortal = () => (
-  <Frame
-    sidebar={farmerNav}
-    breadcrumb={['Farmer', 'Dashboard']}
-    user="Nimal Perera"
-    role="Farmer · H-04"
-  >
-    <div className="page-head">
-      <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Good morning, Nimal · 5:48 AM</div>
-        <div className="page-title">Today's plan for Mahaweli H-04</div>
-        <div className="page-sub">3 fields · Maha season · Day 42 of 120 · Paddy growth stage: Tillering</div>
-      </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button className="btn btn-ghost btn-sm"><Icon name="download" size={13}/> Export</button>
-        <button className="btn btn-primary btn-sm"><Icon name="plus" size={13}/> New field</button>
-      </div>
-    </div>
+const FarmerPortal = () => {
+  const { user } = useAuth();
+  const [fields, setFields] = React.useState<any[]>([]);
+  const [reservoir, setReservoir] = React.useState<any>(null);
+  const [weather, setWeather] = React.useState<any>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
 
-    {/* Announcement */}
-    <div style={{ background: 'var(--accent-50)', border: '1px solid #F7E5B0', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-      <Icon name="bell" size={18} color="#B27500"/>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 600, color: '#7A5200' }}>Reservoir release scheduled: Tuesday 5:00 AM – 11:00 AM</div>
-        <div style={{ fontSize: 11.5, color: '#8A6A20' }}>Ulhitiya will release 42 mm across H-04. Adjust your manual requests by Monday 6 PM.</div>
-      </div>
-      <button className="btn btn-ghost btn-sm">Details</button>
-      <Icon name="x" size={14} color="#B27500"/>
-    </div>
+  const loadData = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [fieldsRes, reservoirRes, weatherRes] = await Promise.allSettled([
+        apiGet<any>('/farm/fields'),
+        apiGet<any>('/water-management/reservoir/current'),
+        apiGet<any>('/forecast/weather'),
+      ]);
 
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
-      {/* Water Budget */}
-      <div className="card">
-        <div className="card-head">
-          <div>
-            <div className="card-title">Water budget</div>
-            <div className="tiny muted">Maha 2025 · 120-day quota</div>
-          </div>
-          <Chip kind="warn">Caution</Chip>
+      if (fieldsRes.status === 'fulfilled') {
+        const fieldList = Array.isArray(fieldsRes.value)
+          ? fieldsRes.value
+          : fieldsRes.value?.fields || fieldsRes.value?.data || [];
+        setFields(fieldList);
+      }
+      if (reservoirRes.status === 'fulfilled') setReservoir(reservoirRes.value);
+      if (weatherRes.status === 'fulfilled') setWeather(weatherRes.value);
+
+      // If all failed, surface error
+      if (fieldsRes.status === 'rejected' && reservoirRes.status === 'rejected' && weatherRes.status === 'rejected') {
+        setError('Unable to load dashboard data. Please check your connection and try again.');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Compute derived values
+  const quota_mm = reservoir?.quota_mm || reservoir?.season_quota_mm || 980;
+  const used_mm = reservoir?.used_mm || reservoir?.used_season_mm || 0;
+  const remaining_mm = Math.max(0, quota_mm - used_mm);
+  const percentUsed = quota_mm > 0 ? Math.round((used_mm / quota_mm) * 100) : 0;
+  const weatherTemp = weather?.temperature_celsius ?? weather?.temperature ?? null;
+  const weatherHumidity = weather?.humidity_percent ?? weather?.humidity ?? null;
+  const weatherCondition = weather?.condition || weather?.description || 'Loading...';
+
+  const displayName = user?.username || 'Farmer';
+  const schemeLabel = user?.scheme_ids?.[0] || 'H-04';
+
+  return (
+    <Frame
+      sidebar={farmerNav}
+      breadcrumb={['Farmer', 'Dashboard']}
+      user={displayName}
+      role={`Farmer · ${schemeLabel}`}
+    >
+      <div className="page-head">
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Good morning, {displayName}</div>
+          <div className="page-title">Today's plan for Mahaweli {schemeLabel}</div>
+          <div className="page-sub">{fields.length} field{fields.length !== 1 ? 's' : ''} · Maha season · Paddy growth stage: Tillering</div>
         </div>
-        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-          <Gauge value={62} size={130} color="var(--accent)" label="62%" sub="of quota used"/>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div><div className="tiny muted">Quota</div><div style={{ fontSize: 17, fontWeight: 700 }} className="tabular">980 mm</div></div>
-            <div><div className="tiny muted">Used · day 42</div><div style={{ fontSize: 17, fontWeight: 700, color: 'var(--accent)' }} className="tabular">607 mm</div></div>
-            <div><div className="tiny muted">Remaining</div><div style={{ fontSize: 17, fontWeight: 700, color: 'var(--primary)' }} className="tabular">373 mm</div></div>
-          </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-ghost btn-sm" onClick={loadData}><Icon name="download" size={13}/> Refresh</button>
+          <Link href="/farmer/onboarding" className="btn btn-primary btn-sm"><Icon name="plus" size={13}/> New field</Link>
         </div>
-        <div className="divider" style={{ margin: '14px 0 10px' }}/>
-        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Projected run-out: <b style={{ color: 'var(--text)' }}>day 108</b> — 12 days short of harvest. Switch H-07 to Plan B.</div>
       </div>
 
-      {/* Weather */}
-      <div className="card">
-        <div className="card-head">
-          <div className="card-title">Weather · Thalawa</div>
-          <Chip kind="live">Live · 6m ago</Chip>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <Icon name="cloud" size={46} color="var(--secondary)"/>
-          <div>
-            <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em' }} className="tabular">28.4°C</div>
-            <div className="tiny muted">Partly cloudy · Humidity 74%</div>
-          </div>
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <div className="tiny muted" style={{ marginBottom: 4 }}>7-day rain (mm)</div>
-          <BarChart data={[2,5,0,1,8,12,4]} width={280} height={70} color="var(--secondary)" labels={['Mo','Tu','We','Th','Fr','Sa','Su']}/>
-        </div>
-      </div>
-
-      {/* Scenario simulator */}
-      <div className="card">
-        <div className="card-head">
-          <div className="card-title">Quick scenario</div>
-          <Chip kind="sim" dot={false}>Simulated</Chip>
-        </div>
-        <div className="tiny muted">If your available water were…</div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
-          <div style={{ fontSize: 22, fontWeight: 700 }} className="tabular">420 mm</div>
-          <div className="tiny muted">· 43% of quota</div>
-        </div>
-        <input type="range" min="0" max="1000" defaultValue="420" style={{ width: '100%', marginTop: 6, accentColor: 'var(--primary)' }}/>
-        <div className="divider" style={{ margin: '12px 0' }}/>
-        <div className="tiny muted" style={{ marginBottom: 6 }}>Recommended mix</div>
-        {[['Paddy Bg 352', 58, 'var(--primary)'], ['Groundnut', 28, 'var(--secondary)'], ['Green gram', 14, 'var(--accent)']].map(r => (
-          <div key={r[0]} style={{ marginBottom: 6 }}>
-            <div className="between small"><span>{r[0]}</span><span className="tabular" style={{ fontWeight: 600 }}>{r[1]}%</span></div>
-            <div className="prog slim"><div className="prog-fill" style={{ width: r[1] + '%', background: r[2] }}/></div>
-          </div>
-        ))}
-      </div>
-    </div>
-
-    {/* Field overview + simulations */}
-    <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 14, marginTop: 14 }}>
-      <div className="card">
-        <div className="card-head">
-          <div className="card-title">Fields</div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button className="btn btn-ghost btn-sm">All (3)</button>
-            <button className="btn btn-ghost btn-sm">Active valves (1)</button>
-          </div>
-        </div>
-        {[
-          { name: 'H-04 · Home paddy', crop: 'Paddy Bg 352', area: '2.4 ha', moist: 62, valve: 'Open', health: 'live' },
-          { name: 'H-04 · East plot', crop: 'Paddy Bg 352', area: '1.8 ha', moist: 48, valve: 'Closed', health: 'warn' },
-          { name: 'H-07 · Upper chili', crop: 'Chili (Capsicum)', area: '0.6 ha', moist: 31, valve: 'Closed', health: 'crit' },
-        ].map((f, i) => (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1.4fr 1fr 1fr 0.6fr', gap: 12, padding: '12px 0', borderBottom: i < 2 ? '1px solid var(--line)' : 'none', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>{f.name}</div>
-              <div className="tiny muted">{f.crop} · {f.area}</div>
+      <ApiState loading={loading && fields.length === 0} error={error} onRetry={loadData}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
+          {/* Water Budget */}
+          <div className="card">
+            <div className="card-head">
+              <div>
+                <div className="card-title">Water budget</div>
+                <div className="tiny muted">Maha 2025 · 120-day quota</div>
+              </div>
+              <Chip kind={percentUsed > 80 ? 'crit' : percentUsed > 60 ? 'warn' : 'live'}>
+                {percentUsed > 80 ? 'Critical' : percentUsed > 60 ? 'Caution' : 'On track'}
+              </Chip>
             </div>
-            <div>
-              <div className="tiny muted">Soil moisture</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div className="prog" style={{ flex: 1 }}><div className="prog-fill" style={{ width: f.moist + '%', background: f.moist < 35 ? 'var(--danger)' : f.moist < 50 ? 'var(--accent)' : 'var(--primary)' }}/></div>
-                <div className="tabular small" style={{ fontWeight: 600 }}>{f.moist}%</div>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+              <Gauge value={percentUsed} size={130} color="var(--accent)" label={`${percentUsed}%`} sub="of quota used"/>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div><div className="tiny muted">Quota</div><div style={{ fontSize: 17, fontWeight: 700 }} className="tabular">{quota_mm} mm</div></div>
+                <div><div className="tiny muted">Used</div><div style={{ fontSize: 17, fontWeight: 700, color: 'var(--accent)' }} className="tabular">{Math.round(used_mm)} mm</div></div>
+                <div><div className="tiny muted">Remaining</div><div style={{ fontSize: 17, fontWeight: 700, color: 'var(--primary)' }} className="tabular">{Math.round(remaining_mm)} mm</div></div>
               </div>
             </div>
-            <Chip kind={f.valve === 'Open' ? 'live' : 'off'}>{f.valve === 'Open' ? <Icon name="valve" size={10}/> : null} {f.valve}</Chip>
-            <Chip kind={f.health}>{f.health === 'live' ? 'Healthy' : f.health === 'warn' ? 'Stressed' : 'Critical'}</Chip>
-            <Icon name="arrow" size={14} color="var(--muted)"/>
+            <div className="divider" style={{ margin: '14px 0 10px' }}/>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              {reservoir?.status_message || `Source: ${reservoir?.source || 'live'}`}
+            </div>
           </div>
-        ))}
-      </div>
 
-      {/* Adaptive simulator */}
-      <div className="card">
-        <div className="card-head">
-          <div className="card-title">Adaptive simulation</div>
-          <Chip kind="info" dot={false}>ACA-O</Chip>
-        </div>
-        <div className="tiny muted" style={{ marginBottom: 10 }}>Tune your priority → see projected outcome</div>
-        {[['Risk tolerance', 40], ['Yield weight', 65], ['Price weight', 50]].map(r => (
-          <div key={r[0]} style={{ marginBottom: 10 }}>
-            <div className="between small" style={{ marginBottom: 2 }}><span className="muted">{r[0]}</span><span className="tabular" style={{ fontWeight: 600 }}>{r[1]}%</span></div>
-            <input type="range" defaultValue={r[1]} style={{ width: '100%', accentColor: 'var(--primary)' }}/>
+          {/* Weather */}
+          <div className="card">
+            <div className="card-head">
+              <div className="card-title">Weather</div>
+              {weather ? (
+                <Chip kind={weather.is_live ? 'live' : 'sim'}>{weather.is_live ? 'Live' : 'Cached'}</Chip>
+              ) : (
+                <InlineLoader/>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <Icon name="cloud" size={46} color="var(--secondary)"/>
+              <div>
+                <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em' }} className="tabular">
+                  {weatherTemp !== null ? `${weatherTemp.toFixed(1)}°C` : '—'}
+                </div>
+                <div className="tiny muted">
+                  {weatherCondition}{weatherHumidity !== null ? ` · Humidity ${weatherHumidity}%` : ''}
+                </div>
+              </div>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <div className="tiny muted" style={{ marginBottom: 4 }}>Source</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>{weather?.source || weather?.data_source || 'Open-Meteo'}</div>
+            </div>
           </div>
-        ))}
-        <div className="divider" style={{ margin: '10px 0' }}/>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 8 }}>
-          <div className="metric" style={{ padding: 10 }}>
-            <div className="metric-label">Projected yield</div>
-            <div className="metric-value" style={{ fontSize: 18 }}>4.6 <span style={{ fontSize: 12, color: 'var(--muted)' }}>t/ha</span></div>
-            <div className="metric-delta up">↑ 12% vs baseline</div>
-          </div>
-          <div className="metric" style={{ padding: 10 }}>
-            <div className="metric-label">Projected profit</div>
-            <div className="metric-value" style={{ fontSize: 18 }}>LKR 284k</div>
-            <div className="metric-delta up">↑ 18%</div>
-          </div>
-        </div>
-      </div>
-    </div>
 
-    {/* Crop water contribution */}
-    <div className="card" style={{ marginTop: 14 }}>
-      <div className="card-head">
-        <div className="card-title">Water contribution by crop · last 30 days</div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11 }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, background: 'var(--primary)', borderRadius: 2 }}/>Paddy</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, background: 'var(--secondary)', borderRadius: 2 }}/>Chili</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, background: 'var(--accent)', borderRadius: 2 }}/>Groundnut</span>
+          {/* Quick scenario - static until planner is used */}
+          <div className="card">
+            <div className="card-head">
+              <div className="card-title">Quick scenario</div>
+              <Chip kind="sim" dot={false}>Simulator</Chip>
+            </div>
+            <div className="tiny muted">Run adaptive optimization for your fields</div>
+            <div style={{ fontSize: 12, marginTop: 12, color: 'var(--muted)' }}>
+              Configure your constraints on the <Link href="/optimization/planner" style={{ color: 'var(--primary-600)', fontWeight: 600 }}>Planner page</Link> to generate an optimal crop allocation.
+            </div>
+            <div style={{ marginTop: 16 }}>
+              <Link href="/optimization/adaptive" className="btn btn-ghost btn-sm" style={{ width: '100%' }}>
+                <Icon name="target" size={13}/> Open adaptive tuning
+              </Link>
+            </div>
+          </div>
         </div>
-      </div>
-      <BarChart
-        data={[
-          [18,22,16,24,28,20,18,22,24,26,20,24,28,22,20,24,26,28,22,18,22,26,28,24,20,22,26,28,20,24],
-          [4,6,5,8,6,4,5,6,8,7,5,6,8,7,6,5,6,8,7,6,5,6,8,7,5,6,7,8,6,5],
-          [2,3,2,3,4,3,2,3,4,3,2,3,4,3,2,3,4,3,2,3,4,3,4,3,2,3,4,3,2,3]
-        ]}
-        stacked
-        width={1040}
-        height={140}
-        color={['var(--primary)', 'var(--secondary)', 'var(--accent)']}
-        labels={Array.from({length:30}, (_,i) => i%5===0 ? 'd'+(i+1) : '')}
-      />
-    </div>
-  </Frame>
-);
 
-// [6] FIELD LIST
+        {/* Field overview */}
+        <div style={{ marginTop: 14 }}>
+          <div className="card">
+            <div className="card-head">
+              <div className="card-title">Fields</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <Link href="/farmer/fields" className="btn btn-ghost btn-sm">View all ({fields.length})</Link>
+              </div>
+            </div>
+            {fields.length === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+                No fields yet. <Link href="/farmer/onboarding" style={{ color: 'var(--primary-600)', fontWeight: 600 }}>Create your first field →</Link>
+              </div>
+            ) : (
+              fields.slice(0, 5).map((f: any, i: number) => {
+                const fieldId = f.field_id || f.id;
+                const fieldName = f.field_name || f.name || fieldId;
+                const cropType = f.crop_type || f.crop || 'Unknown';
+                const area = f.area_hectares || f.area || 0;
+                const telemetry = f.latest_telemetry || f.telemetry || {};
+                const moisture = telemetry.soil_moisture_pct ?? telemetry.soil_moisture ?? null;
+                const valveState = f.valve_state?.state || f.valve_state || f.valve || 'Closed';
+                const isOpen = String(valveState).toLowerCase() === 'open';
+                const healthState = moisture === null ? 'off' : moisture < 35 ? 'crit' : moisture < 50 ? 'warn' : 'live';
+
+                return (
+                  <Link
+                    key={fieldId || i}
+                    href={`/farmer/field/${fieldId}`}
+                    style={{ display: 'grid', gridTemplateColumns: '2fr 1.4fr 1fr 1fr 0.6fr', gap: 12, padding: '12px 0', borderBottom: i < Math.min(fields.length - 1, 4) ? '1px solid var(--line)' : 'none', alignItems: 'center', textDecoration: 'none', color: 'inherit' }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{fieldName}</div>
+                      <div className="tiny muted">{cropType} · {area} ha</div>
+                    </div>
+                    <div>
+                      <div className="tiny muted">Soil moisture</div>
+                      {moisture !== null ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div className="prog" style={{ flex: 1 }}>
+                            <div className="prog-fill" style={{ width: moisture + '%', background: moisture < 35 ? 'var(--danger)' : moisture < 50 ? 'var(--accent)' : 'var(--primary)' }}/>
+                          </div>
+                          <div className="tabular small" style={{ fontWeight: 600 }}>{Math.round(moisture)}%</div>
+                        </div>
+                      ) : (
+                        <div className="tiny muted">No data</div>
+                      )}
+                    </div>
+                    <Chip kind={isOpen ? 'live' : 'off'}>{isOpen ? <Icon name="valve" size={10}/> : null} {isOpen ? 'Open' : 'Closed'}</Chip>
+                    <Chip kind={healthState}>{healthState === 'live' ? 'Healthy' : healthState === 'warn' ? 'Stressed' : healthState === 'crit' ? 'Critical' : 'Unknown'}</Chip>
+                    <Icon name="arrow" size={14} color="var(--muted)"/>
+                  </Link>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </ApiState>
+    </Frame>
+  );
+};
 
 export default function Page() {
   return (

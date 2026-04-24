@@ -258,8 +258,10 @@ app.add_middleware(
         "http://localhost",
         "http://localhost:8005",  # React dev server
         "http://localhost:8080",  # Vue dev server
+        "http://localhost:3000",  # Next.js dev server
         "http://127.0.0.1",
         "http://127.0.0.1:8005",
+        "http://127.0.0.1:3000",
     ],
     allow_credentials=True,
     allow_methods=["*"],  # Allow all HTTP methods
