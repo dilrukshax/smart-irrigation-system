@@ -27,7 +27,8 @@ help:
 	@echo "  make logs           - View logs from all services"
 
 # Variables
-DOCKER_COMPOSE = docker compose -f infrastructure/docker/docker-compose.yml
+# Always pass the root .env so docker-compose interpolation reads from the single source of truth.
+DOCKER_COMPOSE = docker compose --env-file .env -f infrastructure/docker/docker-compose.yml
 REGISTRY ?= localhost:5000
 TAG ?= latest
 
@@ -44,6 +45,14 @@ stop:
 
 logs:
 	$(DOCKER_COMPOSE) logs -f
+
+# Start only infrastructure dependencies then the config server for local (non-Docker) dev.
+# Services running outside Docker will auto-fetch config from the local config server on port 8010.
+config-server:
+	@set -a && . ./.env && set +a && \
+	cd services/config_server && \
+	pip install -q -r requirements.txt && \
+	uvicorn app.main:app --host 0.0.0.0 --port 8010 --reload
 
 # Build
 build:

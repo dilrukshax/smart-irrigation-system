@@ -1,8 +1,13 @@
 # Smart Irrigation System - Docker Compose (Local E2E)
+#
+# Run from the project root:  make dev
+# The root .env file is the single source of truth for all configuration.
+# The config_server loads .env and distributes settings to every service at startup.
 
 services:
   config_server:
     build: ../../services/config_server
+    env_file: ../../.env
     environment:
       - HOST=0.0.0.0
       - PORT=8010
@@ -29,14 +34,22 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - config_server
-      - auth_service
-      - irrigation_service
-      - forecasting_service
-      - optimize_service
-      - iot_service
-      - crop_health_and_water_stress_detection
-      - web
+      config_server:
+        condition: service_healthy
+      auth_service:
+        condition: service_started
+      irrigation_service:
+        condition: service_started
+      forecasting_service:
+        condition: service_started
+      optimize_service:
+        condition: service_started
+      iot_service:
+        condition: service_started
+      crop_health_and_water_stress_detection:
+        condition: service_started
+      web:
+        condition: service_started
     networks:
       - smart-irrigation
     restart: unless-stopped
@@ -64,14 +77,11 @@ services:
       - CONFIG_SERVICE_NAME=auth_service
       - CONFIG_TIMEOUT_SEC=3
       - CONFIG_FAIL_FAST=false
-      - DEBUG=true
-      - HOST=0.0.0.0
-      - PORT=8001
-      - DATABASE_URL=postgresql://aca_o_user:aca_o_password@postgres:5432/aca_o_db
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-secret-key-change-me}
     depends_on:
-      - config_server
-      - postgres
+      config_server:
+        condition: service_healthy
+      postgres:
+        condition: service_started
     ports:
       - "8001:8001"
     networks:
@@ -93,22 +103,15 @@ services:
       - CONFIG_SERVICE_NAME=irrigation_service
       - CONFIG_TIMEOUT_SEC=3
       - CONFIG_FAIL_FAST=false
-      - ENVIRONMENT=development
-      - DEBUG=true
-      - PORT=8002
-      - AUTH_SERVICE_URL=http://auth_service:8001
-      - DATABASE_URL=postgresql://aca_o_user:aca_o_password@postgres:5432/aca_o_db
-      - FORECASTING_SERVICE_URL=http://forecasting_service:8003
-      - CROP_HEALTH_SERVICE_URL=http://crop_health_and_water_stress_detection:8007
-      - OPTIMIZATION_SERVICE_URL=http://optimize_service:8004
-      - IOT_SERVICE_URL=http://iot_service:8006
-      - MQTT_BROKER=mosquitto
-      - MQTT_PORT=1883
     depends_on:
-      - config_server
-      - postgres
-      - auth_service
-      - mosquitto
+      config_server:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+      auth_service:
+        condition: service_started
+      mosquitto:
+        condition: service_started
     ports:
       - "8002:8002"
     networks:
@@ -130,17 +133,13 @@ services:
       - CONFIG_SERVICE_NAME=forecasting_service
       - CONFIG_TIMEOUT_SEC=3
       - CONFIG_FAIL_FAST=false
-      - ENVIRONMENT=development
-      - DEBUG=true
-      - PORT=8003
-      - STRICT_LIVE_DATA=false
-      - ML_ONLY_MODE=false
-      - AUTH_SERVICE_URL=http://auth_service:8001
-      - DATABASE_URL=postgresql://aca_o_user:aca_o_password@postgres:5432/aca_o_db
     depends_on:
-      - config_server
-      - postgres
-      - auth_service
+      config_server:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+      auth_service:
+        condition: service_started
     ports:
       - "8003:8003"
     networks:
@@ -162,29 +161,21 @@ services:
       - CONFIG_SERVICE_NAME=optimize_service
       - CONFIG_TIMEOUT_SEC=3
       - CONFIG_FAIL_FAST=false
-      - APP_ENV=development
-      - APP_DEBUG=true
-      - APP_PORT=8004
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_USER=aca_o_user
-      - DB_PASSWORD=aca_o_password
-      - DB_NAME=aca_o_db
-      - DB_SSLMODE=disable
-      - IRRIGATION_SERVICE_URL=http://irrigation_service:8002
-      - FORECASTING_SERVICE_URL=http://forecasting_service:8003
-      - CROP_HEALTH_SERVICE_URL=http://crop_health_and_water_stress_detection:8007
-      - AUTH_SERVICE_URL=http://auth_service:8001
-      - MQTT_BROKER=mosquitto
-      - MQTT_PORT=1883
     depends_on:
-      - config_server
-      - postgres
-      - mosquitto
-      - auth_service
-      - irrigation_service
-      - forecasting_service
-      - crop_health_and_water_stress_detection
+      config_server:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+      mosquitto:
+        condition: service_started
+      auth_service:
+        condition: service_started
+      irrigation_service:
+        condition: service_started
+      forecasting_service:
+        condition: service_started
+      crop_health_and_water_stress_detection:
+        condition: service_started
     ports:
       - "8004:8004"
     networks:
@@ -206,26 +197,15 @@ services:
       - CONFIG_SERVICE_NAME=iot_service
       - CONFIG_TIMEOUT_SEC=3
       - CONFIG_FAIL_FAST=false
-      - ENVIRONMENT=development
-      - DEBUG=true
-      - PORT=8006
-      - DATABASE_URL=${DATABASE_URL:-postgresql://aca_o_user:aca_o_password@postgres:5432/aca_o_db}
-      - INFLUXDB_URL=http://influxdb:8086
-      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:-dev-token-smart-irrigation}
-      - INFLUXDB_ORG=smart-irrigation
-      - INFLUXDB_BUCKET=sensors
-      - MQTT_BROKER=mosquitto
-      - MQTT_PORT=1883
-      - MQTT_USERNAME=${MQTT_USERNAME:-}
-      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
-      - DEVICE_API_KEYS=${DEVICE_API_KEYS:-}
-      - IRRIGATION_SERVICE_URL=http://irrigation_service:8002
-      - DEVICE_FIELD_MAP=${DEVICE_FIELD_MAP:-}
     depends_on:
-      - config_server
-      - influxdb
-      - mosquitto
-      - irrigation_service
+      config_server:
+        condition: service_healthy
+      influxdb:
+        condition: service_started
+      mosquitto:
+        condition: service_started
+      irrigation_service:
+        condition: service_started
     ports:
       - "8006:8006"
     networks:
@@ -247,17 +227,13 @@ services:
       - CONFIG_SERVICE_NAME=crop_health_and_water_stress_detection
       - CONFIG_TIMEOUT_SEC=3
       - CONFIG_FAIL_FAST=false
-      - DEBUG=true
-      - HOST=0.0.0.0
-      - PORT=8007
-      - ENVIRONMENT=development
-      - AUTH_SERVICE_URL=http://auth_service:8001
-      - MQTT_BROKER=mosquitto
-      - MQTT_PORT=1883
     depends_on:
-      - config_server
-      - mosquitto
-      - auth_service
+      config_server:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+      auth_service:
+        condition: service_started
     ports:
       - "8007:8007"
     networks:
@@ -270,20 +246,12 @@ services:
       retries: 3
       start_period: 10s
 
-  mongo:
-    image: mongo:7
-    volumes:
-      - mongo_data:/data/db
-    networks:
-      - smart-irrigation
-    restart: unless-stopped
-
   postgres:
     image: postgres:16-alpine
     environment:
-      - POSTGRES_USER=aca_o_user
-      - POSTGRES_PASSWORD=aca_o_password
-      - POSTGRES_DB=aca_o_db
+      - POSTGRES_USER=${POSTGRES_USER:-aca_o_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-aca_o_password}
+      - POSTGRES_DB=${POSTGRES_DB:-aca_o_db}
     ports:
       - "5432:5432"
     volumes:
@@ -308,9 +276,9 @@ services:
       - DOCKER_INFLUXDB_INIT_MODE=setup
       - DOCKER_INFLUXDB_INIT_USERNAME=admin
       - DOCKER_INFLUXDB_INIT_PASSWORD=adminpassword
-      - DOCKER_INFLUXDB_INIT_ORG=smart-irrigation
-      - DOCKER_INFLUXDB_INIT_BUCKET=sensors
-      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=dev-token-smart-irrigation
+      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_ORG:-smart-irrigation}
+      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_BUCKET:-sensors}
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_TOKEN:-dev-token-smart-irrigation}
     volumes:
       - influxdb_data:/var/lib/influxdb2
     networks:
@@ -346,8 +314,8 @@ services:
   grafana:
     image: grafana/grafana:latest
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
     volumes:
       - grafana_data:/var/lib/grafana
       - ../../platform/observability/grafana/dashboards:/etc/grafana/provisioning/dashboards
@@ -376,7 +344,6 @@ networks:
     driver: bridge
 
 volumes:
-  mongo_data:
   postgres_data:
   redis_data:
   influxdb_data:
