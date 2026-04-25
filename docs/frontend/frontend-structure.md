@@ -6,7 +6,7 @@
 
 ## Technology Stack
 
-Based on the project requirements (Section 2.3 of PROJECT_OVERVIEW.md):
+Based on the project requirements in [Project Overview](../overview/project-overview.md):
 
 | Category | Technology |
 |----------|------------|
@@ -403,6 +403,6 @@ The dashboard uses **MUI (Material UI)** with a custom theme:
 
 ## Related Documentation
 
-- [Project Overview](./PROJECT_OVERVIEW.md)
-- [API Specifications](./api-specs/) *(to be created)*
-- [Architecture Diagrams](./diagrams/) *(to be created)*
+- [Project Overview](../overview/project-overview.md)
+- [API Documentation](../api/README.md)
+- [Architecture Decisions](../architecture/decisions.md)

@@ -717,7 +717,7 @@ These projections are consistent with F1's HistGradBoost results on the same dat
 
 ## 15. Figures and Visualizations
 
-All figures are saved in `Research paper /resources/forecasting/`.
+All figures are saved in `docs/research/resources/forecasting/`.
 
 | Figure | Filename | Description |
 |--------|----------|-------------|

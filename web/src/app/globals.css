@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+@theme {
+  --font-serif: 'Inter', -apple-system, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
 /* cyrillic-ext */
 @font-face {
   font-family: 'Inter';
@@ -379,6 +384,11 @@
   --border: #E4EAE1;
   --line: #EFF3EC;
   --ink-soft: #3A4A3A;
+  --serif: 'Inter', -apple-system, system-ui, sans-serif;
+  --sans: 'Inter', -apple-system, system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --bg-warm: #F9F8F2;
+  --primary-700: #1B5E20;
 }
 
 * { box-sizing: border-box; }
@@ -529,6 +539,8 @@
 .btn-ghost:hover { background: #F6F8F4; }
 .btn-sm { height: 28px; padding: 0 10px; font-size: 11.5px; border-radius: 6px; }
 .btn-amber { background: var(--accent); color: #3A2900; }
+.btn-dark { background: var(--text); color: white; }
+.btn-dark:hover { background: #000; }
 
 /* ——— Inputs ——— */
 .field {
@@ -632,6 +644,11 @@
 
 /* Checkered/zebra soft lines */
 .divider { height: 1px; background: var(--line); }
+
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(46, 125, 50, 0); }
+}
 
 html, body { margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
 

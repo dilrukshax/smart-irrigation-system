@@ -698,18 +698,19 @@ These affect AI agents and new contributors — read before editing.
 |----------|----------|---------|
 | AGENT.md | root | Operational guide for AI agents and contributors |
 | README.md | root | Project overview, quick start, architecture |
-| PROJECT_OVERVIEW.md | docs/ | Full system design, features, use cases |
-| FRONTEND_STRUCTURE.md | docs/ | Legacy React/Vite folder layout reference (outdated during Next.js migration) |
-| SYSTEM_REDESIGN_ARCHITECTURE_AND_USER_FLOWS.md | root/docs/ | Role-based redesign: Farmer/Officer/Authority |
-| FARMER_PORTAL_IMPLEMENTATION_NOTES.md | docs/ | Farmer portal features, API, multilingual |
-| F1 README | docs/f1-irrigation-function/ | F1 endpoints, persistence, role guards, flows |
-| F2 README | docs/f2-crop-health-function/ | F2 zone analysis, validation, image prediction |
-| F3 README | docs/f3-forecasting-function/ | F3 models, weather, risk, alerts |
-| F4 README | docs/f4-optimize-function/ | F4 recommendations, optimization, Plan B |
+| Docs index | docs/README.md | Small map of the organized docs folder |
+| Project overview | docs/overview/project-overview.md | Full system design, features, use cases |
+| Frontend structure | docs/frontend/frontend-structure.md | Legacy React/Vite folder layout reference (outdated during Next.js migration) |
+| Role flows and flaws | docs/frontend/role-functional-flows-and-flaws.md | Farmer, officer, and authority flow notes |
+| Farmer portal notes | docs/planning/farmer-portal-implementation-notes.md | Farmer portal features, API, multilingual |
+| F1 Irrigation | docs/functions/f1-irrigation.md | F1 endpoints, persistence, role guards, flows |
+| F2 Crop Health | docs/functions/f2-crop-health.md | F2 zone analysis, validation, image prediction |
+| F3 Forecasting | docs/functions/f3-forecasting.md | F3 models, weather, risk, alerts |
+| F4 Optimize | docs/functions/f4-optimize.md | F4 recommendations, optimization, Plan B |
 | Architecture Decisions | docs/architecture/decisions.md | ADR records |
 | Runbooks | docs/runbooks/ | Service recovery, migration guides |
-| Local Dev Guide | docs/LOCAL_DEVELOPMENT_GUIDE.md | Step-by-step local setup |
-| IoT Setup | docs/IOT_SETUP_GUIDE.md | ESP32 hardware setup and MQTT config |
+| Local Dev Guide | docs/guides/local-development.md | Step-by-step local setup |
+| IoT Setup | docs/guides/iot-setup.md | ESP32 hardware setup and MQTT config |
 
 ---
 

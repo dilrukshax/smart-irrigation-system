@@ -235,7 +235,7 @@ Renders:
 ### 2.4 Sidebar Navigation Issues (Officer)
 
 **Nav badge is hardcoded:**
-`badge: 12` is static in [nav.ts](../web/src/components/asi/nav.ts). The "Manual Requests" sidebar item always shows "12" regardless of actual pending count.
+`badge: 12` is static in [nav.ts](../../web/src/components/asi/nav.ts). The "Manual Requests" sidebar item always shows "12" regardless of actual pending count.
 
 **Alert Queue nav item has no page:**
 The sidebar shows "Alert Queue" but no `/operations/alert-queue` route exists — clicking it returns a 404.
@@ -314,7 +314,7 @@ Publish policy:
 
 ### 3.3 Sidebar Navigation Issues (Authority)
 
-Four sidebar nav items exist in [nav.ts](../web/src/components/asi/nav.ts) with no corresponding route pages:
+Four sidebar nav items exist in [nav.ts](../../web/src/components/asi/nav.ts) with no corresponding route pages:
 
 | Nav Item | Expected Route | Page File |
 |----------|---------------|-----------|

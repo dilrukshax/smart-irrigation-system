@@ -302,11 +302,15 @@ smart-irrigation-system/
 │   └── deploy.sh / .bat
 │
 ├── 📂 docs/                             # Documentation
-│   ├── PROJECT_OVERVIEW.md
-│   ├── FRONTEND_STRUCTURE.md
 │   ├── api/
 │   ├── architecture/
-│   │   └── decisions.md                 # Architecture Decision Records
+│   ├── frontend/
+│   ├── functions/
+│   ├── guides/
+│   ├── overview/
+│   ├── planning/
+│   ├── presentations/
+│   ├── research/
 │   └── runbooks/
 │
 ├── Makefile                             # Build & deployment commands
@@ -483,7 +487,7 @@ docker-compose up -d --build iot-service influxdb mosquitto
 - Subscribe: `devices/{device_id}/telemetry`
 - Publish: `devices/{device_id}/cmd`
 
-📘 **Full Setup Guide:** [IOT_SETUP_GUIDE.md](IOT_SETUP_GUIDE.md)
+📘 **Full Setup Guide:** [IoT Setup Guide](./docs/guides/iot-setup.md)
 
 ---
 
@@ -1026,8 +1030,9 @@ test: Add unit tests for forecasting service
 
 ## 📚 Additional Resources
 
-- [Project Overview](./docs/PROJECT_OVERVIEW.md) - Detailed system documentation
-- [Frontend Structure](./docs/FRONTEND_STRUCTURE.md) - Frontend architecture
+- [Documentation Index](./docs/README.md) - Organized docs map
+- [Project Overview](./docs/overview/project-overview.md) - Detailed system documentation
+- [Frontend Structure](./docs/frontend/frontend-structure.md) - Frontend architecture
 - [Architecture Decisions](./docs/architecture/decisions.md) - ADR records
 - [API Documentation](./docs/api/) - Detailed API specs
 - [Runbooks](./docs/runbooks/) - Operational guides

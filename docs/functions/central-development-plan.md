@@ -10,10 +10,10 @@ This is the centralized development document for implementing the full Smart Irr
 Use this file as the main implementation entry point.
 
 ## Canonical Function Documents
-- F1 Irrigation: [docs/f1-irrigation-function/README.md](../f1-irrigation-function/README.md)
-- F2 Crop Health: [docs/f2-crop-health-function/README.md](../f2-crop-health-function/README.md)
-- F3 Forecasting: [docs/f3-forecasting-function/README.md](../f3-forecasting-function/README.md)
-- F4 Optimize: [docs/f4-optimize-function/README.md](../f4-optimize-function/README.md)
+- F1 Irrigation: [f1-irrigation.md](./f1-irrigation.md)
+- F2 Crop Health: [f2-crop-health.md](./f2-crop-health.md)
+- F3 Forecasting: [f3-forecasting.md](./f3-forecasting.md)
+- F4 Optimize: [f4-optimize.md](./f4-optimize.md)
 
 ## End-to-End Functional Order
 ```mermaid

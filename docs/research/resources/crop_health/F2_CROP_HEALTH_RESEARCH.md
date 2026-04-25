@@ -806,7 +806,7 @@ adjusted_yield = expected_yield * (1 - stress_summary["stress_penalty_factor"])
 
 ## 14. Figures and Visualizations
 
-All figures are saved in `Research paper /resources/crop_health/`.
+All figures are saved in `docs/research/resources/crop_health/`.
 
 | Figure | Filename | Description |
 |--------|----------|-------------|
