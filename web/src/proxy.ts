@@ -7,7 +7,18 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-const PUBLIC_ROUTES = ['/', '/login', '/register', '/farmer/landing', '/(public)'];
+const PUBLIC_PATHS = new Set([
+  '/',
+  '/login',
+  '/register',
+  '/domain',
+  '/milestones',
+  '/documents',
+  '/presentations',
+  '/about',
+  '/contact',
+  '/farmer/landing',
+]);
 
 function decodeJWT(token: string): Record<string, unknown> | null {
   try {
@@ -22,11 +33,8 @@ function decodeJWT(token: string): Record<string, unknown> | null {
 }
 
 function isPublicRoute(pathname: string): boolean {
-  // Check exact matches and pattern matches
   return (
-    pathname === '/' ||
-    pathname === '/login' ||
-    pathname === '/register' ||
+    PUBLIC_PATHS.has(pathname) ||
     pathname.startsWith('/favicon') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api')
@@ -41,15 +49,15 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Public marketing/project routes — render regardless of auth state
+  if (isPublicRoute(pathname)) {
+    return NextResponse.next();
+  }
+
   // Get token from cookie
   const token = request.cookies.get('asi_access_token')?.value;
 
-  // If no token, check if route is public
   if (!token) {
-    if (isPublicRoute(pathname)) {
-      return NextResponse.next();
-    }
-    // Redirect to login
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
