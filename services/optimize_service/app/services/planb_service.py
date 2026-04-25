@@ -25,6 +25,7 @@ from app.core.schemas import (
     RecommendationRequest,
 )
 from app.services.recommendation_service import RecommendationService
+from app.core.contracts import build_contract
 
 logger = logging.getLogger(__name__)
 
@@ -97,15 +98,22 @@ class PlanBService:
         
         # Generate Plan B message
         message = self._generate_message(request, rec_response.recommendations)
-        
+
         # Adjust recommendations for Plan B context
         adjusted_plan = self._adjust_for_planb(rec_response.recommendations)
-        
+        contract = build_contract(
+            source="optimization_service",
+            observed_at=rec_response.observed_at,
+            data_available=bool(adjusted_plan),
+            raw_status=rec_response.status if adjusted_plan else "data_unavailable",
+            message=message,
+        )
+
         return PlanBResponse(
             field_id=request.field_id,
             season=request.season,
-            message=message,
             adjusted_plan=adjusted_plan,
+            **contract,
         )
     
     def _build_scenario(self, request: PlanBRequest) -> Dict[str, Any]:

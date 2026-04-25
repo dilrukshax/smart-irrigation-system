@@ -9,6 +9,7 @@ from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.roles import normalize_roles
 from app.db.postgres import Base
 
 
@@ -26,7 +27,7 @@ class User(Base):
     )
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     roles: Mapped[list[str]] = mapped_column(
-        ARRAY(String), nullable=False, default=list
+        ARRAY(String), nullable=False, default=lambda: ["farmer"]
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -47,7 +48,7 @@ class User(Base):
             "id": str(self.id),
             "username": self.username,
             "email": self.email,
-            "roles": self.roles or ["user"],
+            "roles": normalize_roles(self.roles),
             "is_active": self.is_active,
             "created_at": self.created_at,
             "updated_at": self.updated_at,

@@ -38,6 +38,27 @@ def _strict_model_unavailable_detail() -> dict:
     }
 
 
+def _prediction_contract(*, model_used: bool, data_available: bool, message: Optional[str] = None) -> dict:
+    now = datetime.utcnow()
+    status = "ok" if data_available else "source_unavailable"
+    quality = "good" if model_used else ("unknown" if data_available else "unavailable")
+    return {
+        "status": status,
+        "source": "crop_health_model" if model_used else "fallback_heuristic",
+        "is_live": model_used,
+        "observed_at": now.isoformat(),
+        "staleness_sec": 0.0,
+        "quality": quality,
+        "data_available": data_available,
+        "message": message
+        or (
+            "Prediction generated using trained model"
+            if model_used
+            else "Prediction generated using fallback heuristic"
+        ),
+    }
+
+
 @router.post(
     "/predict",
     response_model=ImagePredictionResponse,
@@ -97,6 +118,10 @@ async def predict_image(
         result = model.predict(img)
         
         # Create response
+        contract = _prediction_contract(
+            model_used=bool(result.get("model_used")),
+            data_available=bool(result.get("data_available", True)),
+        )
         response = ImagePredictionResponse(
             predicted_class=result["predicted_class"],
             confidence=result["confidence"],
@@ -110,7 +135,14 @@ async def predict_image(
             model_version=result.get("model_version"),
             input_contract_version=result.get("input_contract_version"),
             features_used_count=result.get("features_used_count"),
-            data_available=result.get("data_available", True),
+            status=contract["status"],
+            source=contract["source"],
+            is_live=contract["is_live"],
+            observed_at=contract["observed_at"],
+            staleness_sec=contract["staleness_sec"],
+            quality=contract["quality"],
+            data_available=contract["data_available"],
+            message=contract["message"],
             timestamp=datetime.utcnow()
         )
         
@@ -174,7 +206,12 @@ async def predict_from_url(
                 detail=_strict_model_unavailable_detail(),
             )
         result = model.predict(img)
-        
+
+        contract = _prediction_contract(
+            model_used=bool(result.get("model_used")),
+            data_available=bool(result.get("data_available", True)),
+        )
+
         return ImagePredictionResponse(
             predicted_class=result["predicted_class"],
             confidence=result["confidence"],
@@ -188,7 +225,14 @@ async def predict_from_url(
             model_version=result.get("model_version"),
             input_contract_version=result.get("input_contract_version"),
             features_used_count=result.get("features_used_count"),
-            data_available=result.get("data_available", True),
+            status=contract["status"],
+            source=contract["source"],
+            is_live=contract["is_live"],
+            observed_at=contract["observed_at"],
+            staleness_sec=contract["staleness_sec"],
+            quality=contract["quality"],
+            data_available=contract["data_available"],
+            message=contract["message"],
             timestamp=datetime.utcnow()
         )
         
@@ -219,13 +263,19 @@ async def get_model_status():
         "model_path": model.model_path,
         "image_size": model.img_size,
         "num_classes": len(model.class_labels),
-        "status": "ready" if model.loaded else "source_unavailable",
+        "status": "ok" if model.loaded else "source_unavailable",
+        "source": "crop_health_model",
+        "is_live": bool(model.loaded),
+        "observed_at": datetime.utcnow().isoformat(),
+        "staleness_sec": 0.0 if model.loaded else None,
+        "quality": "good" if model.loaded else "unavailable",
         "strict_live_data": settings.is_strict_live_data,
         "ml_only_mode": settings.is_ml_only_mode,
         "required_models": required_models,
         "loaded_models": loaded_models,
         "missing_models": missing_models,
         "data_available": bool(model.loaded),
+        "message": "Model is ready for predictions" if model.loaded else "Model is unavailable",
     }
 
 

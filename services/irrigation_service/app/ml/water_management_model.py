@@ -73,6 +73,11 @@ class WaterManagementModel:
         'month', 'dow', 'dayofyear',
     ]
 
+    # Model metadata
+    MODEL_NAME = "HistGradientBoostingRegressor"
+    MODEL_VERSION = "1.0.0"
+    INPUT_CONTRACT_VERSION = "v1"
+
     # Default thresholds for control decisions
     DEFAULT_RELEASE_THRESHOLD_MCM = 0.5
     DEFAULT_MIN_SAFE_LEVEL_MMSL = 80.0

@@ -1,51 +1,364 @@
-#!/bin/bash
-# Deploy to Kubernetes cluster
+#!/usr/bin/env bash
+# ==============================================================================
+#  Smart Irrigation System — Docker Deployment Script
+#  For use on any Linux VM or local machine with Docker installed.
+#
+#  USAGE
+#    ./scripts/deploy.sh [COMMAND]
+#
+#  COMMANDS
+#    (none)      Full deploy: clean build all images, then start everything
+#    start       Start containers using already-built images (skip build)
+#    stop        Stop all containers  (data volumes are preserved)
+#    restart     Stop → clean build → start
+#    status      Show running containers and port summary
+#    logs        Tail live logs for all services (Ctrl+C to exit)
+#    logs <svc>  Tail logs for a specific service name
+#    clean       Stop containers AND delete all data volumes (destructive)
+#    help        Print this usage message
+#
+#  EXAMPLES
+#    ./scripts/deploy.sh               # first-time or full redeploy
+#    ./scripts/deploy.sh restart       # pull latest code then redeploy
+#    ./scripts/deploy.sh logs gateway  # follow gateway logs only
+#    ./scripts/deploy.sh stop          # bring everything down safely
+# ==============================================================================
 
-set -e
+set -euo pipefail
 
+# ------------------------------------------------------------------------------
+# Resolve paths — script works no matter where it is called from
+# ------------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-ENVIRONMENT="${1:-dev}"
+COMPOSE_DIR="${PROJECT_ROOT}/infrastructure/docker"
+COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.yml"
+ENV_FILE="${COMPOSE_DIR}/.env"
 
-if [[ ! "$ENVIRONMENT" =~ ^(dev|staging|production)$ ]]; then
-  echo "Usage: $0 <environment>"
-  echo "  environment: dev, staging, or production"
-  exit 1
+# ------------------------------------------------------------------------------
+# Colour helpers
+# ------------------------------------------------------------------------------
+if [[ -t 1 ]]; then   # only use colours when stdout is a terminal
+  RED='\033[0;31m' GREEN='\033[0;32m' YELLOW='\033[1;33m'
+  CYAN='\033[0;36m' BOLD='\033[1m' RESET='\033[0m'
+else
+  RED='' GREEN='' YELLOW='' CYAN='' BOLD='' RESET=''
 fi
 
-echo "Deploying to ${ENVIRONMENT}..."
+info()    { echo -e "${CYAN}[INFO]${RESET}  $*"; }
+ok()      { echo -e "${GREEN}[ OK ]${RESET}  $*"; }
+warn()    { echo -e "${YELLOW}[WARN]${RESET}  $*"; }
+die()     { echo -e "${RED}[FAIL]${RESET}  $*" >&2; exit 1; }
+banner()  { echo -e "\n${BOLD}── $* ──${RESET}"; }
 
-# Apply Kubernetes manifests
-echo "Applying Kubernetes manifests..."
-kubectl apply -k "${PROJECT_ROOT}/infrastructure/kubernetes/overlays/${ENVIRONMENT}"
+# ------------------------------------------------------------------------------
+# Parse command
+# ------------------------------------------------------------------------------
+CMD="${1:-deploy}"
+SVC_ARG="${2:-}"
 
-# Wait for deployments
-echo "Waiting for deployments to be ready..."
+# ------------------------------------------------------------------------------
+# Detect docker compose command (v2 plugin or standalone v1)
+# ------------------------------------------------------------------------------
+detect_compose() {
+  if docker compose version &>/dev/null 2>&1; then
+    echo "docker compose"
+  elif command -v docker-compose &>/dev/null; then
+    echo "docker-compose"
+  else
+    die "Docker Compose not found. Install Docker Desktop or the docker-compose-plugin and retry."
+  fi
+}
 
-NAMESPACE="smart-irrigation-${ENVIRONMENT}"
-if [ "$ENVIRONMENT" = "production" ]; then
-  NAMESPACE="smart-irrigation-prod"
-fi
+# ------------------------------------------------------------------------------
+# Check prerequisites
+# ------------------------------------------------------------------------------
+preflight() {
+  banner "Pre-flight checks"
 
-PREFIX="${ENVIRONMENT}-"
-if [ "$ENVIRONMENT" = "production" ]; then
-  PREFIX="prod-"
-fi
+  command -v docker &>/dev/null || die "Docker is not installed."
+  ok "Docker: $(docker --version)"
 
-deployments=(
-  "${PREFIX}auth-service"
-  "${PREFIX}irrigation-service"
-  "${PREFIX}forecasting-service"
-  "${PREFIX}optimization-service"
-)
+  DC="$(detect_compose)"
+  ok "Compose: $($DC version --short 2>/dev/null || $DC version)"
 
-for deployment in "${deployments[@]}"; do
-  echo "Waiting for ${deployment}..."
-  kubectl rollout status "deployment/${deployment}" -n "${NAMESPACE}" --timeout=300s
-done
+  [[ -f "$COMPOSE_FILE" ]] || die "docker-compose.yml not found at $COMPOSE_FILE"
+  ok "Compose file: $COMPOSE_FILE"
+}
 
-echo ""
-echo "Deployment to ${ENVIRONMENT} complete!"
-echo ""
-echo "Service endpoints:"
-kubectl get services -n "${NAMESPACE}"
+# ------------------------------------------------------------------------------
+# Ensure .env exists
+# ------------------------------------------------------------------------------
+ensure_env() {
+  if [[ -f "$ENV_FILE" ]]; then
+    ok "Env file: $ENV_FILE"
+  elif [[ -f "${COMPOSE_DIR}/.env.example" ]]; then
+    cp "${COMPOSE_DIR}/.env.example" "$ENV_FILE"
+    warn ".env not found — copied from .env.example"
+    warn "Edit $ENV_FILE and set a strong JWT_SECRET_KEY before going live."
+  else
+    warn ".env not found — writing minimal defaults."
+    cat > "$ENV_FILE" <<'EOF'
+# Auto-generated by deploy.sh — review before production use
+JWT_SECRET_KEY=change-this-to-a-long-random-secret
+POSTGRES_USER=aca_o_user
+POSTGRES_PASSWORD=aca_o_password
+POSTGRES_DB=aca_o_db
+INFLUXDB_TOKEN=dev-token-smart-irrigation
+MQTT_USERNAME=
+MQTT_PASSWORD=
+DEVICE_API_KEYS=
+DEVICE_FIELD_MAP=
+GF_SECURITY_ADMIN_USER=admin
+GF_SECURITY_ADMIN_PASSWORD=admin
+EOF
+    warn "Edit $ENV_FILE and set a strong JWT_SECRET_KEY before going live."
+  fi
+
+  # Warn if JWT key is still default
+  local jwt
+  jwt=$(grep -E '^JWT_SECRET_KEY=' "$ENV_FILE" | cut -d= -f2-)
+  if [[ "$jwt" == "change-this-to-a-long-random-secret" || -z "$jwt" ]]; then
+    warn "JWT_SECRET_KEY is using the default value — not safe for production."
+    warn "Generate one with:  openssl rand -hex 32"
+  fi
+}
+
+# ------------------------------------------------------------------------------
+# Ensure Mosquitto config exists
+# ------------------------------------------------------------------------------
+ensure_mosquitto() {
+  local conf="${COMPOSE_DIR}/mosquitto/mosquitto.conf"
+  if [[ ! -f "$conf" ]]; then
+    mkdir -p "$(dirname "$conf")"
+    cat > "$conf" <<'EOF'
+listener 1883 0.0.0.0
+protocol mqtt
+allow_anonymous true
+persistence true
+persistence_location /mosquitto/data/
+log_dest stdout
+log_type all
+connection_messages true
+EOF
+    ok "Created default mosquitto.conf"
+  fi
+}
+
+# ------------------------------------------------------------------------------
+# Build all images from scratch (no cache)
+# ------------------------------------------------------------------------------
+build_images() {
+  banner "Building Docker images (no-cache)"
+  info "This takes a few minutes on the first run while base images are pulled."
+  info "Subsequent runs are faster thanks to Docker layer caching."
+
+  local services=(
+    config_server
+    auth_service
+    irrigation_service
+    forecasting_service
+    optimize_service
+    iot_service
+    crop_health_and_water_stress_detection
+    gateway
+    web
+  )
+
+  cd "$COMPOSE_DIR"
+  for svc in "${services[@]}"; do
+    info "Building → $svc"
+    $DC --env-file "$ENV_FILE" build --no-cache --pull "$svc" \
+      || die "Build failed for '$svc'. Check the Dockerfile and try again."
+    ok "Built   → $svc"
+  done
+
+  ok "All images built."
+}
+
+# ------------------------------------------------------------------------------
+# Start the full stack
+# ------------------------------------------------------------------------------
+start_stack() {
+  banner "Starting infrastructure (Postgres, Redis, InfluxDB, MQTT, Mongo)"
+  cd "$COMPOSE_DIR"
+  $DC --env-file "$ENV_FILE" up -d postgres redis influxdb mosquitto mongo
+
+  info "Waiting 15 s for databases to initialise..."
+  sleep 15
+
+  banner "Starting application services"
+  $DC --env-file "$ENV_FILE" up -d
+
+  ok "All containers started."
+}
+
+# ------------------------------------------------------------------------------
+# Poll health endpoints until all respond (or timeout)
+# ------------------------------------------------------------------------------
+wait_healthy() {
+  banner "Waiting for services to become healthy"
+
+  local -A ports=(
+    [config_server]=8010
+    [auth_service]=8001
+    [irrigation_service]=8002
+    [forecasting_service]=8003
+    [optimize_service]=8004
+    [iot_service]=8006
+    [crop_health_and_water_stress_detection]=8007
+    [gateway]=8000
+  )
+
+  local timeout=180  interval=8  all_ok=true
+
+  for svc in "${!ports[@]}"; do
+    local port="${ports[$svc]}" elapsed=0
+    printf "  %-52s" "$svc (:${port})"
+    while true; do
+      if python3 -c "
+import urllib.request, sys
+try:
+    urllib.request.urlopen('http://localhost:${port}/health', timeout=4)
+    sys.exit(0)
+except:
+    sys.exit(1)
+" 2>/dev/null; then
+        echo -e " ${GREEN}healthy${RESET}"
+        break
+      fi
+      if (( elapsed >= timeout )); then
+        echo -e " ${YELLOW}timed out${RESET}"
+        all_ok=false
+        break
+      fi
+      printf "."
+      sleep $interval
+      (( elapsed += interval ))
+    done
+  done
+
+  echo ""
+  if $all_ok; then
+    ok "All services healthy."
+  else
+    warn "One or more services did not respond within ${timeout}s."
+    warn "Run:  ./scripts/deploy.sh logs <service-name>  to investigate."
+  fi
+}
+
+# ------------------------------------------------------------------------------
+# Print access URL table
+# ------------------------------------------------------------------------------
+print_urls() {
+  local ip
+  ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  [[ -z "$ip" ]] && ip="localhost"
+
+  banner "Access URLs"
+  printf "  %-28s %s\n" "Web Dashboard"      "http://${ip}:8005"
+  printf "  %-28s %s\n" "API Gateway"         "http://${ip}:8000"
+  printf "  %-28s %s\n" "Swagger / API Docs"  "http://${ip}:8000/docs"
+  printf "  %-28s %s\n" "Auth Service"        "http://${ip}:8001"
+  printf "  %-28s %s\n" "Irrigation Service"  "http://${ip}:8002"
+  printf "  %-28s %s\n" "Forecasting Service" "http://${ip}:8003"
+  printf "  %-28s %s\n" "Optimisation Service" "http://${ip}:8004"
+  printf "  %-28s %s\n" "IoT Service"         "http://${ip}:8006"
+  printf "  %-28s %s\n" "Crop Health Service" "http://${ip}:8007"
+  printf "  %-28s %s\n" "Grafana"             "http://${ip}:3001  (admin / admin)"
+  printf "  %-28s %s\n" "Prometheus"          "http://${ip}:9090"
+  printf "  %-28s %s\n" "InfluxDB"            "http://${ip}:8086"
+  printf "  %-28s %s\n" "MQTT broker"         "${ip}:1883  (TCP)"
+  echo ""
+}
+
+# ==============================================================================
+# Command dispatch
+# ==============================================================================
+case "$CMD" in
+
+  # ---------- full deploy (default) ------------------------------------------
+  deploy)
+    preflight
+    ensure_env
+    ensure_mosquitto
+    build_images
+    start_stack
+    wait_healthy
+    print_urls
+    ;;
+
+  # ---------- start only (use existing images) --------------------------------
+  start)
+    preflight
+    ensure_env
+    ensure_mosquitto
+    start_stack
+    wait_healthy
+    print_urls
+    ;;
+
+  # ---------- stop (keep volumes) --------------------------------------------
+  stop)
+    preflight
+    banner "Stopping stack"
+    cd "$COMPOSE_DIR"
+    $DC --env-file "$ENV_FILE" down
+    ok "All containers stopped. Data volumes preserved."
+    ;;
+
+  # ---------- restart ---------------------------------------------------------
+  restart)
+    preflight
+    ensure_env
+    ensure_mosquitto
+    banner "Stopping existing containers"
+    cd "$COMPOSE_DIR"
+    $DC --env-file "$ENV_FILE" down || true
+    build_images
+    start_stack
+    wait_healthy
+    print_urls
+    ;;
+
+  # ---------- status ----------------------------------------------------------
+  status)
+    preflight
+    banner "Container status"
+    cd "$COMPOSE_DIR"
+    $DC --env-file "$ENV_FILE" ps
+    print_urls
+    ;;
+
+  # ---------- logs ------------------------------------------------------------
+  logs)
+    preflight
+    cd "$COMPOSE_DIR"
+    if [[ -n "$SVC_ARG" ]]; then
+      $DC --env-file "$ENV_FILE" logs -f "$SVC_ARG"
+    else
+      $DC --env-file "$ENV_FILE" logs -f
+    fi
+    ;;
+
+  # ---------- clean (destructive) --------------------------------------------
+  clean)
+    preflight
+    banner "WARNING: This will delete ALL data volumes"
+    read -rp "Are you sure? Type YES to continue: " confirm
+    [[ "$confirm" == "YES" ]] || { info "Aborted."; exit 0; }
+    cd "$COMPOSE_DIR"
+    $DC --env-file "$ENV_FILE" down -v
+    ok "Containers and volumes removed."
+    ;;
+
+  # ---------- help ------------------------------------------------------------
+  help|--help|-h)
+    sed -n '/^#  USAGE/,/^# =====/p' "$0" | sed 's/^#  \{0,2\}//' | sed 's/^# ===.*//'
+    ;;
+
+  *)
+    die "Unknown command: '$CMD'.  Run:  ./scripts/deploy.sh help"
+    ;;
+
+esac

@@ -11,7 +11,8 @@ asyncpg>=0.29.0
 # Authentication & Security
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
-bcrypt==4.1.2
+# passlib 1.7.4 expects bcrypt package metadata removed in bcrypt>=4.1
+bcrypt==4.0.1
 
 # Pydantic for data validation
 pydantic==2.6.1
@@ -26,3 +27,6 @@ pytest-asyncio==0.23.4
 
 # Environment variables
 python-dotenv==1.0.1
+
+# Migrations
+alembic>=1.13.0

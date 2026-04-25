@@ -8,16 +8,22 @@ Provides endpoints for:
 - Time series analysis
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
 import logging
 import numpy as np
 
+from app.dependencies.auth import require_admin
+
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v2/analytics", tags=["Advanced Analytics"])
+router = APIRouter(
+    prefix="/api/v2/analytics",
+    tags=["Advanced Analytics"],
+    dependencies=[Depends(require_admin)],
+)
 
 # Import ML modules
 try:

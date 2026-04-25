@@ -7,6 +7,10 @@ Manages application settings using Pydantic's BaseSettings.
 from functools import lru_cache
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from app.core.config_bootstrap import apply_remote_config
+
+
+apply_remote_config(default_service_name="irrigation_service")
 
 
 class Settings(BaseSettings):
@@ -23,7 +27,7 @@ class Settings(BaseSettings):
     port: int = 8002
     
     # CORS Origins
-    cors_origins: list = ["http://localhost:8005", "http://localhost:5173", "http://localhost:8000"]
+    cors_origins: list = ["http://localhost:8005", "http://localhost:5173", "http://localhost:3000", "http://localhost:8000"]
 
     # Logging
     log_level: str = "INFO"
@@ -34,14 +38,20 @@ class Settings(BaseSettings):
     ml_only_mode: Optional[bool] = None
 
     # Cross-service URLs
-    forecasting_service_url: str = "http://forecasting-service:8003"
-    crop_health_service_url: str = "http://crop_health_and_water_stress_detection:8007"
+    forecasting_service_url: str = "http://localhost:8003"
+    crop_health_service_url: str = "http://localhost:8007"
+    optimization_service_url: str = "http://localhost:8004"
+    auth_service_url: str = "http://localhost:8001"
+
+    # Database
+    database_url: str = "postgresql://aca_o_user:aca_o_password@localhost:5432/aca_o_db"
+    auto_create_schema: bool = False
 
     # Event broker
-    mqtt_broker: str = "mosquitto"
+    mqtt_broker: str = "localhost"
     mqtt_port: int = 1883
 
-    # Local state persistence (simple durable storage for runtime state)
+    # Local state persistence
     crop_fields_state_path: str = "/tmp/irrigation_crop_fields_state.json"
     water_management_state_path: str = "/tmp/irrigation_water_management_state.json"
     reservoir_snapshot_path: str = "/tmp/irrigation_reservoir_snapshot.json"

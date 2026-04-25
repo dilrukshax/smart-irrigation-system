@@ -7,6 +7,10 @@ Manages application settings using Pydantic's BaseSettings.
 from functools import lru_cache
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from app.core.config_bootstrap import apply_remote_config
+
+
+apply_remote_config(default_service_name="forecasting_service")
 
 
 class Settings(BaseSettings):
@@ -21,7 +25,7 @@ class Settings(BaseSettings):
     port: int = 8003
     
     # CORS Origins
-    cors_origins: list = ["http://localhost:8005", "http://localhost:5173"]
+    cors_origins: list = ["http://localhost:8005", "http://localhost:5173", "http://localhost:3000"]
     
     # Logging
     log_level: str = "INFO"
@@ -30,8 +34,11 @@ class Settings(BaseSettings):
     strict_live_data: Optional[bool] = None
     ml_only_mode: Optional[bool] = None
 
-    # Local persistence for ingested observations
-    time_series_store_path: str = "/tmp/forecasting_timeseries_store.json"
+    # Cross-service URLs
+    auth_service_url: str = "http://localhost:8001"
+
+    # Database
+    database_url: str = "postgresql://aca_o_user:aca_o_password@localhost:5432/aca_o_db"
     
     model_config = SettingsConfigDict(
         env_file=".env",

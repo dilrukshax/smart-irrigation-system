@@ -177,7 +177,7 @@ This platform is an end-to-end smart irrigation and crop-planning system designe
 | **Kustomize** | K8s configuration management |
 | **Skaffold** | K8s development workflow |
 | **Terraform** | Infrastructure as Code (Azure) |
-| **NGINX** | API Gateway / Reverse Proxy |
+| **FastAPI Gateway** | API Gateway / Reverse Proxy |
 | **Prometheus** | Metrics collection |
 | **Grafana** | Monitoring dashboards |
 
@@ -188,14 +188,13 @@ This platform is an end-to-end smart irrigation and crop-planning system designe
 ```
 smart-irrigation-system/
 │
-├── 📂 gateway/                          # API Gateway
-│   ├── gateway.py                       # FastAPI gateway (local dev)
-│   ├── nginx.conf                       # Production NGINX config
-│   ├── nginx.local.conf                 # Local NGINX config
-│   ├── Dockerfile
-│   └── requirements.txt
-│
 ├── 📂 services/                         # Backend Microservices
+│   │
+│   ├── 📂 gateway_service/              # API Gateway Service
+│   │   ├── app/                         # FastAPI gateway app
+│   │   ├── tests/
+│   │   ├── Dockerfile
+│   │   └── requirements.txt
 │   │
 │   ├── 📂 auth_service/                 # F0 - Authentication Service
 │   │   ├── app/
@@ -303,11 +302,15 @@ smart-irrigation-system/
 │   └── deploy.sh / .bat
 │
 ├── 📂 docs/                             # Documentation
-│   ├── PROJECT_OVERVIEW.md
-│   ├── FRONTEND_STRUCTURE.md
 │   ├── api/
 │   ├── architecture/
-│   │   └── decisions.md                 # Architecture Decision Records
+│   ├── frontend/
+│   ├── functions/
+│   ├── guides/
+│   ├── overview/
+│   ├── planning/
+│   ├── presentations/
+│   ├── research/
 │   └── runbooks/
 │
 ├── Makefile                             # Build & deployment commands
@@ -406,11 +409,11 @@ uvicorn app.main:app --reload --port 8004
 
 ```powershell
 # Terminal 5 - Gateway
-cd gateway
+cd services/gateway_service
 python -m venv venv
 .\venv\Scripts\activate
 pip install -r requirements.txt
-python gateway.py
+uvicorn app.main:app --reload --port 8000
 ```
 
 **Step 5: Start frontend**
@@ -484,7 +487,7 @@ docker-compose up -d --build iot-service influxdb mosquitto
 - Subscribe: `devices/{device_id}/telemetry`
 - Publish: `devices/{device_id}/cmd`
 
-📘 **Full Setup Guide:** [IOT_SETUP_GUIDE.md](IOT_SETUP_GUIDE.md)
+📘 **Full Setup Guide:** [IoT Setup Guide](./docs/guides/iot-setup.md)
 
 ---
 
@@ -702,54 +705,154 @@ REDIS_URL=redis://redis:6379
 
 ## 🚢 Deployment
 
-### Development (Docker Compose)
+### Option A — VM / Linux Server (Recommended for Ashu VM)
+
+This is the primary deployment path for running the full stack on a single VM using Docker Compose.
+
+#### Prerequisites
+
+| Requirement | Minimum version | Install |
+|-------------|----------------|---------|
+| Docker Engine | 24+ | `apt install docker.io` or [docs.docker.com](https://docs.docker.com/engine/install/) |
+| Docker Compose plugin | v2+ | bundled with Docker Desktop; `apt install docker-compose-plugin` on Linux |
+| Git | latest | `apt install git` |
+| RAM | 4 GB+ | — |
+| Disk | 20 GB+ free | — |
+
+#### 1. Clone and enter the repo
 
 ```bash
-docker compose -f infrastructure/docker/docker-compose.yml up -d
+git clone <repo-url> smart-irrigation-system
+cd smart-irrigation-system
 ```
 
-### Production (Docker Compose)
+#### 2. Configure environment
 
 ```bash
-docker compose -f infrastructure/docker/docker-compose.yml \
-  -f infrastructure/docker/docker-compose.prod.yml up -d
+# The .env file already exists in infrastructure/docker/
+# Edit it to set a strong JWT secret before deploying
+nano infrastructure/docker/.env
 ```
 
-### Kubernetes (Skaffold)
-
-```bash
-# Development with hot reload
-skaffold dev
-
-# Deploy to staging
-skaffold run -p staging
-
-# Deploy to production
-skaffold run -p production
+Key variable to change:
+```env
+JWT_SECRET_KEY=<generate with: openssl rand -hex 32>
 ```
 
-### Kubernetes (Kustomize)
+#### 3. Deploy with the VM script
 
 ```bash
-# Development
+# Make the script executable (first run only)
+chmod +x scripts/deploy-vm.sh
+
+# Full deploy: build all images then start the stack
+./scripts/deploy-vm.sh
+
+# Other modes:
+./scripts/deploy-vm.sh --build-only     # Only build images, don't start
+./scripts/deploy-vm.sh --start-only     # Start using already-built images
+./scripts/deploy-vm.sh --restart        # Stop → rebuild → restart everything
+./scripts/deploy-vm.sh --stop           # Tear down containers (volumes kept)
+./scripts/deploy-vm.sh --logs           # Deploy then tail all logs
+```
+
+The script will:
+1. Check Docker / Docker Compose are present
+2. Validate and create the `.env` file if missing
+3. Ensure the Mosquitto MQTT config exists
+4. Build all 9 service images (config, auth, irrigation, forecasting, optimize, iot, crop-health, gateway, web)
+5. Start infrastructure (Postgres, Redis, InfluxDB, MQTT, Mongo) and wait 15 s
+6. Start all application services
+7. Poll every 10 s until every `/health` endpoint responds (up to 3 min)
+8. Print access URLs for your VM's IP
+
+#### 4. Access the platform
+
+Once healthy, open in a browser (replace `VM_IP` with your server's IP):
+
+| Service | URL |
+|---------|-----|
+| Web Dashboard | `http://VM_IP:8005` |
+| API Gateway | `http://VM_IP:8000` |
+| Interactive API Docs | `http://VM_IP:8000/docs` |
+| Grafana | `http://VM_IP:3001` (admin / admin) |
+| Prometheus | `http://VM_IP:9090` |
+| InfluxDB | `http://VM_IP:8086` |
+
+#### Manual Docker Compose commands
+
+```bash
+cd infrastructure/docker
+
+# Start everything
+docker compose --env-file .env up -d
+
+# View logs for a specific service
+docker compose --env-file .env logs -f auth_service
+
+# View all running containers
+docker compose --env-file .env ps
+
+# Rebuild a single service after a code change
+docker compose --env-file .env build irrigation_service
+docker compose --env-file .env up -d --no-deps irrigation_service
+
+# Stop everything (volumes preserved)
+docker compose --env-file .env down
+
+# Stop everything AND delete all data volumes
+docker compose --env-file .env down -v
+```
+
+#### Firewall ports to open on the VM
+
+```
+TCP 8000   API Gateway
+TCP 8005   Web Dashboard
+TCP 3001   Grafana
+TCP 9090   Prometheus (optional — internal only recommended)
+TCP 1883   MQTT broker (only if ESP32 devices connect from outside the VM)
+```
+
+---
+
+### Option B — Local Development (Docker Compose)
+
+```bash
+# Start infrastructure dependencies only
+cd infrastructure/docker
+docker compose --env-file .env up -d postgres redis influxdb mosquitto mongo
+
+# Then run each service locally (see Getting Started → Option 2)
+```
+
+### Option C — Full stack local (Docker Compose, one command)
+
+```bash
+docker compose -f infrastructure/docker/docker-compose.yml --env-file infrastructure/docker/.env up -d
+```
+
+### Option D — Kubernetes (Skaffold)
+
+```bash
+skaffold dev               # dev with hot reload
+skaffold run -p staging    # staging deploy
+skaffold run -p production # production deploy
+```
+
+### Option E — Kubernetes (Kustomize)
+
+```bash
 kubectl apply -k infrastructure/kubernetes/overlays/dev
-
-# Production
 kubectl apply -k infrastructure/kubernetes/overlays/production
 ```
 
-### Azure Infrastructure (Terraform)
+### Option F — Azure Infrastructure (Terraform)
 
 ```bash
 cd infrastructure/terraform
-
-# Initialize
 terraform init -backend-config=environments/dev/backend.tfvars
-
-# Plan
 terraform plan -var-file=environments/dev/terraform.tfvars
-
-# Apply
 terraform apply -var-file=environments/dev/terraform.tfvars
 ```
 
@@ -927,8 +1030,9 @@ test: Add unit tests for forecasting service
 
 ## 📚 Additional Resources
 
-- [Project Overview](./docs/PROJECT_OVERVIEW.md) - Detailed system documentation
-- [Frontend Structure](./docs/FRONTEND_STRUCTURE.md) - Frontend architecture
+- [Documentation Index](./docs/README.md) - Organized docs map
+- [Project Overview](./docs/overview/project-overview.md) - Detailed system documentation
+- [Frontend Structure](./docs/frontend/frontend-structure.md) - Frontend architecture
 - [Architecture Decisions](./docs/architecture/decisions.md) - ADR records
 - [API Documentation](./docs/api/) - Detailed API specs
 - [Runbooks](./docs/runbooks/) - Operational guides
@@ -948,4 +1052,3 @@ This project is part of a 4th-year Software Engineering research project at SLII
 Made with ❤️ by the Smart Irrigation Team
 
 </div>
-

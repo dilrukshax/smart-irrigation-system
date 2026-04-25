@@ -11,6 +11,7 @@ Provides endpoints for:
 import logging
 import os
 import time
+import json
 from datetime import datetime, timezone
 from typing import Optional, List
 
@@ -439,6 +440,10 @@ async def get_current_reservoir_data():
 
     data = get_simulated_reservoir_data()
     data["timestamp"] = datetime.now().isoformat()
+    return data
+
+
+@router.post("/predict", response_model=PredictionResponse)
 async def predict_water_release(data: ReservoirData):
     """
     Predict next-day irrigation water release.

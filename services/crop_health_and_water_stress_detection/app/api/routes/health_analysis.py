@@ -8,7 +8,7 @@ Scientific workflow:
 3. Only proceed with analysis for valid areas
 """
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 from typing import Optional
 from datetime import datetime
@@ -22,6 +22,8 @@ from app.services.satellite_analyzer import get_satellite_analyzer
 from app.services.zone_generator import get_zone_generator
 from app.services.vegetation_validator import ValidationStatus
 from app.core.config import settings
+from app.dependencies.auth import require_admin
+from app.db import stress_repo
 from pydantic import BaseModel, Field
 
 try:
@@ -53,31 +55,26 @@ class FieldStressSummary(BaseModel):
     staleness_sec: Optional[float] = None
     quality: str = Field(default="good")
     data_available: bool = Field(default=True)
+    message: Optional[str] = None
 
 
 _analysis_artifacts: dict = {}
 
 
-def _persist_artifacts() -> None:
+def _persist_artifact(field_id: str, payload: dict) -> None:
+    """Upsert a single field's artifact via the repository."""
+    _analysis_artifacts[field_id] = payload
     try:
-        path = settings.ANALYSIS_ARTIFACTS_PATH
-        parent = os.path.dirname(path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(_analysis_artifacts, fh)
+        stress_repo.upsert_summary(field_id, payload)
     except Exception as exc:
-        logger.warning("Failed to persist analysis artifacts: %s", exc)
+        logger.warning("Failed to persist stress artifact for %s: %s", field_id, exc)
 
 
 def _load_artifacts() -> None:
+    """Load all artifacts from repository into the in-memory cache."""
     try:
-        path = settings.ANALYSIS_ARTIFACTS_PATH
-        if not path or not os.path.exists(path):
-            return
-        with open(path, "r", encoding="utf-8") as fh:
-            payload = json.load(fh)
-        _analysis_artifacts.update(payload or {})
+        _analysis_artifacts.clear()
+        _analysis_artifacts.update(stress_repo.load_all())
     except Exception as exc:
         logger.warning("Failed to load analysis artifacts: %s", exc)
 
@@ -121,9 +118,30 @@ def _summary_to_stress(field_id: str, summary: ZoneSummary) -> FieldStressSummar
         staleness_sec=0.0,
         quality="good",
         data_available=True,
+        message="Stress summary generated from zone analysis",
     )
 
 
+def _apply_stress_contract_defaults(summary: FieldStressSummary) -> FieldStressSummary:
+    payload = summary.model_dump()
+    observed_at = payload.get("observed_at") or payload.get("generated_at")
+    payload["observed_at"] = observed_at
+
+    if payload.get("staleness_sec") is None and observed_at:
+        try:
+            observed = datetime.fromisoformat(str(observed_at).replace("Z", "+00:00")).replace(tzinfo=None)
+            payload["staleness_sec"] = round((datetime.utcnow() - observed).total_seconds(), 2)
+        except Exception:
+            payload["staleness_sec"] = None
+
+    if payload.get("message") is None:
+        payload["message"] = "Stress summary available" if payload.get("data_available") else "Stress summary unavailable"
+
+    return FieldStressSummary(**payload)
+
+
+# Initialize persistence (DB schema if enabled, then load existing artifacts)
+stress_repo.init_schema()
 _load_artifacts()
 
 
@@ -474,16 +492,10 @@ async def get_field_stress_summary(
     center_lon = lon if lon is not None else settings.DEFAULT_LON
 
     try:
-        artifact = _analysis_artifacts.get(field_id)
+        artifact = stress_repo.get_summary(field_id) or _analysis_artifacts.get(field_id)
         if artifact:
             response = FieldStressSummary(**artifact)
-            if response.observed_at:
-                try:
-                    observed = datetime.fromisoformat(response.observed_at.replace("Z", "+00:00")).replace(tzinfo=None)
-                    response.staleness_sec = round((datetime.utcnow() - observed).total_seconds(), 2)
-                except Exception:
-                    response.staleness_sec = None
-            return response
+            return _apply_stress_contract_defaults(response)
 
         if settings.is_strict_live_data:
             now = datetime.utcnow().isoformat()
@@ -504,6 +516,7 @@ async def get_field_stress_summary(
                 staleness_sec=None,
                 quality="unknown",
                 data_available=False,
+                message="Live stress summary is not yet available",
             )
 
         zone_generator = get_zone_generator()
@@ -515,11 +528,10 @@ async def get_field_stress_summary(
         )
 
         response = _summary_to_stress(field_id, summary)
-        _analysis_artifacts[field_id] = response.model_dump()
-        _persist_artifacts()
+        _persist_artifact(field_id, response.model_dump())
 
         _emit_stress_event(response)
-        return response
+        return _apply_stress_contract_defaults(response)
 
     except Exception as e:
         logger.error("Stress summary generation error: %s", e)
@@ -533,11 +545,23 @@ async def get_field_stress_summary(
     "/fields/{field_id}/stress-summary/ingest",
     summary="Ingest live field stress summary",
 )
-async def ingest_field_stress_summary(field_id: str, payload: FieldStressSummary):
+async def ingest_field_stress_summary(
+    field_id: str,
+    payload: FieldStressSummary,
+    admin_context: dict = Depends(require_admin),
+):
     """Persist externally computed live stress summary artifacts."""
-    summary = payload.model_copy(update={"field_id": field_id, "status": "ok", "data_available": True})
-    _analysis_artifacts[field_id] = summary.model_dump()
-    _persist_artifacts()
+    del admin_context
+    summary = payload.model_copy(
+        update={
+            "field_id": field_id,
+            "status": "ok",
+            "data_available": True,
+            "message": payload.message or "Live stress summary ingested",
+            "observed_at": payload.observed_at or payload.generated_at,
+        }
+    )
+    _persist_artifact(field_id, summary.model_dump())
     return {
         "status": "ok",
         "message": "Stress summary artifact stored",

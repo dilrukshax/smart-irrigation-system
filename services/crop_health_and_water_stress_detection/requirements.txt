@@ -18,6 +18,9 @@ pydantic-settings>=2.1.0
 # HTTP Client (for URL predictions)
 httpx>=0.26.0
 
+# Database (optional; used when DATABASE_URL is configured)
+psycopg2-binary>=2.9.9
+
 # Utilities
 python-dotenv>=1.0.0
 paho-mqtt>=2.0.0

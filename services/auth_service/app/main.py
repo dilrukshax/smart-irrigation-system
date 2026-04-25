@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.db.postgres import connect_to_db, close_db
-from app.api.routes import auth, admin
+from app.api.routes import auth, authority
 
 
 # Configure logging
@@ -67,7 +67,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth.router)
-app.include_router(admin.router)
+app.include_router(authority.router)
 
 
 @app.get(

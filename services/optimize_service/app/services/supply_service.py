@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.core.schemas import SupplyResponse, SupplySummaryItem
 from app.data.repositories import CropRepository, RecommendationRepository
 from app.core.config import get_settings
+from app.core.contracts import build_contract
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -77,17 +78,22 @@ class SupplyService:
         
         observed_at = datetime.utcnow().isoformat()
         data_available = bool(items)
+        contract = build_contract(
+            source="optimization_service",
+            observed_at=observed_at,
+            data_available=data_available,
+            raw_status="ok" if data_available else "data_unavailable",
+            message=(
+                "Supply summary generated from latest recommendations."
+                if data_available
+                else "No recommendation-derived supply data available."
+            ),
+        )
         return SupplyResponse(
             season=season,
             scheme_id=scheme_id,
             items=items,
-            status="ok" if data_available else "data_unavailable",
-            source="optimization_service",
-            is_live=data_available,
-            observed_at=observed_at,
-            staleness_sec=0 if data_available else None,
-            quality="good" if data_available else "unavailable",
-            data_available=data_available,
+            **contract,
         )
     
     def _get_aggregate_data(
@@ -201,6 +207,20 @@ class SupplyService:
             crops[crop_name]["water_usage"] += usage
             total_usage += usage
 
+        observed_at = datetime.utcnow().isoformat()
+        data_available = bool(records) and (default_quota is not None or not settings.is_strict_live_data)
+        contract = build_contract(
+            source="optimization_service",
+            observed_at=observed_at,
+            data_available=data_available,
+            raw_status="ok" if data_available else "data_unavailable",
+            message=(
+                "Water budget computed from latest recommendation outputs."
+                if data_available
+                else "Water budget unavailable due to missing live recommendation/quota context."
+            ),
+        )
+
         return {
             "crops": [
                 {
@@ -213,13 +233,7 @@ class SupplyService:
             "quota": round(default_quota, 2) if default_quota is not None else None,
             "total_usage": round(total_usage, 2),
             "totalWaterUsage": round(total_usage, 2),
-            "status": "ok" if default_quota is not None or total_usage > 0 else "data_unavailable",
-            "source": "optimization_service",
-            "is_live": bool(records),
-            "observed_at": datetime.utcnow().isoformat(),
-            "staleness_sec": 0 if records else None,
-            "quality": "good" if records else "unavailable",
-            "data_available": bool(records) and (default_quota is not None or not settings.is_strict_live_data),
+            **contract,
         }
 
 

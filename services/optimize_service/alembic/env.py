@@ -29,7 +29,7 @@ config = context.config
 
 # Get database URL from our application settings
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url)
+config.set_main_option("sqlalchemy.url", settings.resolved_database_url)
 
 # Interpret the config file for Python logging
 if config.config_file_name is not None:
@@ -37,6 +37,7 @@ if config.config_file_name is not None:
 
 # Add your model's MetaData object here for 'autogenerate' support
 target_metadata = Base.metadata
+VERSION_TABLE = "optimize_alembic_version"
 
 
 def run_migrations_offline() -> None:
@@ -54,6 +55,7 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        version_table=VERSION_TABLE,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,  # Detect column type changes
@@ -81,6 +83,7 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            version_table=VERSION_TABLE,
             compare_type=True,  # Detect column type changes
             compare_server_default=True,  # Detect default value changes
         )

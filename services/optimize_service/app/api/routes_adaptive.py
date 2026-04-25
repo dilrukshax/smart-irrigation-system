@@ -13,13 +13,12 @@ Features:
 
 import logging
 import time
-import csv
-from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import numpy as np
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
 from app.core.schemas import (
     AdaptiveRecommendationRequest,
@@ -32,6 +31,10 @@ from app.core.schemas import (
     MarketParameters,
 )
 from app.core.config import get_settings
+from app.core.contracts import build_contract
+from app.data.db import get_db
+from app.data.repositories import CropRepository, RunArtifactRepository
+from app.dependencies.auth import get_current_user_context
 from app.ml.suitability_fuzzy_topsis import compute_fuzzy_topsis_scores
 from app.ml.yield_model import get_yield_model
 from app.ml.price_model import get_price_model
@@ -46,32 +49,22 @@ router = APIRouter(
 )
 
 
-def load_crops_csv() -> List[Dict[str, Any]]:
-    """Load crop data from CSV file."""
-    # Path: app/api/routes_adaptive.py -> go up to service root, then to data/
-    csv_path = Path(__file__).parent.parent.parent / "data" / "crops.csv"
-    
-    if not csv_path.exists():
-        logger.warning(f"Crops CSV not found: {csv_path}")
-        return []
-    
-    crops = []
-    try:
-        with open(csv_path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                crops.append({
-                    'crop_id': row.get('crop_id', ''),
-                    'crop_name': row.get('crop_name', ''),
-                    'water_sensitivity': row.get('water_sensitivity', 'medium'),
-                    'growth_duration_days': int(row.get('growth_duration_days', 120)),
-                    'typical_yield_t_ha': float(row.get('typical_yield_t_ha', 5.0)),
-                    'water_requirement_mm': float(row.get('water_requirement_mm', 500)),
-                })
-    except Exception as e:
-        logger.error(f"Error loading crops CSV: {e}")
-    
-    return crops
+def load_crops_from_db(db_session: Session) -> List[Dict[str, Any]]:
+    """Load crop catalog from persisted database rows."""
+    crops = CropRepository.list_candidate_crops(db_session)
+    result: List[Dict[str, Any]] = []
+    for crop in crops:
+        result.append(
+            {
+                "crop_id": crop.get("id", ""),
+                "crop_name": crop.get("name", ""),
+                "water_sensitivity": crop.get("water_sensitivity", "medium"),
+                "growth_duration_days": int(crop.get("growth_duration_days") or 120),
+                "typical_yield_t_ha": float(crop.get("base_yield_t_per_ha") or 5.0),
+                "water_requirement_mm": float(crop.get("water_requirement_mm") or 500.0),
+            }
+        )
+    return result
 
 
 def filter_crops(
@@ -372,6 +365,8 @@ def estimate_production_cost(
 @router.post("/", response_model=AdaptiveRecommendationResponse)
 async def get_adaptive_recommendations(
     request: AdaptiveRecommendationRequest,
+    db: Session = Depends(get_db),
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
 ) -> AdaptiveRecommendationResponse:
     """
     Get adaptive crop recommendations with fully adjustable parameters.
@@ -391,14 +386,79 @@ async def get_adaptive_recommendations(
     Returns:
         AdaptiveRecommendationResponse with ranked recommendations and metadata
     """
+    del user_context
     start_time = time.time()
-    
+    observed_at_dt = datetime.utcnow()
+    observed_at = observed_at_dt.isoformat()
+
+    def _input_summary(crops_evaluated: int) -> InputParameterSummary:
+        return InputParameterSummary(
+            field_area_ha=request.field_params.area_ha,
+            soil_ph=request.field_params.soil_ph,
+            soil_suitability=request.field_params.soil_suitability,
+            water_availability_mm=request.water_params.water_availability_mm,
+            water_quota_mm=request.water_params.water_quota_mm,
+            season_avg_temp=request.weather_params.season_avg_temp,
+            season_rainfall_mm=request.weather_params.season_rainfall_mm,
+            location=request.field_params.location,
+            season=request.season,
+            price_factor=request.market_params.price_factor,
+            crops_evaluated=crops_evaluated,
+        )
+
+    def _response(
+        *,
+        success: bool,
+        raw_status: str,
+        message: str,
+        recommendations: List[AdaptiveCropRecommendation],
+        crops_evaluated: int,
+        average_suitability: float = 0.0,
+        best_profit_per_ha: float = 0.0,
+        models_used: Optional[List[str]] = None,
+    ) -> AdaptiveRecommendationResponse:
+        contract = build_contract(
+            source="optimization_service",
+            observed_at=observed_at,
+            data_available=bool(recommendations),
+            raw_status=raw_status,
+            message=message,
+        )
+        response = AdaptiveRecommendationResponse(
+            success=success,
+            message=message,
+            input_summary=_input_summary(crops_evaluated),
+            recommendations=recommendations,
+            total_crops_evaluated=crops_evaluated,
+            average_suitability=round(average_suitability, 3),
+            best_profit_per_ha=best_profit_per_ha,
+            models_used=models_used or [],
+            processing_time_ms=round((time.time() - start_time) * 1000, 1),
+            **contract,
+        )
+        RunArtifactRepository.save_artifact(
+            db,
+            run_type="adaptive",
+            field_id=request.field_params.field_id,
+            season=request.season,
+            request_payload=request.model_dump(),
+            response_payload=response.model_dump(),
+            status=response.status,
+            source=response.source,
+            data_available=response.data_available,
+            observed_at=observed_at_dt,
+        )
+        return response
+
     logger.info(f"Received adaptive recommendation request for season={request.season}")
-    all_crops = load_crops_csv()
+    all_crops = load_crops_from_db(db)
     if not all_crops:
-        raise HTTPException(
-            status_code=500,
-            detail="Crop data not available. Please ensure crops.csv exists."
+        return _response(
+            success=False,
+            raw_status="data_unavailable",
+            message="Crop catalog is not available in persistent storage.",
+            recommendations=[],
+            crops_evaluated=0,
         )
 
     filtered_crops = filter_crops(
@@ -408,9 +468,12 @@ async def get_adaptive_recommendations(
         max_growth_duration=request.crop_filters.max_growth_duration_days,
     )
     if not filtered_crops:
-        raise HTTPException(
-            status_code=400,
-            detail="No crops match the specified filters."
+        return _response(
+            success=False,
+            raw_status="data_unavailable",
+            message="No crops match the specified filters.",
+            recommendations=[],
+            crops_evaluated=0,
         )
 
     yield_model = get_yield_model()
@@ -430,16 +493,12 @@ async def get_adaptive_recommendations(
         missing_models.append("crop_recommendation_rf")
 
     if settings.is_ml_only_mode and missing_models:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "status": "source_unavailable",
-                "message": "ML-only mode requires all adaptive ML models.",
-                "source": "adaptive_recommendations",
-                "data_available": False,
-                "missing_models": missing_models,
-                "missing_features": [],
-            },
+        return _response(
+            success=False,
+            raw_status="source_unavailable",
+            message=f"ML-only mode requires all adaptive ML models. Missing: {', '.join(missing_models)}.",
+            recommendations=[],
+            crops_evaluated=len(filtered_crops),
         )
 
     logger.info(f"Evaluating %s crops after filtering", len(filtered_crops))
@@ -466,16 +525,12 @@ async def get_adaptive_recommendations(
 
     suitability_scores = compute_fuzzy_topsis_scores(features_by_crop)
     if not suitability_scores:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "status": "source_unavailable",
-                "message": "Suitability model could not score candidates.",
-                "source": "fuzzy_topsis",
-                "data_available": False,
-                "missing_models": [],
-                "missing_features": ["soil_suitability", "water_coverage_ratio", "historical_yield_t_ha"],
-            },
+        return _response(
+            success=False,
+            raw_status="source_unavailable",
+            message="Suitability model could not score candidates.",
+            recommendations=[],
+            crops_evaluated=len(filtered_crops),
         )
 
     recommendations_raw = []
@@ -661,51 +716,51 @@ async def get_adaptive_recommendations(
     avg_suitability = sum(r.suitability_score for r in recommendations) / len(recommendations) if recommendations else 0
     best_profit = max(r.profit_per_ha for r in recommendations) if recommendations else 0
     
-    # Build input summary
-    input_summary = InputParameterSummary(
-        field_area_ha=request.field_params.area_ha,
-        soil_ph=request.field_params.soil_ph,
-        soil_suitability=request.field_params.soil_suitability,
-        water_availability_mm=request.water_params.water_availability_mm,
-        water_quota_mm=request.water_params.water_quota_mm,
-        season_avg_temp=request.weather_params.season_avg_temp,
-        season_rainfall_mm=request.weather_params.season_rainfall_mm,
-        location=request.field_params.location,
-        season=request.season,
-        price_factor=request.market_params.price_factor,
-        crops_evaluated=len(filtered_crops),
+    logger.info(
+        "Generated %s adaptive recommendations in %.0fms",
+        len(recommendations),
+        (time.time() - start_time) * 1000,
     )
-    
-    processing_time = (time.time() - start_time) * 1000
-    
-    logger.info(f"Generated {len(recommendations)} adaptive recommendations in {processing_time:.0f}ms")
-    
-    return AdaptiveRecommendationResponse(
-        success=True,
-        message=f"Generated {len(recommendations)} recommendations based on your parameters",
-        input_summary=input_summary,
-        recommendations=recommendations,
-        total_crops_evaluated=len(filtered_crops),
-        average_suitability=round(avg_suitability, 3),
-        best_profit_per_ha=best_profit,
-        models_used=[
+
+    models_used = [
             "Fuzzy-TOPSIS (Suitability)",
             "Yield Model (ML)" if yield_ml_ready else "Yield Model (Deterministic Fallback)",
             "LightGBM (Price Prediction)" if price_ml_ready else "Price Model (Deterministic Fallback)",
             "RandomForest (Crop Recommendation Confidence)" if crop_ml_ready else "Crop Recommendation (Unavailable)",
-        ],
-        processing_time_ms=round(processing_time, 1),
+    ]
+    if not recommendations:
+        return _response(
+            success=False,
+            raw_status="data_unavailable",
+            message="No adaptive recommendations could be generated from the current constraints.",
+            recommendations=[],
+            crops_evaluated=len(filtered_crops),
+            models_used=models_used,
+        )
+
+    return _response(
+        success=True,
+        raw_status="ok",
+        message=f"Generated {len(recommendations)} recommendations based on your parameters",
+        recommendations=recommendations,
+        crops_evaluated=len(filtered_crops),
+        average_suitability=avg_suitability,
+        best_profit_per_ha=best_profit,
+        models_used=models_used,
     )
 
 
 @router.get("/parameters")
-async def get_parameter_defaults():
+async def get_parameter_defaults(
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+):
     """
     Get default parameter values and valid ranges for all adjustable inputs.
     
     This endpoint helps the frontend build the parameter adjustment UI
     by providing default values, min/max ranges, and descriptions.
     """
+    del user_context
     return {
         "field_params": {
             "area_ha": {"default": 5.0, "min": 0.1, "max": 100.0, "step": 0.1, "unit": "ha"},
@@ -752,18 +807,32 @@ async def get_parameter_defaults():
 
 
 @router.get("/crops")
-async def get_available_crops():
+async def get_available_crops(
+    db: Session = Depends(get_db),
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+):
     """Get list of available crops for filtering."""
-    crops = load_crops_csv()
-    return {
-        "crops": [
-            {
-                "crop_id": c['crop_id'],
-                "crop_name": c['crop_name'],
-                "water_sensitivity": c['water_sensitivity'],
-                "growth_duration_days": c['growth_duration_days'],
-            }
-            for c in crops
-        ],
-        "total": len(crops),
-    }
+    del user_context
+    crops = load_crops_from_db(db)
+    observed_at = datetime.utcnow().isoformat()
+    crop_payload = [
+        {
+            "crop_id": c["crop_id"],
+            "crop_name": c["crop_name"],
+            "water_sensitivity": c["water_sensitivity"],
+            "growth_duration_days": c["growth_duration_days"],
+        }
+        for c in crops
+    ]
+    contract = build_contract(
+        source="optimization_service",
+        observed_at=observed_at,
+        data_available=bool(crop_payload),
+        raw_status="ok" if crop_payload else "data_unavailable",
+        message=(
+            f"Loaded {len(crop_payload)} crops from optimization catalog."
+            if crop_payload
+            else "No crops available in optimization catalog."
+        ),
+    )
+    return {"crops": crop_payload, "total": len(crop_payload), **contract}

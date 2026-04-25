@@ -16,6 +16,10 @@ from typing import Optional
 from urllib.parse import quote_plus
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from app.core.config_bootstrap import apply_remote_config
+
+
+apply_remote_config(default_service_name="optimize_service")
 
 
 class Settings(BaseSettings):
@@ -66,9 +70,15 @@ class Settings(BaseSettings):
     forecasting_service_url: str = "http://localhost:8003"
     crop_health_service_url: str = "http://localhost:8007"
     sediment_service_url: str = "http://localhost:8003"
+    auth_service_url: str = "http://localhost:8001"
 
     # Logging
     log_level: str = "INFO"
+
+    # Runtime behavior
+    # None => derive from environment (strict for non-dev)
+    strict_live_data: Optional[bool] = None
+    ml_only_mode: Optional[bool] = None
 
     # Model configuration - tells Pydantic where to load settings from
     model_config = SettingsConfigDict(
@@ -112,6 +122,30 @@ class Settings(BaseSettings):
             f"postgresql+asyncpg://{self.db_user}:{encoded_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}{ssl}"
         )
+
+    @property
+    def resolved_database_url(self) -> str:
+        """Compatibility alias used by legacy modules."""
+        return self.database_url
+
+    @property
+    def resolved_database_url_async(self) -> str:
+        """Compatibility alias used by legacy modules."""
+        return self.database_url_async
+
+    @property
+    def is_strict_live_data(self) -> bool:
+        """Resolve strict mode with environment-aware default."""
+        if self.is_ml_only_mode:
+            return True
+        if self.strict_live_data is not None:
+            return bool(self.strict_live_data)
+        return self.app_env.lower() not in {"development", "dev", "local", "test"}
+
+    @property
+    def is_ml_only_mode(self) -> bool:
+        """Global ML-only flag that hard-disables non-ML fallbacks."""
+        return bool(self.ml_only_mode)
 
 
 @lru_cache()

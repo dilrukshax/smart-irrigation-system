@@ -1,22 +1,16 @@
 """
 Time Series Forecasting System
 
-Live-data-first forecasting service core. This module no longer seeds runtime
-state with synthetic data; it relies on ingested observations persisted to disk.
+Live-data-first forecasting service core.
 """
 
-import json
 import logging
-import os
 import time
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import MinMaxScaler
-
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -37,47 +31,48 @@ class TimeSeriesForecastingSystem:
         self._is_initialized = False
         self._last_ingest_at: Optional[float] = None
 
-    def _persist(self) -> None:
-        payload = {
-            "water_level_data": self.water_level_data,
-            "rainfall_data": self.rainfall_data,
-            "dam_gate_data": self.dam_gate_data,
-            "last_ingest_at": self._last_ingest_at,
-        }
-        path = settings.time_series_store_path
-        try:
-            parent = os.path.dirname(path)
-            if parent:
-                os.makedirs(parent, exist_ok=True)
-            with open(path, "w", encoding="utf-8") as fh:
-                json.dump(payload, fh)
-        except Exception as exc:
-            logger.warning("Failed to persist forecasting store: %s", exc)
-
-    def _load(self) -> None:
-        path = settings.time_series_store_path
-        if not path or not os.path.exists(path):
-            return
-        try:
-            with open(path, "r", encoding="utf-8") as fh:
-                payload = json.load(fh)
-            self.water_level_data = list(payload.get("water_level_data") or [])
-            self.rainfall_data = list(payload.get("rainfall_data") or [])
-            self.dam_gate_data = list(payload.get("dam_gate_data") or [])
-            self._last_ingest_at = payload.get("last_ingest_at")
-        except Exception as exc:
-            logger.warning("Failed to load forecasting store: %s", exc)
-
-    def initialize_historical_data(self):
+    def initialize_historical_data(self, observations: Optional[List[Dict[str, Any]]] = None):
         """
-        Initialize runtime state from persisted observations.
-
-        In strict/live mode there is no synthetic fallback.
+        Initialize runtime state from DB-persisted observations.
         """
-        self._load()
+        self.water_level_data = []
+        self.rainfall_data = []
+        self.dam_gate_data = []
+        self._last_ingest_at = None
+
+        for row in observations or []:
+            ts = float(row.get("timestamp") or 0.0)
+            if row.get("water_level_percent") is not None:
+                self.water_level_data.append(
+                    {
+                        "timestamp": ts,
+                        "water_level_percent": float(row["water_level_percent"]),
+                    }
+                )
+            if row.get("rainfall_mm") is not None:
+                self.rainfall_data.append(
+                    {
+                        "timestamp": ts,
+                        "rainfall_mm": float(row["rainfall_mm"]),
+                    }
+                )
+            if row.get("gate_opening_percent") is not None:
+                self.dam_gate_data.append(
+                    {
+                        "timestamp": ts,
+                        "gate_opening_percent": float(row["gate_opening_percent"]),
+                    }
+                )
+            if ts and (self._last_ingest_at is None or ts > self._last_ingest_at):
+                self._last_ingest_at = ts
+
+        self.water_level_data.sort(key=lambda x: x["timestamp"])
+        self.rainfall_data.sort(key=lambda x: x["timestamp"])
+        self.dam_gate_data.sort(key=lambda x: x["timestamp"])
+
         self._is_initialized = True
         logger.info(
-            "Forecasting system initialized with persisted data: water=%s rainfall=%s gates=%s",
+            "Forecasting system initialized with DB data: water=%s rainfall=%s gates=%s",
             len(self.water_level_data),
             len(self.rainfall_data),
             len(self.dam_gate_data),
@@ -91,7 +86,7 @@ class TimeSeriesForecastingSystem:
         gate_opening_percent: Optional[float] = None,
         timestamp: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Add an observed data point and persist to local store."""
+        """Add an observed data point to in-memory runtime state."""
         ts = float(timestamp or time.time())
 
         if water_level_percent is not None:
@@ -122,7 +117,6 @@ class TimeSeriesForecastingSystem:
         self.dam_gate_data = self.dam_gate_data[-10000:]
 
         self._last_ingest_at = ts
-        self._persist()
 
         return {
             "timestamp": ts,

@@ -6,6 +6,7 @@ import logging
 import re
 from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
 
+from sqlalchemy import delete, inspect, select, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -20,6 +21,54 @@ logger = logging.getLogger(__name__)
 
 class Base(DeclarativeBase):
     pass
+
+
+ROLE_NORMALIZATION_SQL = """
+UPDATE users
+SET roles = COALESCE(
+    (
+        SELECT ARRAY(
+            SELECT DISTINCT normalized_role
+            FROM (
+                SELECT CASE
+                    WHEN role = 'admin' THEN 'authority'
+                    WHEN role = 'user' THEN NULL
+                    ELSE role
+                END AS normalized_role
+                FROM unnest(roles) AS role
+            ) t
+            WHERE normalized_role IS NOT NULL
+            AND normalized_role = ANY(ARRAY['farmer','officer','authority'])
+        )
+    ),
+    ARRAY['farmer']::varchar[]
+)
+"""
+
+
+DEFAULT_DEV_USERS = (
+    {
+        "username": "farmer",
+        "password": "farmer123",
+        "email": "farmer@smartirrigation.com",
+        "roles": ["farmer"],
+        "schemes": [],
+    },
+    {
+        "username": "officer",
+        "password": "officer123",
+        "email": "officer@smartirrigation.com",
+        "roles": ["officer"],
+        "schemes": [],
+    },
+    {
+        "username": "authority",
+        "password": "authority123",
+        "email": "authority@smartirrigation.com",
+        "roles": ["authority"],
+        "schemes": [],
+    },
+)
 
 
 def _build_async_url(url: str) -> tuple[str, dict]:
@@ -67,20 +116,114 @@ AsyncSessionLocal = async_sessionmaker(
 is_connected: bool = False
 
 
+def _ensure_core_auth_tables(sync_conn) -> list[str]:
+    """
+    Ensure core auth tables are present.
+
+    This guards local/dev setups where migrations were not applied yet.
+    """
+    # Import models so metadata is populated when called from run_sync.
+    from app.models import SchemeAssignment, User  # noqa: F401
+
+    existing_tables = set(inspect(sync_conn).get_table_names(schema="public"))
+    created: list[str] = []
+    for table_name in ("users", "scheme_assignments"):
+        if table_name in existing_tables:
+            continue
+        table = Base.metadata.tables.get(table_name)
+        if table is None:
+            continue
+        table.create(bind=sync_conn, checkfirst=True)
+        created.append(table_name)
+    return created
+
+
+async def _normalize_roles() -> None:
+    """Normalize legacy roles to farmer/officer/authority."""
+    async with AsyncSessionLocal() as session:
+        await session.execute(text(ROLE_NORMALIZATION_SQL))
+        await session.commit()
+
+
+async def _seed_default_users() -> None:
+    """
+    Ensure baseline farmer/officer/authority users exist in debug mode.
+
+    Existing baseline users are also re-enabled and reset to known credentials.
+    """
+    from app.core.roles import normalize_roles
+    from app.core.security import hash_password
+    from app.models.scheme_assignment import SchemeAssignment
+    from app.models.user import User
+
+    default_scheme = settings.DEFAULT_SCHEME_ID.strip() or "scheme-default"
+    entries = []
+    for entry in DEFAULT_DEV_USERS:
+        schemes = entry["schemes"] or (
+            [default_scheme] if "farmer" not in entry["roles"] else []
+        )
+        entries.append({**entry, "schemes": schemes})
+
+    async with AsyncSessionLocal() as session:
+        for entry in entries:
+            username = entry["username"].lower().strip()
+            result = await session.execute(select(User).where(User.username == username))
+            user = result.scalar_one_or_none()
+            if user is None:
+                user = User(
+                    username=username,
+                    email=entry["email"],
+                    hashed_password=hash_password(entry["password"]),
+                    roles=normalize_roles(entry["roles"]),
+                    is_active=True,
+                )
+                session.add(user)
+                await session.flush()
+                logger.info("Seeded default %s user", username)
+            else:
+                user.email = entry["email"]
+                user.roles = normalize_roles(entry["roles"])
+                user.is_active = True
+                # Keep baseline credentials stable for local testing.
+                user.hashed_password = hash_password(entry["password"])
+
+            await session.execute(delete(SchemeAssignment).where(SchemeAssignment.user_id == user.id))
+            for scheme_id in entry["schemes"]:
+                session.add(SchemeAssignment(user_id=user.id, scheme_id=scheme_id))
+
+        await session.commit()
+
+
 async def connect_to_db():
     """Create all tables and verify connection on startup."""
     global is_connected
     logger.info("Connecting to PostgreSQL (Neon)...")
     try:
         # Import models so metadata is populated
-        from app.models import user as _  # noqa: F401
+        from app.models import User, SchemeAssignment  # noqa: F401
 
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        if settings.AUTO_CREATE_SCHEMA:
+            logger.warning("AUTO_CREATE_SCHEMA enabled; creating tables directly. Prefer Alembic migrations.")
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+        elif settings.ENSURE_CORE_AUTH_SCHEMA:
+            async with engine.begin() as conn:
+                created_tables = await conn.run_sync(_ensure_core_auth_tables)
+            if created_tables:
+                logger.warning(
+                    "Created missing auth tables without migration: %s",
+                    ", ".join(created_tables),
+                )
 
         # Quick ping
         async with AsyncSessionLocal() as session:
-            await session.execute(__import__("sqlalchemy").text("SELECT 1"))
+            await session.execute(text("SELECT 1"))
+
+        if settings.ENSURE_CORE_AUTH_SCHEMA:
+            await _normalize_roles()
+
+        if settings.DEBUG and settings.SEED_DEFAULT_USERS_ON_STARTUP:
+            await _seed_default_users()
 
         is_connected = True
         logger.info("Connected to PostgreSQL successfully")
