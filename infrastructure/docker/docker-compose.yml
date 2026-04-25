@@ -44,10 +44,16 @@ services:
   web:
     build: ../../web
     ports:
-      - "8005:80"
+      - "8005:3000"
     networks:
       - smart-irrigation
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   auth_service:
     build: ../../services/auth_service
@@ -72,10 +78,11 @@ services:
       - smart-irrigation
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
 
   irrigation_service:
     build: ../../services/irrigation_service
@@ -108,10 +115,11 @@ services:
       - smart-irrigation
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
 
   forecasting_service:
     build: ../../services/forecasting_service
@@ -139,10 +147,11 @@ services:
       - smart-irrigation
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
 
   optimize_service:
     build: ../../services/optimize_service
@@ -182,10 +191,11 @@ services:
       - smart-irrigation
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
 
   iot_service:
     build: ../../services/iot_service
@@ -222,10 +232,11 @@ services:
       - smart-irrigation
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8006/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
 
   crop_health_and_water_stress_detection:
     build: ../../services/crop_health_and_water_stress_detection
@@ -253,10 +264,11 @@ services:
       - smart-irrigation
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8007/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
 
   mongo:
     image: mongo:7

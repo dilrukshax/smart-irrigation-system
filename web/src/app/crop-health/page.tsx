@@ -27,6 +27,41 @@ import { ApiState } from '@/components/asi/api-state';
 import { apiGet, uploadFile } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 
+const toNumber = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const normalizeZonesPayload = (payload: any): any[] => {
+  const rawZones =
+    (Array.isArray(payload) && payload) ||
+    (Array.isArray(payload?.zones) && payload.zones) ||
+    (Array.isArray(payload?.features) && payload.features) ||
+    (Array.isArray(payload?.zones?.features) && payload.zones.features) ||
+    (Array.isArray(payload?.data) && payload.data) ||
+    (Array.isArray(payload?.data?.zones) && payload.data.zones) ||
+    (Array.isArray(payload?.data?.features) && payload.data.features) ||
+    (Array.isArray(payload?.data?.zones?.features) && payload.data.zones.features) ||
+    [];
+
+  return rawZones.map((zone: any, index: number) => {
+    const props = zone?.properties || {};
+    const metric = toNumber(props.ndvi ?? props.score ?? zone?.ndvi ?? zone?.score);
+    const zoneId = props.zone_id || zone?.zone_id || zone?.id || `Z-${index + 1}`;
+    const fieldName = props.name || zone?.field_name || zone?.field || zone?.label || '—';
+
+    return {
+      ...zone,
+      ...props,
+      id: zone?.id || zoneId,
+      zone_id: zoneId,
+      field_name: fieldName,
+      ndvi: metric,
+      score: metric,
+    };
+  });
+};
+
 const CropHealth = () => {
   const { user } = useAuth();
   const [zones, setZones] = React.useState<any[]>([]);
@@ -48,10 +83,13 @@ const CropHealth = () => {
         apiGet<any>('/crop-health/zones/summary'),
       ]);
       if (zonesRes.status === 'fulfilled') {
-        const zoneList = Array.isArray(zonesRes.value) ? zonesRes.value : zonesRes.value?.zones || zonesRes.value?.data || [];
+        const zoneList = normalizeZonesPayload(zonesRes.value);
         setZones(zoneList);
       }
-      if (summaryRes.status === 'fulfilled') setSummary(summaryRes.value);
+      if (summaryRes.status === 'fulfilled') {
+        const summaryData = summaryRes.value?.summary || summaryRes.value?.data?.summary || summaryRes.value?.data || summaryRes.value;
+        setSummary(summaryData);
+      }
 
       if (zonesRes.status === 'rejected' && summaryRes.status === 'rejected') {
         setError('Failed to load crop health data. Service may be initializing.');
@@ -84,11 +122,11 @@ const CropHealth = () => {
   const displayName = user?.username || 'Officer';
   const totalZones = summary?.total_zones ?? zones.length;
   const healthyZones = summary?.healthy_count ?? zones.filter((z: any) => (z.ndvi || z.score || 0) > 0.7).length;
-  const stressedZones = summary?.stressed_count ?? zones.filter((z: any) => {
+  const stressedZones = summary?.stressed_count ?? summary?.mild_stress_count ?? zones.filter((z: any) => {
     const v = z.ndvi || z.score || 0;
     return v >= 0.4 && v <= 0.7;
   }).length;
-  const criticalZones = summary?.critical_count ?? zones.filter((z: any) => (z.ndvi || z.score || 0) < 0.4).length;
+  const criticalZones = summary?.critical_count ?? summary?.severe_stress_count ?? zones.filter((z: any) => (z.ndvi || z.score || 0) < 0.4).length;
   const healthyPct = totalZones > 0 ? Math.round((healthyZones / totalZones) * 100) : 0;
 
   return (

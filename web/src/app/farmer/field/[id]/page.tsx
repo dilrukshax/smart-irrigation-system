@@ -161,7 +161,12 @@ const FieldWorkspace = () => {
   const weatherSummary = f3.weather_summary || {};
   const forecastRec = f3.irrigation_recommendation || {};
 
-  const recommendations = (f4.recommendations?.data?.[0]?.recommendations) || f4.recommendations || [];
+  const recommendationsSource =
+    f4.recommendations?.data?.[0]?.recommendations ??
+    f4.recommendations?.recommendations ??
+    f4.recommendations?.data ??
+    f4.recommendations;
+  const recommendations = Array.isArray(recommendationsSource) ? recommendationsSource : [];
 
   return (
     <Frame

@@ -5,6 +5,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { logout } from '@/lib/auth';
 
 /* Shared components for Adaptive Smart Irrigation UI */
 
@@ -108,6 +109,16 @@ const AppBar: any = ({ breadcrumb = [], user = 'Nimal P.', role = 'Farmer', noti
           <div style={{ color: 'var(--muted)', fontSize: 10.5 }}>{role}</div>
         </div>
       </div>
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        onClick={logout}
+        aria-label="Log out"
+        title="Log out"
+      >
+        <Icon name="logout" size={13}/>
+        Logout
+      </button>
     </div>
   </div>
 );
