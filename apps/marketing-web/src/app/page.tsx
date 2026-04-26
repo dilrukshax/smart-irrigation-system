@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, FileText, Gauge, Layers, Microscope, Satellite } from "lucide-react";
 import { SiteShell } from "@/components/site-shell";
-import { modules, projectStats } from "@/content/site-data";
+import { modules, projectStats, researchEvidence } from "@/content/site-data";
 
 const moduleIcons = {
   f1: Gauge,
@@ -32,6 +32,7 @@ export default function HomePage() {
               <Link
                 href="/domain"
                 className="inline-flex items-center gap-2 rounded-md bg-white px-4 py-3 text-sm font-semibold text-[color:var(--ink)] transition hover:bg-[color:var(--soft)]"
+                style={{ color: "var(--ink)" }}
               >
                 Explore Domain
                 <ArrowRight size={17} aria-hidden="true" />
@@ -85,6 +86,13 @@ export default function HomePage() {
                     </p>
                     <h3 className="mt-2 text-xl font-semibold text-[color:var(--ink)]">{module.name}</h3>
                     <p className="mt-3 text-sm leading-6 text-[color:var(--muted)]">{module.summary}</p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {module.metrics.map((metric) => (
+                        <span key={metric} className="rounded-md bg-[color:var(--soft)] px-3 py-1.5 text-xs font-semibold text-[color:var(--ink)]">
+                          {metric}
+                        </span>
+                      ))}
+                    </div>
                     <ul className="mt-5 grid gap-2 text-sm text-[color:var(--ink)]">
                       {module.bullets.map((bullet) => (
                         <li key={bullet} className="flex gap-2">
@@ -109,10 +117,20 @@ export default function HomePage() {
                   The visuals come from the project research assets.
                 </h2>
                 <p className="mt-4 text-base leading-7 text-[color:var(--muted)]">
-                  The marketing site uses generated research outputs from the repo: zone
-                  health maps, ensemble forecasts, optimization architecture, and actuation
-                  pipelines. This keeps the website tied to the actual system.
+                  The project evidence is grounded in generated research outputs from the repo:
+                  hydrology records, NDVI health maps, ensemble forecasts, price modelling, and
+                  crop allocation architecture.
                 </p>
+                <div className="mt-6 grid gap-3">
+                  {researchEvidence.map((item) => (
+                    <div key={`${item.stream}-${item.metric}`} className="rounded-lg border border-[color:var(--line)] bg-white p-4">
+                      <p className="text-sm font-semibold text-[color:var(--ink)]">
+                        {item.stream} - {item.value}
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-[color:var(--muted)]">{item.metric}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
@@ -140,19 +158,19 @@ export default function HomePage() {
         <section className="bg-[color:var(--paper)] px-4 py-16 sm:px-6 lg:px-8">
           <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[1fr_1fr]">
             <div>
-              <p className="text-sm font-semibold uppercase text-[color:var(--green)]">Website structure</p>
+              <p className="text-sm font-semibold uppercase text-[color:var(--green)]">Submission structure</p>
               <h2 className="mt-3 text-3xl font-semibold leading-tight sm:text-4xl">
-                Built around the course website criteria.
+                Research material organized for evaluation.
               </h2>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               {[
-                ["Home", "Abstract-level introduction and project highlights"],
-                ["Domain", "Literature, gap, problem, objectives, methodology, technology"],
-                ["Milestones", "Assessment selector with dates, marks, and details"],
-                ["Documents", "Document links prepared for final submissions"],
-                ["Slides", "Past and upcoming presentation deck links"],
-                ["About and Contact", "Team profiles, emails, and contact form"],
+                ["Abstract", "Integrated project overview and research highlights"],
+                ["Domain", "Literature, gap, problem, objectives, methodology, and technologies"],
+                ["Milestones", "Assessment timeline with dates, marks, and details"],
+                ["Documents", "Project-wide and individual final submission files"],
+                ["Slides", "Proposal, progress, final, and stream deep-dive decks"],
+                ["Team", "Member profiles, stream ownership, and contact details"],
               ].map(([title, detail]) => (
                 <div key={title} className="rounded-lg border border-[color:var(--line)] bg-white p-4">
                   <h3 className="font-semibold text-[color:var(--ink)]">{title}</h3>

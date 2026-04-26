@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-label="Illustrated smart irrigation landscape">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b9d8df"/>
+      <stop offset="0.48" stop-color="#d7e9da"/>
+      <stop offset="1" stop-color="#eef5de"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#74b8cc"/>
+      <stop offset="1" stop-color="#176b8f"/>
+    </linearGradient>
+    <linearGradient id="fieldA" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7fbf73"/>
+      <stop offset="1" stop-color="#2d8152"/>
+    </linearGradient>
+    <linearGradient id="fieldB" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d8c56c"/>
+      <stop offset="1" stop-color="#769b4c"/>
+    </linearGradient>
+    <pattern id="riceLines" width="32" height="32" patternUnits="userSpaceOnUse" patternTransform="rotate(-18)">
+      <path d="M0 16H32" stroke="#ffffff" stroke-opacity="0.16" stroke-width="3"/>
+    </pattern>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#14342b" flood-opacity="0.2"/>
+    </filter>
+  </defs>
+  <rect width="1600" height="900" fill="url(#sky)"/>
+  <path d="M0 318C160 255 280 266 430 305C598 349 745 347 916 286C1120 212 1322 231 1600 308V0H0Z" fill="#5d8a82" opacity="0.34"/>
+  <path d="M0 366C204 292 362 324 545 370C710 411 867 401 1032 342C1218 276 1384 280 1600 348V900H0Z" fill="#8ba55e" opacity="0.5"/>
+  <path d="M-80 790C126 674 254 641 480 608C736 570 846 455 1050 423C1246 392 1406 470 1680 433V900H-80Z" fill="#305f45"/>
+  <path d="M-40 865C200 722 390 658 630 632C820 611 990 546 1138 486C1280 428 1426 424 1640 472V900H-40Z" fill="url(#fieldA)"/>
+  <path d="M32 800L359 675L570 900H0V823Z" fill="#2a6d56"/>
+  <path d="M374 670L705 612L872 900H548Z" fill="url(#fieldB)"/>
+  <path d="M716 608L1062 494L1264 900H858Z" fill="#4f9a5d"/>
+  <path d="M1084 492L1620 468V900H1262Z" fill="#a4a84d"/>
+  <path d="M32 800L359 675L570 900H0V823Z" fill="url(#riceLines)"/>
+  <path d="M374 670L705 612L872 900H548Z" fill="url(#riceLines)"/>
+  <path d="M716 608L1062 494L1264 900H858Z" fill="url(#riceLines)"/>
+  <path d="M1084 492L1620 468V900H1262Z" fill="url(#riceLines)"/>
+  <path d="M-22 877C152 787 328 701 500 660C665 620 815 612 992 535C1190 449 1375 432 1640 420" fill="none" stroke="#f1e9b8" stroke-width="16" stroke-opacity="0.92"/>
+  <path d="M-40 878C145 782 320 695 496 651C670 608 821 600 993 525C1188 439 1380 421 1642 410" fill="none" stroke="#7ec4d5" stroke-width="8" stroke-linecap="round"/>
+  <path d="M730 900C770 794 846 698 954 612C1030 552 1135 495 1286 454" fill="none" stroke="url(#water)" stroke-width="42" stroke-linecap="round"/>
+  <path d="M730 900C770 794 846 698 954 612C1030 552 1135 495 1286 454" fill="none" stroke="#cbeef0" stroke-width="10" stroke-linecap="round" stroke-opacity="0.55"/>
+  <g filter="url(#softShadow)">
+    <rect x="1136" y="310" width="168" height="112" rx="18" fill="#f8fbf5" opacity="0.95"/>
+    <path d="M1168 390L1198 360L1230 376L1274 332" fill="none" stroke="#1c7c54" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="1168" cy="390" r="8" fill="#1c7c54"/>
+    <circle cx="1198" cy="360" r="8" fill="#176b8f"/>
+    <circle cx="1230" cy="376" r="8" fill="#a96f11"/>
+    <circle cx="1274" cy="332" r="8" fill="#b54d3a"/>
+  </g>
+  <g fill="none" stroke="#17362f" stroke-width="8" stroke-linecap="round">
+    <path d="M298 615V538"/>
+    <path d="M278 538H318"/>
+    <path d="M288 520H308"/>
+    <path d="M1086 470V394"/>
+    <path d="M1066 394H1106"/>
+    <path d="M1076 376H1096"/>
+  </g>
+  <g fill="#f8fbf5" stroke="#17362f" stroke-width="8">
+    <circle cx="298" cy="526" r="22"/>
+    <circle cx="1086" cy="382" r="22"/>
+  </g>
+  <g fill="none" stroke="#f8fbf5" stroke-opacity="0.72" stroke-width="4">
+    <path d="M332 509C386 470 446 449 520 448"/>
+    <path d="M1120 364C1184 316 1265 302 1356 321"/>
+  </g>
+</svg>

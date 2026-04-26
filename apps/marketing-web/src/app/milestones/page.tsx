@@ -10,7 +10,7 @@ export default function MilestonesPage() {
           eyebrow="Milestones"
           title="Assessment timeline and marks"
           lead="A selectable milestone view for proposal, progress presentations, final assessment, viva, paper, and continuous status documentation."
-          image="/assets/research/fig8_quantile_forecast.png"
+          image="/assets/illustrations/hero-submission-pack.png"
         />
         <section className="px-4 py-14 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-7xl">

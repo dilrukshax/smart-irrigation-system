@@ -11,7 +11,7 @@ export default function AboutPage() {
           eyebrow="About us"
           title="Meet the research team"
           lead="Four Software Engineering undergraduates, each leading one research function while collaborating on the integrated system."
-          image="/assets/research/fig9_actuation_decision_pipeline.png"
+          image="/assets/illustrations/hero-team-field.png"
         />
         <section className="px-4 py-14 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-7xl">

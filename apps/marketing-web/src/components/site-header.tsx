@@ -47,9 +47,9 @@ export function SiteHeader() {
                 key={item.href}
                 href={item.href}
                 aria-current={active ? "page" : undefined}
-                className={`rounded-md px-3 py-2 text-sm font-medium transition ${
+                className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
                   active
-                    ? "bg-[color:var(--ink)] text-white"
+                    ? "bg-[color:var(--soft)] text-[color:var(--ink)] ring-1 ring-[color:var(--line)]"
                     : "text-[color:var(--muted)] hover:bg-[color:var(--soft)] hover:text-[color:var(--ink)]"
                 }`}
               >
@@ -80,9 +80,9 @@ export function SiteHeader() {
                   key={item.href}
                   href={item.href}
                   aria-current={active ? "page" : undefined}
-                  className={`rounded-md px-3 py-2 text-sm font-medium ${
+                  className={`rounded-md px-3 py-2 text-sm font-semibold ${
                     active
-                      ? "bg-[color:var(--ink)] text-white"
+                      ? "bg-[color:var(--soft)] text-[color:var(--ink)] ring-1 ring-[color:var(--line)]"
                       : "text-[color:var(--muted)] hover:bg-[color:var(--soft)] hover:text-[color:var(--ink)]"
                   }`}
                   onClick={() => setOpen(false)}

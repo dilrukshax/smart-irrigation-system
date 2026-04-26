@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-label="Illustrated research team and connected smart farm">
+  <defs>
+    <linearGradient id="teamBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d6ece1"/>
+      <stop offset="0.48" stop-color="#eef1d8"/>
+      <stop offset="1" stop-color="#d7e7ef"/>
+    </linearGradient>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#19352f" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <rect width="1600" height="900" fill="url(#teamBg)"/>
+  <path d="M0 672C210 618 350 632 520 668C710 708 874 678 1058 612C1246 545 1402 542 1600 586V900H0Z" fill="#679e60" opacity="0.78"/>
+  <path d="M0 770C188 705 332 688 500 716C715 752 920 714 1116 650C1290 594 1450 590 1600 620V900H0Z" fill="#2f7757" opacity="0.9"/>
+  <path d="M80 792C298 692 485 666 692 704C881 739 1006 694 1188 620C1318 568 1434 557 1566 570" fill="none" stroke="#f1e5ad" stroke-width="24" stroke-linecap="round"/>
+  <path d="M80 792C298 692 485 666 692 704C881 739 1006 694 1188 620C1318 568 1434 557 1566 570" fill="none" stroke="#7ac0d4" stroke-width="10" stroke-linecap="round"/>
+  <g filter="url(#soft)">
+    <rect x="292" y="174" width="254" height="184" rx="24" fill="#ffffff" opacity="0.95"/>
+    <rect x="674" y="124" width="254" height="184" rx="24" fill="#ffffff" opacity="0.95"/>
+    <rect x="1058" y="192" width="254" height="184" rx="24" fill="#ffffff" opacity="0.95"/>
+  </g>
+  <g fill="none" stroke="#17362f" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="419" cy="238" r="28" fill="#dfeedd"/>
+    <path d="M366 318C381 286 457 286 472 318"/>
+    <path d="M368 318H470"/>
+    <circle cx="801" cy="188" r="28" fill="#b8dce7"/>
+    <path d="M748 268C763 236 839 236 854 268"/>
+    <path d="M750 268H852"/>
+    <circle cx="1185" cy="256" r="28" fill="#e8d79d"/>
+    <path d="M1132 336C1147 304 1223 304 1238 336"/>
+    <path d="M1134 336H1236"/>
+  </g>
+  <g fill="none" stroke="#17362f" stroke-opacity="0.42" stroke-width="5" stroke-dasharray="10 14">
+    <path d="M546 266C596 244 626 232 674 216"/>
+    <path d="M928 220C984 238 1018 252 1058 274"/>
+    <path d="M419 358C458 478 542 590 680 704"/>
+    <path d="M801 308C810 420 800 542 740 704"/>
+    <path d="M1185 376C1134 486 1044 586 926 700"/>
+  </g>
+  <g filter="url(#soft)">
+    <rect x="634" y="458" width="332" height="164" rx="24" fill="#f8fbf5"/>
+    <path d="M684 558L730 520L772 538L828 486L906 562" fill="none" stroke="#1c7c54" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="684" cy="558" r="8" fill="#1c7c54"/>
+    <circle cx="730" cy="520" r="8" fill="#166b8f"/>
+    <circle cx="772" cy="538" r="8" fill="#a96f11"/>
+    <circle cx="828" cy="486" r="8" fill="#b54d3a"/>
+    <circle cx="906" cy="562" r="8" fill="#1c7c54"/>
+  </g>
+  <g stroke="#17362f" stroke-width="8" stroke-linecap="round" fill="none">
+    <path d="M256 738V646"/>
+    <path d="M236 646H276"/>
+    <path d="M1224 626V532"/>
+    <path d="M1204 532H1244"/>
+  </g>
+  <g fill="#f8fbf5" stroke="#17362f" stroke-width="7">
+    <circle cx="256" cy="634" r="23"/>
+    <circle cx="1224" cy="520" r="23"/>
+  </g>
+</svg>
