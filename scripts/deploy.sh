@@ -255,8 +255,17 @@ print_urls() {
   ip=$(hostname -I 2>/dev/null | awk '{print $1}')
   [[ -z "$ip" ]] && ip="localhost"
 
+  local web_host_port web_url
+  web_host_port=$(grep -E '^WEB_HOST_PORT=' "$ENV_FILE" 2>/dev/null | tail -n 1 | cut -d= -f2-)
+  web_host_port="${web_host_port:-80}"
+  if [[ "$web_host_port" == "80" ]]; then
+    web_url="http://${ip}"
+  else
+    web_url="http://${ip}:${web_host_port}"
+  fi
+
   banner "Access URLs"
-  printf "  %-28s %s\n" "Web Dashboard"      "http://${ip}:8005"
+  printf "  %-28s %s\n" "Web Dashboard"      "$web_url"
   printf "  %-28s %s\n" "API Gateway"         "http://${ip}:8000"
   printf "  %-28s %s\n" "Swagger / API Docs"  "http://${ip}:8000/docs"
   printf "  %-28s %s\n" "Auth Service"        "http://${ip}:8001"
