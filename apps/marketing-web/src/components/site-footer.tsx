@@ -25,7 +25,7 @@ export function SiteFooter() {
         </div>
 
         <div>
-          <p className="text-sm font-semibold">Website</p>
+          <p className="text-sm font-semibold">Sections</p>
           <div className="mt-4 grid gap-2 text-sm text-white/72">
             {navItems.map((item) => (
               <Link key={item.href} href={item.href} className="hover:text-white">

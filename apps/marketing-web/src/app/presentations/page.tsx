@@ -11,7 +11,7 @@ export default function PresentationsPage() {
           eyebrow="Presentations"
           title="Presentation slides"
           lead="Past and future presentation decks for the proposal, progress reviews, final assessment, and individual research streams."
-          image="/assets/research/fig13_ensemble_forecast.png"
+          image="/assets/illustrations/hero-submission-pack.png"
         />
         <section className="px-4 py-14 sm:px-6 lg:px-8">
           <div className="mx-auto grid max-w-7xl gap-8">

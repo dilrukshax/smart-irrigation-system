@@ -11,7 +11,7 @@ export default function DocumentsPage() {
           eyebrow="Documents"
           title="Project documents"
           lead="Prepared document slots for the project charter, proposal, checklists, final report, and individual final documents."
-          image="/assets/research/fig16_acao_architecture_diagram.png"
+          image="/assets/illustrations/hero-submission-pack.png"
         />
         <section className="px-4 py-14 sm:px-6 lg:px-8">
           <div className="mx-auto grid max-w-7xl gap-8">

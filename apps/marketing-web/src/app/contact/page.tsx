@@ -12,7 +12,7 @@ export default function ContactPage() {
           eyebrow="Contact us"
           title="Project contact details"
           lead="General contact information, team email links, and a mail-ready contact form for project inquiries."
-          image="/assets/research/fig10_zone_health_map.png"
+          image="/assets/illustrations/hero-team-field.png"
         />
         <section className="px-4 py-14 sm:px-6 lg:px-8">
           <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.9fr_1.1fr]">
