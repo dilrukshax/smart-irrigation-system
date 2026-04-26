@@ -2,7 +2,7 @@
 Pydantic schemas for authentication requests and responses.
 """
 
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -30,6 +30,7 @@ class UserInfo(BaseModel):
 
     id: str = Field(..., description="User ID")
     username: str = Field(..., description="Username")
+    full_name: Optional[str] = Field(None, description="Farmer full name")
     roles: List[str] = Field(default_factory=lambda: ["farmer"], description="User roles")
 
 

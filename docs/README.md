@@ -18,6 +18,7 @@ This folder keeps project documentation grouped by purpose.
 ## Guides
 - [Local development](guides/local-development.md)
 - [IoT setup](guides/iot-setup.md)
+- [ESP32 Arduino IDE hardware setup](guides/esp32-arduino-hardware-setup.md)
 - [VM setup for Jupyter](guides/vm-setup-jupyter.md)
 - [Test data](testing/test-data.md)
 

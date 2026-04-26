@@ -1,3 +1,13 @@
+# Environment files — .env contains real secrets, never commit it
+.env
+!.env.example
+services/**/.env
+services/**/.env.local
+infrastructure/docker/.env
+infrastructure/docker/.env.production
+!infrastructure/docker/.env.production.example
+web/.env.local
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

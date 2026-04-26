@@ -11,6 +11,8 @@
 #    start       Start containers using already-built images (skip build)
 #    stop        Stop all containers  (data volumes are preserved)
 #    restart     Stop → clean build → start
+#    production  Full production deploy using infrastructure/docker/.env.production
+#    prod        Alias for production
 #    status      Show running containers and port summary
 #    logs        Tail live logs for all services (Ctrl+C to exit)
 #    logs <svc>  Tail logs for a specific service name
@@ -33,7 +35,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 COMPOSE_DIR="${PROJECT_ROOT}/infrastructure/docker"
 COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.yml"
-ENV_FILE="${COMPOSE_DIR}/.env"
+PROD_COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.prod.yml"
 
 # ------------------------------------------------------------------------------
 # Colour helpers
@@ -56,6 +58,18 @@ banner()  { echo -e "\n${BOLD}── $* ──${RESET}"; }
 # ------------------------------------------------------------------------------
 CMD="${1:-deploy}"
 SVC_ARG="${2:-}"
+RUN_MODE="development"
+ENV_FILE="${COMPOSE_DIR}/.env"
+ENV_EXAMPLE_FILE="${COMPOSE_DIR}/.env.example"
+COMPOSE_ARGS=(-f "$COMPOSE_FILE")
+
+if [[ "$CMD" == "production" || "$CMD" == "prod" ]]; then
+  CMD="deploy"
+  RUN_MODE="production"
+  ENV_FILE="${COMPOSE_DIR}/.env.production"
+  ENV_EXAMPLE_FILE="${COMPOSE_DIR}/.env.production.example"
+  COMPOSE_ARGS=(-f "$COMPOSE_FILE" -f "$PROD_COMPOSE_FILE")
+fi
 
 # ------------------------------------------------------------------------------
 # Detect docker compose command (v2 plugin or standalone v1)
@@ -68,6 +82,10 @@ detect_compose() {
   else
     die "Docker Compose not found. Install Docker Desktop or the docker-compose-plugin and retry."
   fi
+}
+
+compose() {
+  $DC --env-file "$ENV_FILE" "${COMPOSE_ARGS[@]}" "$@"
 }
 
 # ------------------------------------------------------------------------------
@@ -84,6 +102,11 @@ preflight() {
 
   [[ -f "$COMPOSE_FILE" ]] || die "docker-compose.yml not found at $COMPOSE_FILE"
   ok "Compose file: $COMPOSE_FILE"
+
+  if [[ "$RUN_MODE" == "production" ]]; then
+    [[ -f "$PROD_COMPOSE_FILE" ]] || die "docker-compose.prod.yml not found at $PROD_COMPOSE_FILE"
+    ok "Production override: $PROD_COMPOSE_FILE"
+  fi
 }
 
 # ------------------------------------------------------------------------------
@@ -92,10 +115,10 @@ preflight() {
 ensure_env() {
   if [[ -f "$ENV_FILE" ]]; then
     ok "Env file: $ENV_FILE"
-  elif [[ -f "${COMPOSE_DIR}/.env.example" ]]; then
-    cp "${COMPOSE_DIR}/.env.example" "$ENV_FILE"
-    warn ".env not found — copied from .env.example"
-    warn "Edit $ENV_FILE and set a strong JWT_SECRET_KEY before going live."
+  elif [[ -f "$ENV_EXAMPLE_FILE" ]]; then
+    cp "$ENV_EXAMPLE_FILE" "$ENV_FILE"
+    warn "$(basename "$ENV_FILE") not found — copied from $(basename "$ENV_EXAMPLE_FILE")"
+    warn "Edit $ENV_FILE and replace every production placeholder before going live."
   else
     warn ".env not found — writing minimal defaults."
     cat > "$ENV_FILE" <<'EOF'
@@ -112,15 +135,23 @@ DEVICE_FIELD_MAP=
 GF_SECURITY_ADMIN_USER=admin
 GF_SECURITY_ADMIN_PASSWORD=admin
 EOF
-    warn "Edit $ENV_FILE and set a strong JWT_SECRET_KEY before going live."
+    warn "Edit $ENV_FILE and replace every placeholder before going live."
   fi
 
   # Warn if JWT key is still default
   local jwt
   jwt=$(grep -E '^JWT_SECRET_KEY=' "$ENV_FILE" | cut -d= -f2-)
-  if [[ "$jwt" == "change-this-to-a-long-random-secret" || -z "$jwt" ]]; then
+  if [[ "$jwt" == "change-this-to-a-long-random-secret" || "$jwt" == "replace-with-64-char-random-hex" || "$jwt" == your-super-secret-key* || -z "$jwt" ]]; then
     warn "JWT_SECRET_KEY is using the default value — not safe for production."
     warn "Generate one with:  openssl rand -hex 32"
+  fi
+
+  if [[ "$RUN_MODE" == "production" ]]; then
+    grep -Eq '^ENVIRONMENT=production$' "$ENV_FILE" || warn "ENVIRONMENT should be production in $ENV_FILE."
+    grep -Eq '^DEBUG=false$' "$ENV_FILE" || warn "DEBUG should be false in $ENV_FILE."
+    if grep -Eq 'replace-with-|your-domain\.example' "$ENV_FILE"; then
+      die "Production env file still contains placeholders. Edit $ENV_FILE before deploying."
+    fi
   fi
 }
 
@@ -168,7 +199,7 @@ build_images() {
   cd "$COMPOSE_DIR"
   for svc in "${services[@]}"; do
     info "Building → $svc"
-    $DC --env-file "$ENV_FILE" build --no-cache --pull "$svc" \
+    compose build --no-cache --pull "$svc" \
       || die "Build failed for '$svc'. Check the Dockerfile and try again."
     ok "Built   → $svc"
   done
@@ -180,15 +211,15 @@ build_images() {
 # Start the full stack
 # ------------------------------------------------------------------------------
 start_stack() {
-  banner "Starting infrastructure (Postgres, Redis, InfluxDB, MQTT, Mongo)"
+  banner "Starting infrastructure (Postgres, Redis, InfluxDB, MQTT)"
   cd "$COMPOSE_DIR"
-  $DC --env-file "$ENV_FILE" up -d postgres redis influxdb mosquitto mongo
+  compose up -d postgres redis influxdb mosquitto
 
   info "Waiting 15 s for databases to initialise..."
   sleep 15
 
   banner "Starting application services"
-  $DC --env-file "$ENV_FILE" up -d
+  compose up -d
 
   ok "All containers started."
 }
@@ -255,8 +286,17 @@ print_urls() {
   ip=$(hostname -I 2>/dev/null | awk '{print $1}')
   [[ -z "$ip" ]] && ip="localhost"
 
+  local web_host_port web_url
+  web_host_port=$(grep -E '^WEB_HOST_PORT=' "$ENV_FILE" 2>/dev/null | tail -n 1 | cut -d= -f2-)
+  web_host_port="${web_host_port:-80}"
+  if [[ "$web_host_port" == "80" ]]; then
+    web_url="http://${ip}"
+  else
+    web_url="http://${ip}:${web_host_port}"
+  fi
+
   banner "Access URLs"
-  printf "  %-28s %s\n" "Web Dashboard"      "http://${ip}:8005"
+  printf "  %-28s %s\n" "Web Dashboard"      "$web_url"
   printf "  %-28s %s\n" "API Gateway"         "http://${ip}:8000"
   printf "  %-28s %s\n" "Swagger / API Docs"  "http://${ip}:8000/docs"
   printf "  %-28s %s\n" "Auth Service"        "http://${ip}:8001"
@@ -265,7 +305,7 @@ print_urls() {
   printf "  %-28s %s\n" "Optimisation Service" "http://${ip}:8004"
   printf "  %-28s %s\n" "IoT Service"         "http://${ip}:8006"
   printf "  %-28s %s\n" "Crop Health Service" "http://${ip}:8007"
-  printf "  %-28s %s\n" "Grafana"             "http://${ip}:3001  (admin / admin)"
+  printf "  %-28s %s\n" "Grafana"             "http://${ip}:3001"
   printf "  %-28s %s\n" "Prometheus"          "http://${ip}:9090"
   printf "  %-28s %s\n" "InfluxDB"            "http://${ip}:8086"
   printf "  %-28s %s\n" "MQTT broker"         "${ip}:1883  (TCP)"
@@ -303,7 +343,7 @@ case "$CMD" in
     preflight
     banner "Stopping stack"
     cd "$COMPOSE_DIR"
-    $DC --env-file "$ENV_FILE" down
+    compose down
     ok "All containers stopped. Data volumes preserved."
     ;;
 
@@ -314,7 +354,7 @@ case "$CMD" in
     ensure_mosquitto
     banner "Stopping existing containers"
     cd "$COMPOSE_DIR"
-    $DC --env-file "$ENV_FILE" down || true
+    compose down || true
     build_images
     start_stack
     wait_healthy
@@ -326,7 +366,7 @@ case "$CMD" in
     preflight
     banner "Container status"
     cd "$COMPOSE_DIR"
-    $DC --env-file "$ENV_FILE" ps
+    compose ps
     print_urls
     ;;
 
@@ -335,9 +375,9 @@ case "$CMD" in
     preflight
     cd "$COMPOSE_DIR"
     if [[ -n "$SVC_ARG" ]]; then
-      $DC --env-file "$ENV_FILE" logs -f "$SVC_ARG"
+      compose logs -f "$SVC_ARG"
     else
-      $DC --env-file "$ENV_FILE" logs -f
+      compose logs -f
     fi
     ;;
 
@@ -348,7 +388,7 @@ case "$CMD" in
     read -rp "Are you sure? Type YES to continue: " confirm
     [[ "$confirm" == "YES" ]] || { info "Aborted."; exit 0; }
     cd "$COMPOSE_DIR"
-    $DC --env-file "$ENV_FILE" down -v
+    compose down -v
     ok "Containers and volumes removed."
     ;;
 

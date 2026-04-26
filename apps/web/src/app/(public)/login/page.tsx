@@ -28,9 +28,8 @@ import { login } from '@/lib/auth';
 import { ApiError } from '@/lib/api';
 
 const Login = () => {
-  const [role, setRole] = React.useState('farmer');
-  const [email, setEmail] = React.useState('nimal.p@example.lk');
-  const [password, setPassword] = React.useState('············');
+  const [email, setEmail] = React.useState('');
+  const [password, setPassword] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState('');
 
@@ -89,26 +88,17 @@ const Login = () => {
         <div style={{ maxWidth: 360, width: '100%', margin: '0 auto' }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Sign in</div>
           <h2 style={{ fontSize: 28, marginTop: 6, letterSpacing: '-0.02em' }}>Welcome back.</h2>
-          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 6 }}>Choose your role to continue.</p>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 4, background: '#F0F2ED', padding: 4, borderRadius: 10, marginTop: 24 }}>
-            {['farmer','officer','authority'].map(r => (
-              <button key={r} onClick={() => setRole(r)}
-                className="btn btn-sm"
-                style={{ height: 30, background: role === r ? 'white' : 'transparent', color: role === r ? 'var(--text)' : 'var(--muted)', boxShadow: role === r ? '0 1px 2px rgba(0,0,0,0.06)' : 'none', border: 'none', textTransform: 'capitalize', fontWeight: 600 }}>
-                {r}
-              </button>
-            ))}
-          </div>
+          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 6 }}>Farmers can use their ID number. Officers and authorities can use their username or email.</p>
 
           <form onSubmit={handleLogin}>
             <div className="field" style={{ marginTop: 22 }}>
-              <label>Email or NIC</label>
+              <label>ID number, username, or email</label>
               <input
                 className="input"
                 type="text"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                placeholder="e.g. 199112345678"
                 disabled={loading}
               />
             </div>
@@ -130,7 +120,7 @@ const Login = () => {
               <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <input type="checkbox" defaultChecked/> Remember me
               </label>
-              <Link href="/register" style={{ color: 'var(--primary-600)', fontWeight: 600 }}>Forgot password?</Link>
+              <Link href="/contact" style={{ color: 'var(--primary-600)', fontWeight: 600 }}>Need help?</Link>
             </div>
             {error && (
               <div style={{ marginTop: 12, padding: 10, background: '#FEE2E2', border: '1px solid #FECACA', borderRadius: 6, color: '#DC2626', fontSize: 12 }}>
@@ -143,7 +133,7 @@ const Login = () => {
               style={{ width: '100%', height: 42, marginTop: 18, fontSize: 13.5, opacity: loading ? 0.6 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}
               disabled={loading}
             >
-              {loading ? 'Signing in...' : `Sign in as ${role}`} {!loading && <Icon name="arrow" size={14}/>}
+              {loading ? 'Signing in...' : 'Sign in'} {!loading && <Icon name="arrow" size={14}/>}
             </button>
           </form>
           <div style={{ textAlign: 'center', marginTop: 18, fontSize: 12, color: 'var(--muted)' }}>

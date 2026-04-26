@@ -66,8 +66,12 @@ async def register(
     db: AsyncSession = Depends(get_db_session),
 ):
     # Public registration is farmer-only in the redesigned system.
+    username = (user_data.username or user_data.national_id or "").lower().strip()
     user = User(
-        username=user_data.username.lower().strip(),
+        username=username,
+        full_name=user_data.full_name.strip() if user_data.full_name else None,
+        national_id=user_data.national_id,
+        phone_number=user_data.phone_number,
         hashed_password=hash_password(user_data.password),
         email=user_data.email.lower().strip() if user_data.email else None,
         roles=["farmer"],
@@ -82,6 +86,8 @@ async def register(
         err = str(exc.orig).lower() if exc.orig else str(exc).lower()
         if "username" in err:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
+        if "national_id" in err:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ID number already exists")
         if "email" in err:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User already exists")
@@ -99,11 +105,13 @@ async def login(
     db: AsyncSession = Depends(get_db_session),
 ):
     identifier = credentials.username.strip().lower()
+    national_identifier = credentials.username.strip().upper().replace(" ", "")
     result = await db.execute(
         select(User).where(
             or_(
                 User.username == identifier,
                 User.email == identifier,
+                User.national_id == national_identifier,
             )
         )
     )
@@ -134,6 +142,7 @@ async def login(
         user=UserInfo(
             id=str(user.id),
             username=user.username,
+            full_name=user.full_name,
             roles=normalized_roles,
         ),
     )

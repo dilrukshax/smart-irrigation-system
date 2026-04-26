@@ -16,11 +16,11 @@
 // =====================================================
 // WIFI + MQTT CONFIG
 // =====================================================
-const char *WIFI_SSID = "M14";
-const char *WIFI_PASS = "12345678";
+const char *WIFI_SSID = "Don t Break My Heart";
+const char *WIFI_PASS = "Charuka@0";
 
 // IMPORTANT: Use your LAPTOP IPv4 address on the SAME WiFi
-const char *MQTT_HOST = "192.168.205.112";
+const char *MQTT_HOST = "192.168.8.101";
 const int MQTT_PORT = 1883;
 
 const char *DEVICE_ID = "esp32-01";
@@ -28,10 +28,19 @@ const char *DEVICE_ID = "esp32-01";
 // =====================================================
 // SENSOR PINS
 // =====================================================
+// ESP32-S3 can use GPIO1/GPIO2 as ADC1 pins.
+// Classic ESP32 DevKit boards should use ADC1 pins because WiFi makes ADC2 unreliable.
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
 const int SOIL_AO = 1;    // GPIO1
 const int WATER_AO = 2;   // GPIO2
 const int SOIL_DO = 7;    // GPIO7 (optional comparator output)
 const int LED_PIN = 21;   // onboard / external status LED
+#else
+const int SOIL_AO = 34;   // GPIO34 / ADC1 input-only
+const int WATER_AO = 35;  // GPIO35 / ADC1 input-only
+const int SOIL_DO = 27;   // GPIO27 (optional comparator output)
+const int LED_PIN = 2;    // common onboard LED on ESP32 DevKit
+#endif
 
 // =====================================================
 // SENSOR META
@@ -421,37 +430,37 @@ void loop()
 
     String topic = String("devices/") + DEVICE_ID + "/telemetry";
 
+    Serial.println("--------------------------------------------------");
+    Serial.print("Soil raw: ");
+    Serial.print(soilAO);
+    Serial.print(" | Soil %: ");
+    Serial.print(soilPercent);
+    Serial.print("% | Soil status: ");
+    Serial.println(soilStatus);
+
+    Serial.print("Water raw: ");
+    Serial.print(waterAO);
+    Serial.print(" | Water %: ");
+    Serial.print(waterPercent);
+    Serial.print("% | Water cm: ");
+    Serial.print(waterCm, 2);
+    Serial.print(" cm | Water status: ");
+    Serial.println(waterStatus);
+
+    Serial.print("Soil DO: ");
+    Serial.print(soilDO);
+    Serial.print(" | RSSI: ");
+    Serial.print(rssi);
+    Serial.println(" dBm");
+
     if (mqtt.connected())
     {
       bool ok = mqtt.publish(topic.c_str(), payload);
 
       if (ok)
       {
-        Serial.println("--------------------------------------------------");
         Serial.print("Published to: ");
         Serial.println(topic);
-
-        Serial.print("Soil raw: ");
-        Serial.print(soilAO);
-        Serial.print(" | Soil %: ");
-        Serial.print(soilPercent);
-        Serial.print("% | Soil status: ");
-        Serial.println(soilStatus);
-
-        Serial.print("Water raw: ");
-        Serial.print(waterAO);
-        Serial.print(" | Water %: ");
-        Serial.print(waterPercent);
-        Serial.print("% | Water cm: ");
-        Serial.print(waterCm, 2);
-        Serial.print(" cm | Water status: ");
-        Serial.println(waterStatus);
-
-        Serial.print("Soil DO: ");
-        Serial.print(soilDO);
-        Serial.print(" | RSSI: ");
-        Serial.print(rssi);
-        Serial.println(" dBm");
 
         digitalWrite(LED_PIN, LOW);
         delay(50);
