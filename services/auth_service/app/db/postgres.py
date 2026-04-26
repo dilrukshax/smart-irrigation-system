@@ -135,6 +135,21 @@ def _ensure_core_auth_tables(sync_conn) -> list[str]:
             continue
         table.create(bind=sync_conn, checkfirst=True)
         created.append(table_name)
+
+    if "users" in existing_tables:
+        user_columns = {column["name"] for column in inspect(sync_conn).get_columns("users", schema="public")}
+        if "full_name" not in user_columns:
+            sync_conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(120)"))
+            created.append("users.full_name")
+        if "national_id" not in user_columns:
+            sync_conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS national_id VARCHAR(32)"))
+            created.append("users.national_id")
+        if "phone_number" not in user_columns:
+            sync_conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(32)"))
+            created.append("users.phone_number")
+        sync_conn.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_national_id ON users (national_id) WHERE national_id IS NOT NULL")
+        )
     return created
 
 

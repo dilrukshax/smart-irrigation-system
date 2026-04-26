@@ -22,6 +22,11 @@ class User(Base):
     username: Mapped[str] = mapped_column(
         String(50), unique=True, nullable=False, index=True
     )
+    full_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    national_id: Mapped[str | None] = mapped_column(
+        String(32), unique=True, nullable=True, index=True
+    )
+    phone_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
     email: Mapped[str | None] = mapped_column(
         String(255), unique=True, nullable=True, index=True
     )
@@ -47,6 +52,9 @@ class User(Base):
         return {
             "id": str(self.id),
             "username": self.username,
+            "full_name": self.full_name,
+            "national_id": self.national_id,
+            "phone_number": self.phone_number,
             "email": self.email,
             "roles": normalize_roles(self.roles),
             "is_active": self.is_active,

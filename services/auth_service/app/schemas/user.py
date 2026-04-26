@@ -5,7 +5,7 @@ Pydantic schemas for user and authority management.
 from datetime import datetime
 from typing import List, Optional, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 ALLOWED_ROLES = {"farmer", "officer", "authority"}
 
@@ -13,17 +13,58 @@ ALLOWED_ROLES = {"farmer", "officer", "authority"}
 class UserCreate(BaseModel):
     """Request body for farmer self-registration."""
 
-    username: str = Field(..., min_length=3, max_length=50, description="Unique username")
+    username: Optional[str] = Field(None, min_length=3, max_length=50, description="Unique username")
+    full_name: Optional[str] = Field(None, min_length=2, max_length=120, description="Farmer full name")
+    national_id: Optional[str] = Field(None, max_length=32, description="Farmer NIC or national ID")
+    phone_number: Optional[str] = Field(None, max_length=32, description="Optional phone number")
     password: str = Field(..., min_length=6, max_length=100, description="Password (min 6 characters)")
     email: Optional[str] = Field(None, description="Optional email address")
     role: Literal["farmer"] = Field(default="farmer", description="Public registration role")
 
     @field_validator("username")
     @classmethod
-    def validate_username(cls, value: str) -> str:
+    def validate_username(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
         if not value.replace("_", "").replace("-", "").isalnum():
             raise ValueError("Username can only contain letters, numbers, underscores, and hyphens")
         return value.lower().strip()
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = " ".join(value.strip().split())
+        return normalized or None
+
+    @field_validator("national_id")
+    @classmethod
+    def validate_national_id(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip().upper().replace(" ", "")
+        if not normalized:
+            return None
+        if not normalized.replace("-", "").isalnum():
+            raise ValueError("ID number can only contain letters, numbers, and hyphens")
+        if len(normalized) < 5:
+            raise ValueError("ID number must have at least 5 characters")
+        return normalized
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone_number(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip().replace(" ", "")
+        if normalized == "":
+            return None
+        if not normalized.replace("+", "", 1).replace("-", "").isdigit():
+            raise ValueError("Phone number can only contain digits, +, spaces, and hyphens")
+        if len(normalized.replace("+", "").replace("-", "")) < 7:
+            raise ValueError("Phone number must have at least 7 digits")
+        return normalized
 
     @field_validator("email")
     @classmethod
@@ -37,12 +78,23 @@ class UserCreate(BaseModel):
             raise ValueError("Invalid email format")
         return normalized
 
+    @model_validator(mode="after")
+    def require_login_identifier(self) -> "UserCreate":
+        if self.username is None and self.national_id is None:
+            raise ValueError("ID number is required for farmer registration")
+        if self.username is None and self.national_id is not None:
+            self.username = self.national_id.lower()
+        return self
+
 
 class UserOut(BaseModel):
     """Response model for user data."""
 
     id: str
     username: str
+    full_name: Optional[str] = None
+    national_id: Optional[str] = None
+    phone_number: Optional[str] = None
     email: Optional[str] = None
     roles: List[str] = Field(default_factory=lambda: ["farmer"])
     is_active: bool = True
