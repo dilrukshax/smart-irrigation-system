@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     # Device Authentication (comma-separated or JSON map)
     # Format: "device1:apikey1,device2:apikey2" or '{"device1":"apikey1","device2":"apikey2"}'
     device_api_keys: Optional[str] = None
+    device_field_map: Optional[str] = None
 
     # Sensor Calibration Defaults
     # ADC range for soil moisture sensor (dry to wet)

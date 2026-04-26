@@ -15,6 +15,7 @@ from functools import lru_cache
 from typing import Optional
 from urllib.parse import quote_plus
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from app.core.config_bootstrap import apply_remote_config
 
@@ -64,6 +65,7 @@ class Settings(BaseSettings):
     db_password: str = "aca_o_password"
     db_name: str = "aca_o_db"
     db_sslmode: str = "disable"  # set to "require" for NeonDB/cloud Postgres
+    database_url_override: Optional[str] = Field(default=None, validation_alias="DATABASE_URL")
 
     # External service URLs (other microservices in the system)
     irrigation_service_url: str = "http://localhost:8002"
@@ -99,6 +101,9 @@ class Settings(BaseSettings):
         Example:
             postgresql://user:password@localhost:5432/dbname
         """
+        if self.database_url_override:
+            return self.database_url_override
+
         # URL encode the password to handle special characters like @, %, etc.
         encoded_password = quote_plus(self.db_password)
         ssl = f"?sslmode={self.db_sslmode}" if self.db_sslmode != "disable" else ""
@@ -115,6 +120,23 @@ class Settings(BaseSettings):
         Returns:
             str: Async PostgreSQL connection URL
         """
+        if self.database_url_override:
+            if self.database_url_override.startswith("postgresql+asyncpg://"):
+                return self.database_url_override
+            if self.database_url_override.startswith("postgresql://"):
+                return self.database_url_override.replace(
+                    "postgresql://",
+                    "postgresql+asyncpg://",
+                    1,
+                )
+            if self.database_url_override.startswith("postgres://"):
+                return self.database_url_override.replace(
+                    "postgres://",
+                    "postgresql+asyncpg://",
+                    1,
+                )
+            return self.database_url_override
+
         # URL encode the password to handle special characters
         encoded_password = quote_plus(self.db_password)
         ssl = f"?sslmode={self.db_sslmode}" if self.db_sslmode != "disable" else ""

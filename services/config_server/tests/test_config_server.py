@@ -54,6 +54,20 @@ def test_local_profile_service_config() -> None:
     assert payload["config"]["CONFIG_SERVER_URL"] == "http://localhost:8010"
 
 
+def test_production_profile_service_config() -> None:
+    response = client.get("/config/auth_service?profile=production")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["profile"] == "production"
+    assert payload["config"]["CONFIG_PROFILE"] == "production"
+    assert payload["config"]["CONFIG_FAIL_FAST"] == "true"
+    assert payload["config"]["ENVIRONMENT"] == "production"
+    assert payload["config"]["DEBUG"] == "false"
+    assert payload["config"]["AUTO_CREATE_SCHEMA"] == "false"
+    assert payload["config"]["SEED_DEFAULT_USERS_ON_STARTUP"] == "false"
+
+
 def test_unknown_service_returns_404() -> None:
     response = client.get("/config/not-a-service?profile=docker")
     assert response.status_code == 404

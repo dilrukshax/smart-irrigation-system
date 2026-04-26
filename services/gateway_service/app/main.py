@@ -41,6 +41,10 @@ DEFAULT_CORS_ALLOWED_ORIGINS = [
 def _cors_allowed_origins() -> list[str]:
     configured = os.getenv("CORS_ALLOWED_ORIGINS")
     if not configured:
+        profile = os.getenv("CONFIG_PROFILE", "").strip().lower()
+        environment = os.getenv("ENVIRONMENT", "").strip().lower()
+        if profile == "production" or environment == "production":
+            return []
         return DEFAULT_CORS_ALLOWED_ORIGINS
 
     origins = [origin.strip() for origin in configured.split(",") if origin.strip()]
