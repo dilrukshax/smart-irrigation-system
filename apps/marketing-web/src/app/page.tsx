@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, FileText, Gauge, Layers, Microscope, Satellite } from "lucide-react";
 import { SiteShell } from "@/components/site-shell";
-import { modules, projectStats } from "@/lib/site-data";
+import { modules, projectStats } from "@/content/site-data";
 
 const moduleIcons = {
   f1: Gauge,

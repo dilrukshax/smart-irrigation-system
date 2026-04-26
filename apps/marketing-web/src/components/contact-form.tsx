@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { Send } from "lucide-react";
-import { team } from "@/lib/site-data";
+import { team } from "@/content/site-data";
 
 export function ContactForm() {
   const [name, setName] = useState("");

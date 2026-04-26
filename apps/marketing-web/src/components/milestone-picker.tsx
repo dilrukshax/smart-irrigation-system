@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { CalendarCheck, ChevronRight } from "lucide-react";
-import { milestones } from "@/lib/site-data";
+import { milestones } from "@/content/site-data";
 
 export function MilestonePicker() {
   const [selectedId, setSelectedId] = useState(milestones[0].id);
