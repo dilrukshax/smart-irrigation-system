@@ -1,7 +1,7 @@
 import { Download, FileText } from "lucide-react";
 import { PageHero } from "@/components/page-hero";
 import { SiteShell } from "@/components/site-shell";
-import { documents } from "@/lib/site-data";
+import { documents } from "@/content/site-data";
 
 export default function DocumentsPage() {
   return (

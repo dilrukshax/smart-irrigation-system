@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Mail, MapPin } from "lucide-react";
-import { navItems, team } from "@/lib/site-data";
+import { navItems, team } from "@/content/site-data";
 
 export function SiteFooter() {
   return (

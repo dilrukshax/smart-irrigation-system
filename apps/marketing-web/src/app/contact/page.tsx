@@ -2,7 +2,7 @@ import { Mail, MapPin, Phone } from "lucide-react";
 import { ContactForm } from "@/components/contact-form";
 import { PageHero } from "@/components/page-hero";
 import { SiteShell } from "@/components/site-shell";
-import { team } from "@/lib/site-data";
+import { team } from "@/content/site-data";
 
 export default function ContactPage() {
   return (

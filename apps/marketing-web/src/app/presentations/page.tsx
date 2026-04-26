@@ -1,7 +1,7 @@
 import { Presentation, ScreenShare } from "lucide-react";
 import { PageHero } from "@/components/page-hero";
 import { SiteShell } from "@/components/site-shell";
-import { presentations } from "@/lib/site-data";
+import { presentations } from "@/content/site-data";
 
 export default function PresentationsPage() {
   return (

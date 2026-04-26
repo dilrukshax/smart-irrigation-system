@@ -1,7 +1,7 @@
 import { Mail, UserRound } from "lucide-react";
 import { PageHero } from "@/components/page-hero";
 import { SiteShell } from "@/components/site-shell";
-import { team } from "@/lib/site-data";
+import { team } from "@/content/site-data";
 
 export default function AboutPage() {
   return (

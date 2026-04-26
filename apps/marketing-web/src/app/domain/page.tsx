@@ -8,7 +8,7 @@ import {
   modules,
   researchObjectives,
   technologyGroups,
-} from "@/lib/site-data";
+} from "@/content/site-data";
 
 export default function DomainPage() {
   return (

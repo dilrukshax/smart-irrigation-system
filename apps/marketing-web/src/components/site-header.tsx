@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Droplets, Menu, X } from "lucide-react";
 import { useState } from "react";
-import { navItems } from "@/lib/site-data";
+import { navItems } from "@/content/site-data";
 
 function isActive(pathname: string, href: string) {
   if (href === "/") {
