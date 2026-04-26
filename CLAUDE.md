@@ -19,7 +19,8 @@
 | **F3** | Trishni | `forecasting_service` | 8003 | Time-series forecasting, weather intelligence, risk alerts |
 | **F4** | Dilruksha | `optimize_service` | 8004 | Crop suitability, area optimization, water budgeting, Plan B |
 | **IoT** | Shared | `iot_service` | 8006 | MQTT telemetry ingest, device commands, ESP32 bridge |
-| **Web** | Shared | `web/` | 3000 (dev) | Next.js + TypeScript frontend (migration in progress) |
+| **Web** | Shared | `apps/web/` | 3000 (dev) | Next.js 16 dashboard app — farmers, officers, authority |
+| **Mktg** | Shared | `apps/marketing-web/` | 3001 (dev) | Public marketing & research website |
 | **GW** | Shared | `gateway_service` | 8000 | API gateway, unified routing, header forwarding |
 
 ---
@@ -74,7 +75,10 @@ smart-irrigation-system/
 │   ├── optimize_service/            # F4 (port 8004)
 │   ├── iot_service/                 # IoT telemetry bridge (port 8006)
 │   └── crop_health_and_water_stress_detection/  # F2 (port 8007)
-├── web/                             # Next.js + TypeScript frontend (port 3000 dev)
+├── apps/
+│   ├── web/                         # Next.js 16 dashboard app (port 3000 dev)
+│   └── marketing-web/               # Next.js 16 public marketing site (port 3001 dev)
+├── web/                             # Legacy stub — contains only .next cache, not in active use
 ├── hardware/esp32/                  # ESP32 sensor firmware
 ├── infrastructure/
 │   ├── docker/docker-compose.yml    # Local full-stack
@@ -112,7 +116,7 @@ smart-irrigation-system/
 | Data processing | pandas, NumPy | All ML services |
 | Frontend language | TypeScript 5.2+ | Next.js codebase |
 | Frontend framework | Next.js 16 + React 19 | App Router frontend |
-| UI styling | CSS Modules + global CSS | Current scaffold baseline |
+| UI styling | Tailwind CSS v4 + global CSS | Both frontend apps |
 | Routing | Next.js App Router | File-based frontend navigation |
 | HTTP client | Fetch/Axios (project choice) | API calls |
 | Containerization | Docker 24+ | Service images |
@@ -147,7 +151,7 @@ smart-irrigation-system/
 
 ### Notes
 - Active code uses **PostgreSQL** (not MongoDB). A Mongo module exists but is not in the active import path.
-- Legacy frontend stored tokens in localStorage; confirm final token strategy during Next.js migration.
+- Token strategy: `localStorage` (primary, for API calls) + `asi_access_token` cookie (for Next.js proxy route protection). Both are set on login and cleared on logout.
 
 ---
 
@@ -462,33 +466,130 @@ POST   /devices/{id}/cmd          Send command to device
 
 ---
 
-## Web Frontend (`web/`, Next.js dev port 3000)
+## Web Frontend — Two Apps (`apps/`)
 
-### Stack
-Next.js 16 + TypeScript + React 19 (App Router), ESLint, CSS Modules
+The frontend is split into two Next.js 16 applications under `apps/`.
 
-### Current status
-- Legacy Vite frontend has been replaced by the new Next.js scaffold.
-- Feature pages and old `f1..f4` modules need migration into the new app structure.
+### Stack (both apps)
+Next.js 16 + React 19 + TypeScript 5 (App Router), Tailwind CSS v4, ESLint
 
-### Key directories (current scaffold)
+---
+
+### `apps/web/` — Dashboard App (port 3000)
+
+The primary authenticated application serving farmers, officers, and authority users.
+
+#### Route structure
 ```
-web/
-├── src/app/               # App Router entry (layout/page)
-├── public/                # Static assets
-├── next.config.ts         # Next.js config
-├── tsconfig.json          # TypeScript config
-├── eslint.config.mjs      # Lint config
-└── package.json
+src/app/
+├── (public)/                  # Unauthenticated routes
+│   ├── page.tsx               # Landing / home
+│   ├── login/                 # Login
+│   ├── register/              # Registration
+│   ├── farmer/landing/        # Pre-auth farmer landing
+│   ├── about/  contact/  domain/  milestones/  documents/  presentations/  routes/
+├── farmer/                    # Farmer dashboard (role-guarded)
+│   ├── page.tsx               # Farmer home
+│   ├── fields/                # Field list
+│   ├── field/[id]/            # Individual field detail
+│   ├── onboarding/            # Farmer onboarding flow
+│   └── register/              # Farmer self-registration
+├── operations/                # Officer dashboard (role-guarded: officer | authority)
+│   ├── page.tsx               # Operations overview
+│   ├── requests/              # Manual irrigation requests
+│   └── hydraulics/            # Hydraulic controls
+├── irrigation/                # F1 module pages (officer | authority)
+│   ├── page.tsx               # Irrigation overview
+│   ├── water-management/      # Reservoir & water state
+│   ├── water/                 # Water controls
+│   └── telemetry/             # Sensor telemetry view
+├── crop-health/               # F2 module page (officer | authority)
+├── forecasting/               # F3 module page (officer | authority)
+├── optimization/              # F4 module pages (authority-only)
+│   ├── page.tsx               # Optimization overview
+│   ├── recommendations/       # Crop recommendations
+│   ├── planner/               # Crop area planner
+│   ├── scenarios/             # What-if scenarios
+│   └── adaptive/              # Adaptive parameter tuning
+├── authority/                 # Authority governance (authority-only)
+│   ├── users/                 # User management
+│   └── policies/              # Policies & quotas
+└── mobile/farmer/             # Mobile farmer view
 ```
 
-### Route status
-- Current scaffold route: `/`
-- Farmer/Officer/Authority route migration is pending implementation.
+#### Key shared modules
+```
+src/components/asi/
+├── nav.ts                     # Role nav definitions (farmerNav, officerNav, authorityNav, irrigationNav, optNav)
+├── page-header.tsx            # Consistent page header
+├── public-top.tsx / public-footer.tsx  # Public layout shell
+├── api-state.tsx              # API loading/error state component
+└── ui.tsx                     # Shared UI primitives
 
-### API strategy
-- Use `NEXT_PUBLIC_API_BASE_URL` (default: `http://localhost:8000/api/v1`)
-- Build shared API client modules under `web/src/` as migration proceeds.
+src/lib/
+├── api.ts                     # Typed fetch wrappers (apiGet/apiPost/apiPut/apiPatch/apiDelete/uploadFile)
+└── auth.ts                    # JWT auth — login/logout, useAuth hook, role helpers
+
+src/proxy.ts                   # Next.js 16 proxy (replaces middleware) — route protection by role
+```
+
+#### Route protection (proxy.ts)
+- Public paths: `/`, `/login`, `/register`, `/domain`, `/milestones`, `/documents`, `/presentations`, `/about`, `/contact`, `/farmer/landing`
+- `/farmer/*` — requires `farmer` role
+- `/operations/*`, `/irrigation/*`, `/crop-health/*`, `/forecasting/*` — requires `officer` or `authority` role
+- `/authority/*`, `/optimization/*` — requires `authority` role
+- Token read from `asi_access_token` cookie (set at login; also mirrored in `localStorage`)
+
+#### API client (`src/lib/api.ts`)
+- Base URL: `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8000/api/v1`)
+- Auto-injects `Authorization: Bearer <token>` from `localStorage`
+- 401 → clears auth and redirects to `/login`
+
+---
+
+### `apps/marketing-web/` — Public Marketing Site (port 3001)
+
+Static public site for the research project. No authentication required.
+
+#### Pages
+```
+src/app/
+├── page.tsx            # Home — project overview, stats, module cards
+├── about/              # Team bios
+├── contact/            # Contact form
+├── documents/          # Research document links
+├── domain/             # Problem domain description
+├── milestones/         # Project milestones
+├── presentations/      # Slide decks
+└── not-found.tsx       # 404
+```
+
+#### Key components & content
+```
+src/components/
+├── site-header.tsx / site-footer.tsx / site-shell.tsx  # Layout
+├── contact-form.tsx       # Contact form
+├── milestone-picker.tsx   # Interactive milestone selector
+├── page-hero.tsx          # Section hero banner
+└── research-image.tsx     # Research figure renderer
+
+src/content/site-data.ts   # Nav items, project stats, module descriptions
+```
+
+#### Nav items
+Home · Domain · Milestones · Documents · Slides · About Us · Contact Us
+
+---
+
+### Running the frontend apps
+
+```bash
+# Dashboard app
+cd apps/web && npm run dev          # http://localhost:3000
+
+# Marketing site
+cd apps/marketing-web && npm run dev  # http://localhost:3001 (default Next.js port)
+```
 
 ---
 
@@ -599,7 +700,8 @@ NEXT_PUBLIC_API_BASE_URL=https://api.example.com/api/v1  # prod
 ### Option A — Full Docker Compose stack
 ```bash
 docker compose -f infrastructure/docker/docker-compose.yml up -d
-# Web (Next.js): run separately with `cd web && npm run dev` -> http://localhost:3000
+# Dashboard app: cd apps/web && npm run dev    -> http://localhost:3000
+# Marketing site: cd apps/marketing-web && npm run dev -> http://localhost:3001
 # Gateway:   http://localhost:8000
 # Grafana:   http://localhost:3001
 # Prometheus:http://localhost:9090
@@ -667,7 +769,7 @@ These affect AI agents and new contributors — read before editing.
 
 4. **NGINX config stale** — Gateway Nginx config files contain outdated routes and duplicate upstreams. The FastAPI gateway (`services/gateway_service/`) is the active proxy — not Nginx.
 
-5. **Frontend migration in progress** — Some docs/compose entries may still reference legacy Vite frontend behavior and ports.
+5. **Frontend relocated to `apps/`** — Active frontend is `apps/web/` (dashboard) and `apps/marketing-web/` (public site). The root `web/` directory is a legacy stub with only a `.next` cache — do not edit it. Compose files and older docs that reference `web/` as the frontend path are stale.
 
 6. **InfluxDB references** — IoT docs and some configs mention InfluxDB. Current active storage is PostgreSQL via `pg_repo.py`.
 
@@ -687,7 +789,7 @@ These affect AI agents and new contributors — read before editing.
 6. **Do not trust a single doc file** — verify against actual code before making assumptions.
 7. **ML model changes** — always retrain with the training notebook and re-serialize the artifact. Do not hand-edit `.joblib` or `.h5` files.
 8. **Schema migrations** — add Alembic migrations; do not drop/alter tables manually.
-9. **Frontend API changes** — update the active Next.js client modules under `web/src/` to match backend contracts.
+9. **Frontend API changes** — update `apps/web/src/lib/api.ts` and relevant page modules to match backend contracts. Do not edit the root `web/` directory.
 10. **Similar scope across F1–F4** — when adding a feature to one function, consider if analogous functionality is needed in the others (aligned research contribution requirement).
 
 ---
@@ -700,7 +802,7 @@ These affect AI agents and new contributors — read before editing.
 | README.md | root | Project overview, quick start, architecture |
 | Docs index | docs/README.md | Small map of the organized docs folder |
 | Project overview | docs/overview/project-overview.md | Full system design, features, use cases |
-| Frontend structure | docs/frontend/frontend-structure.md | Legacy React/Vite folder layout reference (outdated during Next.js migration) |
+| Frontend structure | docs/frontend/frontend-structure.md | Legacy React/Vite reference (superseded by `apps/web/` and `apps/marketing-web/`) |
 | Role flows and flaws | docs/frontend/role-functional-flows-and-flaws.md | Farmer, officer, and authority flow notes |
 | Farmer portal notes | docs/planning/farmer-portal-implementation-notes.md | Farmer portal features, API, multilingual |
 | F1 Irrigation | docs/functions/f1-irrigation.md | F1 endpoints, persistence, role guards, flows |
