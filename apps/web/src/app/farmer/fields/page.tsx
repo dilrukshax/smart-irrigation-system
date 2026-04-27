@@ -7,26 +7,88 @@ import * as React from 'react';
 import Link from 'next/link';
 import {
   Icon,
-  LogoMark,
-  Logo,
-  AppBar,
-  Sidebar,
   Chip,
-  Progress,
-  Gauge,
-  Sparkline,
-  LineChart,
-  BarChart,
-  ForecastChart,
-  Donut,
-  SchemeMap,
   Frame,
 } from '@/components/asi/ui';
-import { farmerNav, officerNav, authorityNav, irrigationNav, optNav } from '@/components/asi/nav';
-import { PublicTop } from '@/components/asi/public-top';
+import { farmerNav } from '@/components/asi/nav';
 import { ApiState } from '@/components/asi/api-state';
 import { apiGet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+
+const clampPct = (value: any) => Math.max(0, Math.min(100, Number(value) || 0));
+
+const formatArea = (value: any) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed.toFixed(1).replace(/\.0$/, '') : '0';
+};
+
+const formatGps = (field: any) => {
+  const lat = Number(field.latitude ?? field.lat);
+  const lng = Number(field.longitude ?? field.lng ?? field.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return field.location_name || field.gps_label || '';
+  }
+  return `GPS ${lat.toFixed(2)}, ${lng.toFixed(2)}`;
+};
+
+const formatRelativeTime = (value: any) => {
+  if (!value) return 'Never';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  const diffMs = Date.now() - date.getTime();
+  const absMs = Math.abs(diffMs);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (absMs < minute) return 'Just now';
+  if (absMs < hour) return `${Math.max(1, Math.round(absMs / minute))}m ago`;
+  if (absMs < day) return `${Math.max(1, Math.round(absMs / hour))}h ago`;
+  return `${Math.max(1, Math.round(absMs / day))}d ago`;
+};
+
+const getFieldId = (field: any, index: number) => field.field_id || field.id || field.slug || `field-${index}`;
+
+const getMoisture = (field: any) => {
+  const telemetry = field.latest_telemetry || field.telemetry || {};
+  const value =
+    telemetry.soil_moisture_pct ??
+    telemetry.soil_moisture ??
+    field.soil_moisture_pct ??
+    field.soil_moisture;
+  return Number.isFinite(Number(value)) ? clampPct(value) : null;
+};
+
+const getHealth = (field: any, moisture: number | null) => {
+  const explicit = String(field.health_status || field.health || '').toLowerCase();
+  if (explicit.includes('critical')) return { label: 'Critical', kind: 'crit', color: 'var(--danger)' };
+  if (explicit.includes('stress')) return { label: 'Stressed', kind: 'warn', color: 'var(--accent)' };
+  if (explicit.includes('healthy')) return { label: 'Healthy', kind: 'live', color: 'var(--primary)' };
+  if (moisture === null) return { label: 'Waiting', kind: 'off', color: 'var(--muted)' };
+  if (moisture < 35) return { label: 'Critical', kind: 'crit', color: 'var(--danger)' };
+  if (moisture < 50) return { label: 'Stressed', kind: 'warn', color: 'var(--accent)' };
+  return { label: 'Healthy', kind: 'live', color: 'var(--primary)' };
+};
+
+const getLastUpdate = (field: any) => {
+  const telemetry = field.latest_telemetry || field.telemetry || {};
+  return telemetry.timestamp || telemetry.observed_at || field.updated_at || field.created_at;
+};
+
+const fieldMatchesSearch = (field: any, query: string) => {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  return [
+    field.field_name,
+    field.name,
+    field.crop_type,
+    field.crop,
+    field.scheme_id,
+    field.location_name,
+    field.health_status,
+  ].some((value) => String(value || '').toLowerCase().includes(q));
+};
 
 const FieldList = () => {
   const { user } = useAuth();
@@ -34,6 +96,8 @@ const FieldList = () => {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [searchTerm, setSearchTerm] = React.useState('');
+  const [viewMode, setViewMode] = React.useState<'list' | 'grid'>('list');
+  const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
 
   const loadFields = React.useCallback(async () => {
     setLoading(true);
@@ -53,18 +117,153 @@ const FieldList = () => {
     loadFields();
   }, [loadFields]);
 
-  const filteredFields = fields.filter((f: any) => {
-    if (!searchTerm) return true;
-    const q = searchTerm.toLowerCase();
-    return (
-      (f.field_name || '').toLowerCase().includes(q) ||
-      (f.crop_type || '').toLowerCase().includes(q) ||
-      (f.scheme_id || '').toLowerCase().includes(q)
-    );
-  });
-
-  const totalArea = fields.reduce((sum: number, f: any) => sum + (Number(f.area_hectares) || 0), 0);
+  const filteredFields = fields.filter((field: any) => fieldMatchesSearch(field, searchTerm));
+  const filteredIds = filteredFields.map(getFieldId);
+  const selectedFilteredCount = filteredIds.filter((id) => selectedIds.includes(id)).length;
+  const allFilteredSelected = filteredIds.length > 0 && selectedFilteredCount === filteredIds.length;
+  const totalArea = fields.reduce((sum: number, field: any) => sum + (Number(field.area_hectares ?? field.area) || 0), 0);
+  const schemeId = user?.scheme_ids?.[0] || fields.find((field) => field.scheme_id)?.scheme_id || 'H';
+  const schemeLabel = String(schemeId).startsWith('Mahaweli') ? schemeId : `Mahaweli ${schemeId}`;
   const displayName = user?.username || 'Farmer';
+
+  const toggleSelected = (fieldId: string) => {
+    setSelectedIds((current) =>
+      current.includes(fieldId)
+        ? current.filter((id) => id !== fieldId)
+        : [...current, fieldId]
+    );
+  };
+
+  const toggleAllFiltered = () => {
+    setSelectedIds((current) => {
+      if (allFilteredSelected) {
+        return current.filter((id) => !filteredIds.includes(id));
+      }
+      return Array.from(new Set([...current, ...filteredIds]));
+    });
+  };
+
+  const renderFieldActions = (fieldId: string) => (
+    <div className="farmer-fields-actions-cell">
+      <Link href={`/farmer/field/${fieldId}`} className="btn btn-ghost btn-sm">Workspace</Link>
+      <Link href={`/farmer/field/${fieldId}`} className="btn btn-primary btn-sm">Request</Link>
+    </div>
+  );
+
+  const renderMoisture = (moisture: number | null, health: any) => (
+    <div className="farmer-fields-moisture">
+      {moisture === null ? (
+        <span className="tiny muted">No telemetry</span>
+      ) : (
+        <>
+          <div className="farmer-fields-moisture-track">
+            <div
+              className="farmer-fields-moisture-fill"
+              style={{ width: `${moisture}%`, background: health.color }}
+            />
+          </div>
+          <span className="tabular small">{Math.round(moisture)}%</span>
+        </>
+      )}
+    </div>
+  );
+
+  const renderTable = () => (
+    <div className="farmer-fields-table-card">
+      <div className="farmer-fields-table-scroll">
+        <table className="farmer-fields-table">
+          <thead>
+            <tr>
+              <th className="farmer-fields-check-col">
+                <input
+                  type="checkbox"
+                  aria-label="Select all fields"
+                  checked={allFilteredSelected}
+                  onChange={toggleAllFiltered}
+                />
+              </th>
+              <th>Field</th>
+              <th>Crop</th>
+              <th>Area</th>
+              <th>Soil moisture</th>
+              <th>Health</th>
+              <th>Last update</th>
+              <th aria-label="Actions"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredFields.map((field: any, index: number) => {
+              const fieldId = getFieldId(field, index);
+              const fieldName = field.field_name || field.name || fieldId;
+              const cropType = field.crop_type || field.crop || field.variety || 'Not assigned';
+              const area = field.area_hectares ?? field.area ?? 0;
+              const moisture = getMoisture(field);
+              const health = getHealth(field, moisture);
+              const gps = formatGps(field);
+
+              return (
+                <tr key={fieldId}>
+                  <td className="farmer-fields-check-col">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${fieldName}`}
+                      checked={selectedIds.includes(fieldId)}
+                      onChange={() => toggleSelected(fieldId)}
+                    />
+                  </td>
+                  <td>
+                    <div className="farmer-fields-name">{fieldName}</div>
+                    {gps && <div className="farmer-fields-gps">{gps}</div>}
+                  </td>
+                  <td>{cropType}</td>
+                  <td className="tabular">{formatArea(area)} ha</td>
+                  <td>{renderMoisture(moisture, health)}</td>
+                  <td><Chip kind={health.kind}>{health.label}</Chip></td>
+                  <td className="muted small">{formatRelativeTime(getLastUpdate(field))}</td>
+                  <td>{renderFieldActions(fieldId)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderGrid = () => (
+    <div className="farmer-fields-grid">
+      {filteredFields.map((field: any, index: number) => {
+        const fieldId = getFieldId(field, index);
+        const fieldName = field.field_name || field.name || fieldId;
+        const cropType = field.crop_type || field.crop || field.variety || 'Not assigned';
+        const area = field.area_hectares ?? field.area ?? 0;
+        const moisture = getMoisture(field);
+        const health = getHealth(field, moisture);
+        const gps = formatGps(field);
+
+        return (
+          <div className="card farmer-fields-card" key={fieldId}>
+            <div className="farmer-fields-card-head">
+              <div>
+                <div className="farmer-fields-name">{fieldName}</div>
+                {gps && <div className="farmer-fields-gps">{gps}</div>}
+              </div>
+              <Chip kind={health.kind}>{health.label}</Chip>
+            </div>
+            <div className="farmer-fields-card-meta">
+              <span>{cropType}</span>
+              <span className="tabular">{formatArea(area)} ha</span>
+            </div>
+            {renderMoisture(moisture, health)}
+            <div className="farmer-fields-card-foot">
+              <span className="muted small">{formatRelativeTime(getLastUpdate(field))}</span>
+              {renderFieldActions(fieldId)}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 
   return (
     <Frame
@@ -73,106 +272,72 @@ const FieldList = () => {
       user={displayName}
       role="Farmer"
     >
-      <div className="page-head">
-        <div>
-          <div className="page-title">My fields</div>
-          <div className="page-sub">{fields.length} fields · {totalArea.toFixed(1)} ha total</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div className="input" style={{ display: 'flex', alignItems: 'center', gap: 6, width: 240, padding: '0 10px' }}>
-            <Icon name="search" size={14} color="var(--muted)"/>
-            <input
-              placeholder="Search fields, crops, zones…"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              style={{ border: 'none', outline: 'none', flex: 1, background: 'transparent', fontSize: 12, fontFamily: 'inherit' }}
-            />
+      <div className="farmer-fields-page">
+        <div className="farmer-fields-head">
+          <div>
+            <h1>My fields</h1>
+            <div className="page-sub">{fields.length} fields · {formatArea(totalArea)} ha total · {schemeLabel}</div>
           </div>
-          <Link href="/farmer/onboarding" className="btn btn-primary btn-sm"><Icon name="plus" size={13}/> Add field</Link>
-        </div>
-      </div>
-
-      <ApiState loading={loading && fields.length === 0} error={error} onRetry={loadFields}>
-        {fields.length === 0 ? (
-          <div className="card" style={{ padding: 48, textAlign: 'center' }}>
-            <Icon name="leaf" size={40} color="var(--muted)"/>
-            <div style={{ fontSize: 16, fontWeight: 600, marginTop: 12 }}>No fields yet</div>
-            <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4, marginBottom: 16 }}>
-              Get started by registering your first field.
+          <div className="farmer-fields-toolbar">
+            <label className="farmer-fields-search">
+              <Icon name="search" size={15} color="var(--muted)"/>
+              <input
+                placeholder="Search fields, crops, zones..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </label>
+            <div className="farmer-fields-view-toggle" aria-label="View mode">
+              <button
+                type="button"
+                className={viewMode === 'list' ? 'active' : ''}
+                onClick={() => setViewMode('list')}
+                aria-label="List view"
+                title="List view"
+              >
+                <Icon name="list" size={15}/>
+              </button>
+              <button
+                type="button"
+                className={viewMode === 'grid' ? 'active' : ''}
+                onClick={() => setViewMode('grid')}
+                aria-label="Grid view"
+                title="Grid view"
+              >
+                <Icon name="grid" size={15}/>
+              </button>
             </div>
-            <Link href="/farmer/onboarding" className="btn btn-primary">
-              <Icon name="plus" size={13}/> Create first field
+            <Link href="/farmer/onboarding" className="btn btn-primary farmer-fields-add">
+              <Icon name="plus" size={14}/> Add field
             </Link>
           </div>
-        ) : (
-          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th>Field</th>
-                  <th>Crop</th>
-                  <th>Area</th>
-                  <th>Soil moisture</th>
-                  <th>Valve</th>
-                  <th>Last update</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredFields.map((f: any) => {
-                  const fieldId = f.field_id || f.id;
-                  const fieldName = f.field_name || f.name || fieldId;
-                  const cropType = f.crop_type || f.crop || 'Unknown';
-                  const area = f.area_hectares || f.area || 0;
-                  const telemetry = f.latest_telemetry || f.telemetry || {};
-                  const moisture = telemetry.soil_moisture_pct ?? telemetry.soil_moisture ?? null;
-                  const valveState = f.valve_state?.state || f.valve_state || 'Closed';
-                  const isOpen = String(valveState).toLowerCase() === 'open';
-                  const lastUpdate = telemetry.timestamp || f.updated_at || 'Never';
-                  const healthState = moisture === null ? 'off' : moisture < 35 ? 'crit' : moisture < 50 ? 'warn' : 'live';
-                  const latStr = f.latitude ? `${f.latitude.toFixed(2)}` : '';
-                  const lonStr = f.longitude ? `${f.longitude.toFixed(2)}` : '';
-                  const gpsStr = latStr && lonStr ? `GPS ${latStr}, ${lonStr}` : '';
+        </div>
 
-                  return (
-                    <tr key={fieldId}>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{fieldName}</div>
-                        {gpsStr && <div className="tiny muted">{gpsStr}</div>}
-                      </td>
-                      <td>{cropType}</td>
-                      <td className="tabular">{area} ha</td>
-                      <td style={{ width: 180 }}>
-                        {moisture !== null ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <div className="prog" style={{ flex: 1 }}>
-                              <div className="prog-fill" style={{ width: moisture + '%', background: moisture < 35 ? 'var(--danger)' : moisture < 50 ? 'var(--accent)' : 'var(--primary)' }}/>
-                            </div>
-                            <span className="tabular small" style={{ fontWeight: 600 }}>{Math.round(moisture)}%</span>
-                          </div>
-                        ) : (
-                          <span className="tiny muted">No telemetry</span>
-                        )}
-                      </td>
-                      <td>
-                        <Chip kind={isOpen ? 'live' : 'off'}>{isOpen ? 'Open' : 'Closed'}</Chip>
-                      </td>
-                      <td className="muted small">
-                        {lastUpdate === 'Never' ? 'Never' : new Date(lastUpdate).toLocaleString()}
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <Link href={`/farmer/field/${fieldId}`} className="btn btn-ghost btn-sm">Workspace</Link>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </ApiState>
+        <ApiState loading={loading && fields.length === 0} error={error} onRetry={loadFields}>
+          {fields.length === 0 ? (
+            <div className="card farmer-fields-empty">
+              <Icon name="leaf" size={40} color="var(--muted)"/>
+              <div style={{ fontSize: 16, fontWeight: 700, marginTop: 12 }}>No fields yet</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4, marginBottom: 16 }}>
+                Register your first field to start tracking soil moisture and water requests.
+              </div>
+              <Link href="/farmer/onboarding" className="btn btn-primary">
+                <Icon name="plus" size={13}/> Create first field
+              </Link>
+            </div>
+          ) : filteredFields.length === 0 ? (
+            <div className="card farmer-fields-empty">
+              <Icon name="search" size={34} color="var(--muted)"/>
+              <div style={{ fontSize: 15, fontWeight: 700, marginTop: 12 }}>No matching fields</div>
+              <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>Try another field, crop, or zone name.</div>
+            </div>
+          ) : viewMode === 'list' ? (
+            renderTable()
+          ) : (
+            renderGrid()
+          )}
+        </ApiState>
+      </div>
     </Frame>
   );
 };

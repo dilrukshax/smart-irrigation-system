@@ -32,7 +32,6 @@ from app.db.repository import (
     create_pairing_session,
     delete_crop_field,
     estimate_accepted_schedule_volume_mcm,
-    ensure_default_field,
     find_conflicting_hydraulic_schedule,
     get_active_authority_policy,
     get_authority_policy,
@@ -754,31 +753,16 @@ async def _delete_field_from_planning(field_id: str) -> None:
 async def ensure_default_field_seed() -> None:
     async with session_scope() as session:
         fields = await list_crop_fields(session)
-        if not fields:
-            defaults = CROP_DEFAULTS["rice"]
-            await ensure_default_field(
-                session,
-                {
-                    "field_id": "field-rice-01",
-                    "field_name": "Default Rice Field",
-                    "crop_type": "rice",
-                    "soil_type": "loam",
-                    "area_hectares": 1.0,
-                    "device_id": None,
-                    "owner_id": None,
-                    "scheme_id": "scheme-default",
-                    "latitude": None,
-                    "longitude": None,
-                    "location_name": None,
-                    "lifecycle_state": "CONFIGURED",
-                    "pairing_status": "UNPAIRED",
-                    "last_handshake_at": None,
-                    "live_since": None,
-                    "suspended_reason": None,
-                    **defaults,
-                    "auto_control_enabled": True,
-                },
+        for field in fields:
+            # Cleanup legacy bootstrap field so new users start with an empty field list.
+            is_legacy_default = (
+                field.get("field_id") == "field-rice-01"
+                and (field.get("field_name") or "").lower() == "default rice field"
+                and field.get("scheme_id") == "scheme-default"
+                and field.get("owner_id") is None
             )
+            if is_legacy_default:
+                await delete_crop_field(session, field["field_id"])
 
         default_topology = [
             {
@@ -1407,7 +1391,16 @@ async def get_field_status(
                 "field_name": field["field_name"],
                 "crop_type": field["crop_type"],
                 "soil_type": field.get("soil_type"),
+                "area_hectares": field.get("area_hectares"),
+                "scheme_id": field.get("scheme_id"),
+                "latitude": field.get("latitude"),
+                "longitude": field.get("longitude"),
+                "location_name": field.get("location_name"),
                 "device_id": field.get("device_id"),
+                "lifecycle_state": field.get("lifecycle_state"),
+                "pairing_status": field.get("pairing_status"),
+                "last_handshake_at": field.get("last_handshake_at"),
+                "live_since": field.get("live_since"),
                 "sensor_connected": False,
                 "is_simulated": False,
                 "last_real_data_time": None,
@@ -1421,6 +1414,12 @@ async def get_field_status(
                 "last_sensor_reading": None,
                 "last_valve_action": valve.get("last_action_time"),
                 "auto_control_enabled": field.get("auto_control_enabled", True),
+                "soil_moisture_optimal_pct": field.get("soil_moisture_optimal_pct"),
+                "soil_moisture_min_pct": field.get("soil_moisture_min_pct"),
+                "soil_moisture_max_pct": field.get("soil_moisture_max_pct"),
+                "water_level_optimal_pct": field.get("water_level_optimal_pct"),
+                "water_level_min_pct": field.get("water_level_min_pct"),
+                "water_level_max_pct": field.get("water_level_max_pct"),
                 "next_action": None,
                 "manual_request_required": False,
                 "manual_request_id": None,
@@ -1470,7 +1469,16 @@ async def get_field_status(
             "field_name": field["field_name"],
             "crop_type": field["crop_type"],
             "soil_type": field.get("soil_type"),
+            "area_hectares": field.get("area_hectares"),
+            "scheme_id": field.get("scheme_id"),
+            "latitude": field.get("latitude"),
+            "longitude": field.get("longitude"),
+            "location_name": field.get("location_name"),
             "device_id": field.get("device_id"),
+            "lifecycle_state": field.get("lifecycle_state"),
+            "pairing_status": field.get("pairing_status"),
+            "last_handshake_at": field.get("last_handshake_at"),
+            "live_since": field.get("live_since"),
             "sensor_connected": not stale,
             "is_simulated": False,
             "last_real_data_time": latest.get("timestamp"),
@@ -1484,6 +1492,12 @@ async def get_field_status(
             "last_sensor_reading": latest.get("timestamp"),
             "last_valve_action": valve.get("last_action_time"),
             "auto_control_enabled": field.get("auto_control_enabled", True),
+            "soil_moisture_optimal_pct": field.get("soil_moisture_optimal_pct"),
+            "soil_moisture_min_pct": field.get("soil_moisture_min_pct"),
+            "soil_moisture_max_pct": field.get("soil_moisture_max_pct"),
+            "water_level_optimal_pct": field.get("water_level_optimal_pct"),
+            "water_level_min_pct": field.get("water_level_min_pct"),
+            "water_level_max_pct": field.get("water_level_max_pct"),
             "next_action": None,
             "manual_request_required": False,
             "manual_request_id": None,

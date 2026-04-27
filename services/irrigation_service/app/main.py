@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"Environment: {settings.environment}")
     await init_db()
     await ensure_default_field_seed()
-    logger.info("Irrigation DB initialized and default field ensured")
+    logger.info("Irrigation DB initialized; legacy default fields cleaned and topology seed ensured")
 
     # Initialize and train ML model
     irrigation_model.train_model()

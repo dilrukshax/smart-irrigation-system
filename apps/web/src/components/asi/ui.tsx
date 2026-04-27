@@ -85,40 +85,42 @@ const Logo: any = ({ mark = true }) => (
 // ——— AppBar ———
 const AppBar: any = ({ breadcrumb = [], user = 'Nimal P.', role = 'Farmer', notifCount = 3 }) => (
   <div className="appbar">
-    <Logo />
-    <div className="breadcrumb">
-      {breadcrumb.map((c, i) => (
-        <React.Fragment key={i}>
-          {i > 0 && <span style={{ opacity: 0.4 }}>/</span>}
-          <span style={i === breadcrumb.length - 1 ? { color: 'var(--text)', fontWeight: 500 } : null}>{c}</span>
-        </React.Fragment>
-      ))}
-    </div>
-    <div className="appbar-right">
-      <div className="chip sim" style={{ fontSize: 10.5 }}>
-        <span className="chip-dot"/> Maha 2025 · Mahaweli H
+    <div className="appbar-inner">
+      <Logo />
+      <div className="breadcrumb">
+        {breadcrumb.map((c, i) => (
+          <React.Fragment key={i}>
+            {i > 0 && <span style={{ opacity: 0.4 }}>/</span>}
+            <span style={i === breadcrumb.length - 1 ? { color: 'var(--text)', fontWeight: 500 } : null}>{c}</span>
+          </React.Fragment>
+        ))}
       </div>
-      <div className="bell">
-        <Icon name="bell" size={16}/>
-        {notifCount > 0 && <span className="bell-dot">{notifCount}</span>}
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div className="avatar">{user.split(' ').map(w => w[0]).join('')}</div>
-        <div style={{ fontSize: 12, lineHeight: 1.2 }}>
-          <div style={{ fontWeight: 600 }}>{user}</div>
-          <div style={{ color: 'var(--muted)', fontSize: 10.5 }}>{role}</div>
+      <div className="appbar-right">
+        <div className="chip sim" style={{ fontSize: 10.5 }}>
+          <span className="chip-dot"/> Maha 2025 · Mahaweli H
         </div>
+        <div className="bell">
+          <Icon name="bell" size={16}/>
+          {notifCount > 0 && <span className="bell-dot">{notifCount}</span>}
+        </div>
+        <div className="appbar-user">
+          <div className="avatar">{user.split(' ').map(w => w[0]).join('')}</div>
+          <div className="appbar-user-copy">
+            <div style={{ fontWeight: 600 }}>{user}</div>
+            <div style={{ color: 'var(--muted)', fontSize: 10.5 }}>{role}</div>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={logout}
+          aria-label="Log out"
+          title="Log out"
+        >
+          <Icon name="logout" size={13}/>
+          Logout
+        </button>
       </div>
-      <button
-        type="button"
-        className="btn btn-ghost btn-sm"
-        onClick={logout}
-        aria-label="Log out"
-        title="Log out"
-      >
-        <Icon name="logout" size={13}/>
-        Logout
-      </button>
     </div>
   </div>
 );
@@ -459,10 +461,10 @@ const SchemeMap: any = ({ height = 260, zones = [], markers = [], hasControls = 
 const Frame: any = ({ sidebar, appbar = true, breadcrumb, user, role, children, noPad, width = '100%' }) => (
   <div className="asi-root" style={{ width, height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
     {appbar && <AppBar breadcrumb={breadcrumb} user={user} role={role}/>}
-    <div className="shell" style={{ gridTemplateColumns: sidebar ? '220px 1fr' : '1fr', flex: 1, minHeight: 0 }}>
+    <div className="shell" style={{ gridTemplateColumns: sidebar ? 'var(--app-sidebar-width) minmax(0, 1fr)' : '1fr', flex: 1, minHeight: 0 }}>
       {sidebar && <Sidebar items={sidebar}/>}
       <div className="main" style={noPad ? { padding: 0, overflow: 'auto' } : { overflow: 'auto' }}>
-        {children}
+        {noPad ? children : <div className="main-inner">{children}</div>}
       </div>
     </div>
   </div>
