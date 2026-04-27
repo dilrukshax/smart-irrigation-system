@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Contact Us | Adaptive Smart Irrigation</title>
+    <meta name="description" content="General contact details, team emails, and a plain HTML contact form." />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="contact">
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="index.html" aria-label="Adaptive Smart Irrigation home">
+          <span class="brand-mark">💧</span>
+          <span>
+            <span class="brand-title">Adaptive Smart Irrigation</span>
+            <span class="brand-sub">Crop Optimization Platform</span>
+          </span>
+        </a>
+        <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Toggle navigation">☰</button>
+        <nav id="main-nav" class="main-nav" aria-label="Primary navigation">
+          <a data-nav="home" href="index.html">Home</a>
+          <a data-nav="domain" href="domain.html">Domain</a>
+          <a data-nav="milestones" href="milestones.html">Milestones</a>
+          <a data-nav="documents" href="documents.html">Documents</a>
+          <a data-nav="presentations" href="presentations.html">Slides</a>
+          <a data-nav="about" href="about.html">About Us</a>
+          <a data-nav="contact" href="contact.html">Contact Us</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section
+        class="page-hero"
+        style="--hero-image: url('assets/illustrations/hero-team-field.png')"
+      >
+        <div class="container hero-inner">
+          <p class="hero-eyebrow">Contact us</p>
+          <h1 class="hero-title">Project contact details</h1>
+          <p class="hero-lead">
+            General contact information, team email links, and a mail-ready contact form for
+            project inquiries.
+          </p>
+        </div>
+      </section>
+
+      <section class="section paper">
+        <div class="container contact-layout">
+          <div class="contact-col">
+            <article class="info-card">
+              <h3>General contacts</h3>
+              <div class="contact-meta">
+                <p>Sri Lanka Institute of Information Technology, Faculty of Computing</p>
+                <p>Phone number can be added after final project contact approval.</p>
+                <p><a href="mailto:IT22561770@my.sliit.lk">IT22561770@my.sliit.lk</a></p>
+              </div>
+            </article>
+
+            <article class="info-card">
+              <h3>Team emails</h3>
+              <div class="team-email-list">
+                <a class="team-email-item" href="mailto:IT22561770@my.sliit.lk"><strong>Dilruksha A.G.C.D.</strong>IT22561770@my.sliit.lk</a>
+                <a class="team-email-item" href="mailto:IT22561398@my.sliit.lk"><strong>Hesara P.K.A.N.</strong>IT22561398@my.sliit.lk</a>
+                <a class="team-email-item" href="mailto:IT22076366@my.sliit.lk"><strong>Trishni W.R.M.</strong>IT22076366@my.sliit.lk</a>
+                <a class="team-email-item" href="mailto:IT22076547@my.sliit.lk"><strong>Abishek W.R.M.</strong>IT22076547@my.sliit.lk</a>
+              </div>
+            </article>
+          </div>
+
+          <article class="info-card">
+            <h3>Send a message</h3>
+            <p>
+              The form opens your default email client with the message addressed to the project
+              team.
+            </p>
+            <form id="contact-form" class="form-grid" style="margin-top: 0.8rem">
+              <label for="name">Your name<input id="name" name="name" required placeholder="Your name" /></label>
+              <label for="email">Your email<input id="email" name="email" type="email" required placeholder="name@example.com" /></label>
+              <label for="subject">
+                Subject
+                <select id="subject" name="subject" required>
+                  <option value="">Select a topic</option>
+                  <option value="General Inquiry">General Inquiry</option>
+                  <option value="Research Collaboration">Research Collaboration</option>
+                  <option value="Technical Question">Technical Question</option>
+                  <option value="Submission File Request">Submission File Request</option>
+                </select>
+              </label>
+              <label for="message">Message<textarea id="message" name="message" required placeholder="Write your message"></textarea></label>
+              <button class="btn btn-dark" type="submit">Send Message</button>
+            </form>
+          </article>
+        </div>
+      </section>
+
+      <section class="section white">
+        <div class="container">
+          <article class="info-card soft">
+            <h3>General email template</h3>
+            <pre class="email-template">To: IT22561770@my.sliit.lk
+Subject: [25-26J-520] &lt;Your Subject&gt;
+
+Dear Project Group 25-26J-520 Team,
+
+&lt;Your message here&gt;
+
+Best regards,
+&lt;Your name&gt;
+&lt;Your affiliation&gt;</pre>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-grid">
+        <div>
+          <p><strong>Adaptive Smart Irrigation and Crop Optimization Platform</strong></p>
+          <p class="footer-sub">
+            A 4th year Software Engineering research platform for water-aware irrigation, crop
+            health monitoring, forecasting, and adaptive crop area planning in Sri Lanka.
+          </p>
+          <div class="footer-list">
+            <span>Sri Lanka Institute of Information Technology</span>
+            <a href="mailto:IT22561770@my.sliit.lk">IT22561770@my.sliit.lk</a>
+          </div>
+        </div>
+        <div>
+          <p><strong>Sections</strong></p>
+          <div class="footer-list">
+            <a href="index.html">Home</a><a href="domain.html">Domain</a><a href="milestones.html">Milestones</a><a href="documents.html">Documents</a><a href="presentations.html">Slides</a><a href="about.html">About Us</a><a href="contact.html">Contact Us</a>
+          </div>
+        </div>
+        <div>
+          <p><strong>Research Streams</strong></p>
+          <div class="footer-list">
+            <span>F1 - IoT smart irrigation</span><span>F2 - Crop health detection</span><span>F3 - Water forecasting</span><span>F4 - ACA-O optimization</span>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+    <script src="script.js"></script>
+  </body>
+</html>

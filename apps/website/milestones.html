@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Milestones | Adaptive Smart Irrigation</title>
+    <meta name="description" content="Assessment timeline and marks for proposal, progress, final, viva, paper, and continuous project records." />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="milestones">
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="index.html" aria-label="Adaptive Smart Irrigation home">
+          <span class="brand-mark">💧</span>
+          <span>
+            <span class="brand-title">Adaptive Smart Irrigation</span>
+            <span class="brand-sub">Crop Optimization Platform</span>
+          </span>
+        </a>
+        <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Toggle navigation">☰</button>
+        <nav id="main-nav" class="main-nav" aria-label="Primary navigation">
+          <a data-nav="home" href="index.html">Home</a>
+          <a data-nav="domain" href="domain.html">Domain</a>
+          <a data-nav="milestones" href="milestones.html">Milestones</a>
+          <a data-nav="documents" href="documents.html">Documents</a>
+          <a data-nav="presentations" href="presentations.html">Slides</a>
+          <a data-nav="about" href="about.html">About Us</a>
+          <a data-nav="contact" href="contact.html">Contact Us</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section
+        class="page-hero"
+        style="--hero-image: url('assets/illustrations/hero-submission-pack.png')"
+      >
+        <div class="container hero-inner">
+          <p class="hero-eyebrow">Milestones</p>
+          <h1 class="hero-title">Assessment timeline and marks</h1>
+          <p class="hero-lead">
+            A selectable milestone view for proposal, progress presentations, final assessment,
+            viva, paper, and continuous status documentation.
+          </p>
+        </div>
+      </section>
+
+      <section class="section paper">
+        <div class="container timeline-layout">
+          <section class="timeline-panel">
+            <label for="milestone-select">
+              Select milestone
+              <select id="milestone-select">
+                <option value="proposal">Project Proposal</option>
+                <option value="pp1">Progress Presentation 1</option>
+                <option value="pp2">Progress Presentation 2</option>
+                <option value="final">Final Assessment</option>
+                <option value="viva">Viva</option>
+                <option value="research-paper">Research Paper</option>
+                <option value="logbook">Logbook and Status Documents</option>
+              </select>
+            </label>
+
+            <article class="timeline-highlight">
+              <h3 id="selected-name">Project Proposal</h3>
+              <dl>
+                <div><dt>Date</dt><dd id="selected-date">Week 6, Semester 1</dd></div>
+                <div><dt>Marks</dt><dd id="selected-marks">6%</dd></div>
+                <div><dt>Assessment type</dt><dd id="selected-type">Individual document</dd></div>
+              </dl>
+              <p id="selected-detail">
+                Each member submits an individual proposal covering background, literature,
+                research gap, problem, objectives, contribution, methodology, and timeline.
+              </p>
+            </article>
+          </section>
+
+          <section class="timeline-list">
+            <button class="timeline-item active" data-id="proposal" type="button">
+              <h4>Project Proposal</h4>
+              <p>Week 6, Semester 1 - 6% - Individual document</p>
+            </button>
+            <button class="timeline-item" data-id="pp1" type="button">
+              <h4>Progress Presentation 1</h4>
+              <p>Week 11, Semester 1 - 15% - Group presentation</p>
+            </button>
+            <button class="timeline-item" data-id="pp2" type="button">
+              <h4>Progress Presentation 2</h4>
+              <p>Week 6-8, Semester 2 - 18% - Group presentation</p>
+            </button>
+            <button class="timeline-item" data-id="final" type="button">
+              <h4>Final Assessment</h4>
+              <p>Week 12-13, Semester 2 - 19% - Group demonstration</p>
+            </button>
+            <button class="timeline-item" data-id="viva" type="button">
+              <h4>Viva</h4>
+              <p>After final assessment - 10% - Individual oral examination</p>
+            </button>
+            <button class="timeline-item" data-id="research-paper" type="button">
+              <h4>Research Paper</h4>
+              <p>End of Semester 2 - 10% - Group submission</p>
+            </button>
+            <button class="timeline-item" data-id="logbook" type="button">
+              <h4>Logbook and Status Documents</h4>
+              <p>Continuous - 12% - Continuous submission</p>
+            </button>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-grid">
+        <div>
+          <p><strong>Adaptive Smart Irrigation and Crop Optimization Platform</strong></p>
+          <p class="footer-sub">
+            A 4th year Software Engineering research platform for water-aware irrigation, crop
+            health monitoring, forecasting, and adaptive crop area planning in Sri Lanka.
+          </p>
+          <div class="footer-list">
+            <span>Sri Lanka Institute of Information Technology</span>
+            <a href="mailto:IT22561770@my.sliit.lk">IT22561770@my.sliit.lk</a>
+          </div>
+        </div>
+        <div>
+          <p><strong>Sections</strong></p>
+          <div class="footer-list">
+            <a href="index.html">Home</a><a href="domain.html">Domain</a><a href="milestones.html">Milestones</a><a href="documents.html">Documents</a><a href="presentations.html">Slides</a><a href="about.html">About Us</a><a href="contact.html">Contact Us</a>
+          </div>
+        </div>
+        <div>
+          <p><strong>Research Streams</strong></p>
+          <div class="footer-list">
+            <span>F1 - IoT smart irrigation</span><span>F2 - Crop health detection</span><span>F3 - Water forecasting</span><span>F4 - ACA-O optimization</span>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+    <script src="script.js"></script>
+  </body>
+</html>
