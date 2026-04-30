@@ -17,7 +17,6 @@ import {
   Sparkline,
   LineChart,
   BarChart,
-  ForecastChart,
   Donut,
   SchemeMap,
   Frame,
@@ -30,6 +29,7 @@ import { useAuth } from '@/lib/auth';
 import { OptimizationWizard } from './_components/optimization-wizard';
 import { IrrigationPanel } from './_components/irrigation-panel';
 import { CropHealthPanel } from './_components/crop-health-panel';
+import { ForecastPanel } from './_components/forecast-panel';
 
 const formatAreaValue = (value: any) => {
   const parsed = Number(value);
@@ -581,41 +581,11 @@ const FieldWorkspace = () => {
 
           {/* Forecast Tab */}
           {tab === TAB_FORECAST && (
-            <div className="field-workspace-panel-grid field-workspace-panel-grid-forecast">
-              <div className="card">
-                <div className="card-head">
-                  <div className="card-title">14-day forecast</div>
-                  <Chip kind={weatherSummary.is_live ? 'live' : 'sim'}>
-                    {weatherSummary.is_live ? 'Live' : 'Simulated'}
-                  </Chip>
-                </div>
-                <ForecastChart width={700} height={260} days={14}/>
-                <div className="tiny muted" style={{ marginTop: 8 }}>
-                  Source: {weatherSummary.source || 'Open-Meteo'}
-                </div>
-              </div>
-
-              <div className="card">
-                <div className="card-title" style={{ marginBottom: 10 }}>Irrigation recommendation</div>
-                {forecastRec.recommendation ? (
-                  <div style={{ padding: 12, background: 'var(--primary-50)', borderRadius: 8, marginBottom: 12 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>{forecastRec.recommendation}</div>
-                    {forecastRec.adjustment_percent !== undefined && (
-                      <div className="tiny muted" style={{ marginTop: 4 }}>
-                        Adjustment: {forecastRec.adjustment_percent > 0 ? '+' : ''}{forecastRec.adjustment_percent}%
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="tiny muted" style={{ marginBottom: 12 }}>No recommendation available</div>
-                )}
-                {forecastRec.narrative && (
-                  <div style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-                    {forecastRec.narrative}
-                  </div>
-                )}
-              </div>
-            </div>
+            <ForecastPanel
+              fieldId={fieldId}
+              fieldStatus={fieldStatus}
+              onRefresh={loadProfile}
+            />
           )}
 
           {partialFailure && (

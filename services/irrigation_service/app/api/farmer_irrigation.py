@@ -195,6 +195,50 @@ class FarmerIrrigationSummary(BaseModel):
     message: Optional[str] = None
 
 
+class FarmerForecastWeatherDay(BaseModel):
+    date: str
+    temp_max_c: Optional[float] = None
+    temp_min_c: Optional[float] = None
+    rain_mm: Optional[float] = None
+    precipitation_probability: Optional[float] = None
+    evapotranspiration_mm: Optional[float] = None
+    weather_description: Optional[str] = None
+
+
+class FarmerWeatherForecast(BaseModel):
+    available: bool = False
+    daily: List[FarmerForecastWeatherDay] = Field(default_factory=list)
+    summary: Dict[str, Any] = Field(default_factory=dict)
+    location: Dict[str, Any] = Field(default_factory=dict)
+    source: Optional[str] = None
+    generated_at: Optional[str] = None
+    message: Optional[str] = None
+
+
+class FarmerForecastModelSummary(BaseModel):
+    available: bool = False
+    basic_model: Dict[str, Any] = Field(default_factory=dict)
+    advanced_models: Dict[str, Any] = Field(default_factory=dict)
+    scope: Dict[str, Any] = Field(default_factory=dict)
+    message: Optional[str] = None
+
+
+class FarmerForecastSummary(BaseModel):
+    field: FarmerFieldMeta
+    readings: FarmerCurrentReadings
+    weather: FarmerWeatherForecast
+    week_plan: Optional[FarmerWeekPlan] = None
+    model_summary: FarmerForecastModelSummary
+    status: str
+    source: str
+    is_live: bool
+    observed_at: Optional[str] = None
+    staleness_sec: Optional[float] = None
+    quality: str
+    data_available: bool
+    message: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -232,6 +276,44 @@ async def _fetch_iot_devices_for_field(
 
     wanted = set(paired_device_ids)
     return [item for item in raw_devices if isinstance(item, dict) and item.get("device_id") in wanted]
+
+
+async def _fetch_forecasting_payload(
+    path: str,
+    *,
+    params: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            resp = await client.get(
+                f"{settings.forecasting_service_url}{path}",
+                params=params or None,
+            )
+        if resp.status_code >= 400:
+            return None
+        payload = resp.json()
+        return payload if isinstance(payload, dict) else None
+    except Exception as exc:
+        logger.debug("forecasting_service fetch failed for %s: %s", path, exc)
+        return None
+
+
+async def _fetch_weather_forecast(
+    *,
+    lat: Optional[float],
+    lon: Optional[float],
+    days: int = 14,
+) -> Optional[Dict[str, Any]]:
+    params: Dict[str, Any] = {"days": days}
+    if lat is not None:
+        params["lat"] = lat
+    if lon is not None:
+        params["lon"] = lon
+    return await _fetch_forecasting_payload("/api/weather/forecast", params=params)
+
+
+async def _fetch_forecast_model_summary() -> Optional[Dict[str, Any]]:
+    return await _fetch_forecasting_payload("/api/v1/model-summary")
 
 
 def _build_field_meta(field: Dict[str, Any]) -> FarmerFieldMeta:
@@ -426,6 +508,95 @@ def _build_week_plan(payload: Optional[Dict[str, Any]]) -> tuple[Optional[Farmer
             generated_at=generated_at if isinstance(generated_at, str) else None,
             source=str(payload.get("source") or "forecasting_service"),
             message=None if daily else "Forecast returned no daily entries",
+        ),
+        contract,
+    )
+
+
+def _build_weather_forecast(
+    payload: Optional[Dict[str, Any]],
+) -> tuple[FarmerWeatherForecast, Dict[str, Any]]:
+    if not isinstance(payload, dict):
+        contract = build_contract(
+            observed_at=None,
+            source="forecasting_service",
+            data_available=False,
+            message="Weather forecast unavailable",
+        )
+        return (
+            FarmerWeatherForecast(available=False, message="Weather forecast unavailable"),
+            contract,
+        )
+
+    daily: List[FarmerForecastWeatherDay] = []
+    for item in payload.get("daily") or []:
+        if not isinstance(item, dict):
+            continue
+        daily.append(
+            FarmerForecastWeatherDay(
+                date=str(item.get("date") or ""),
+                temp_max_c=item.get("temp_max_c"),
+                temp_min_c=item.get("temp_min_c"),
+                rain_mm=item.get("rain_mm"),
+                precipitation_probability=item.get("precipitation_probability"),
+                evapotranspiration_mm=item.get("evapotranspiration_mm"),
+                weather_description=item.get("weather_description"),
+            )
+        )
+
+    generated_at = payload.get("observed_at") or payload.get("generated_at")
+    source = str(payload.get("source") or "forecasting_service")
+    contract = build_contract(
+        observed_at=generated_at if isinstance(generated_at, str) else None,
+        source="simulated" if source == "simulated" else source,
+        data_available=bool(daily),
+        message=None if daily else "Weather forecast returned no daily entries",
+    )
+    return (
+        FarmerWeatherForecast(
+            available=bool(daily),
+            daily=daily,
+            summary=payload.get("summary") if isinstance(payload.get("summary"), dict) else {},
+            location=payload.get("location") if isinstance(payload.get("location"), dict) else {},
+            source=source,
+            generated_at=payload.get("generated_at") if isinstance(payload.get("generated_at"), str) else None,
+            message=None if daily else "Weather forecast returned no daily entries",
+        ),
+        contract,
+    )
+
+
+def _build_model_summary(
+    payload: Optional[Dict[str, Any]],
+) -> tuple[FarmerForecastModelSummary, Dict[str, Any]]:
+    if not isinstance(payload, dict):
+        contract = build_contract(
+            observed_at=None,
+            source="forecasting_service",
+            data_available=False,
+            message="Forecast model summary unavailable",
+        )
+        return (
+            FarmerForecastModelSummary(
+                available=False,
+                message="Forecast model summary unavailable",
+            ),
+            contract,
+        )
+
+    contract = build_contract(
+        observed_at=None,
+        source="forecasting_service",
+        data_available=True,
+        message=payload.get("message") if isinstance(payload.get("message"), str) else None,
+    )
+    return (
+        FarmerForecastModelSummary(
+            available=True,
+            basic_model=payload.get("basic_model") if isinstance(payload.get("basic_model"), dict) else {},
+            advanced_models=payload.get("advanced_models") if isinstance(payload.get("advanced_models"), dict) else {},
+            scope=payload.get("scope") if isinstance(payload.get("scope"), dict) else {},
+            message=payload.get("message") if isinstance(payload.get("message"), str) else None,
         ),
         contract,
     )
@@ -656,6 +827,68 @@ async def get_farmer_irrigation_summary(
         week_plan=week_plan_section,
         devices=devices_section,
         manual_requests=manual_state,
+        **merged,
+    )
+
+
+@router.get("/fields/{field_id}/forecast-summary", response_model=FarmerForecastSummary)
+async def get_farmer_forecast_summary(
+    field_id: str,
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+) -> FarmerForecastSummary:
+    """Farmer-facing forecast snapshot for the field-detail Forecast tab.
+
+    Weather and water-balance calls are scoped with the field's lat/lon. The
+    model summary intentionally reports F3 model readiness/metrics without
+    exposing protected training/admin prediction controls.
+    """
+    async with session_scope() as session:
+        field = await get_crop_field(session, field_id)
+        if not field:
+            raise HTTPException(status_code=404, detail="Field not found")
+        _assert_field_access(user_context, field)
+
+        latest = await get_latest_sensor_reading(session, field_id)
+        valve = await get_valve_state(session, field_id)
+
+    lat = field.get("latitude")
+    lon = field.get("longitude")
+    weather_task = _fetch_weather_forecast(lat=lat, lon=lon, days=14)
+    week_plan_task = _fetch_weekly_outlook(lat=lat, lon=lon)
+    model_task = _fetch_forecast_model_summary()
+    weather_payload, week_payload, model_payload = await asyncio.gather(
+        weather_task,
+        week_plan_task,
+        model_task,
+        return_exceptions=False,
+    )
+
+    readings, readings_contract = _build_readings_section(field, latest, valve)
+    weather_section, weather_contract = _build_weather_forecast(
+        weather_payload if isinstance(weather_payload, dict) else None
+    )
+    week_plan_section, week_contract = _build_week_plan(
+        week_payload if isinstance(week_payload, dict) else None
+    )
+    model_section, model_contract = _build_model_summary(
+        model_payload if isinstance(model_payload, dict) else None
+    )
+
+    merged = merge_contracts(
+        [
+            readings_contract,
+            weather_contract,
+            week_contract,
+            model_contract,
+        ]
+    )
+
+    return FarmerForecastSummary(
+        field=_build_field_meta(field),
+        readings=readings,
+        weather=weather_section,
+        week_plan=week_plan_section,
+        model_summary=model_section,
         **merged,
     )
 

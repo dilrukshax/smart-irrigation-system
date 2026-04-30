@@ -25,7 +25,10 @@ router = APIRouter(prefix="/api/weather", tags=["Weather"])
 
 
 @router.get("/current")
-async def get_current_weather():
+async def get_current_weather(
+    lat: Optional[float] = Query(default=None, ge=-90, le=90, description="Field latitude"),
+    lon: Optional[float] = Query(default=None, ge=-180, le=180, description="Field longitude"),
+):
     """
     Get current weather conditions.
     
@@ -33,7 +36,7 @@ async def get_current_weather():
     Includes temperature, humidity, precipitation, and irrigation impact analysis.
     """
     try:
-        weather = await weather_client.get_current_weather()
+        weather = await weather_client.get_current_weather(lat=lat, lon=lon)
         if weather.get("status") == "source_unavailable":
             raise HTTPException(status_code=503, detail=weather)
         async with session_scope() as session:
@@ -66,7 +69,9 @@ async def get_current_weather():
 
 @router.get("/forecast")
 async def get_weather_forecast(
-    days: int = Query(default=7, ge=1, le=14, description="Number of days to forecast (1-14)")
+    days: int = Query(default=7, ge=1, le=14, description="Number of days to forecast (1-14)"),
+    lat: Optional[float] = Query(default=None, ge=-90, le=90, description="Field latitude"),
+    lon: Optional[float] = Query(default=None, ge=-180, le=180, description="Field longitude"),
 ):
     """
     Get weather forecast.
@@ -81,7 +86,7 @@ async def get_weather_forecast(
         days: Number of days to forecast (1-14)
     """
     try:
-        forecast = await weather_client.get_forecast(days)
+        forecast = await weather_client.get_forecast(days, lat=lat, lon=lon)
         if forecast.get("status") == "source_unavailable":
             raise HTTPException(status_code=503, detail=forecast)
         async with session_scope() as session:
@@ -114,7 +119,9 @@ async def get_weather_forecast(
 
 @router.get("/historical")
 async def get_historical_weather(
-    days: int = Query(default=30, ge=1, le=92, description="Days of historical data (1-92)")
+    days: int = Query(default=30, ge=1, le=92, description="Days of historical data (1-92)"),
+    lat: Optional[float] = Query(default=None, ge=-90, le=90, description="Field latitude"),
+    lon: Optional[float] = Query(default=None, ge=-180, le=180, description="Field longitude"),
 ):
     """
     Get historical weather data.
@@ -128,7 +135,7 @@ async def get_historical_weather(
         days: Number of days of historical data (1-92)
     """
     try:
-        historical = await weather_client.get_historical(days)
+        historical = await weather_client.get_historical(days, lat=lat, lon=lon)
         if historical.get("status") == "source_unavailable":
             raise HTTPException(status_code=503, detail=historical)
         async with session_scope() as session:
@@ -160,7 +167,10 @@ async def get_historical_weather(
 
 
 @router.get("/irrigation-recommendation")
-async def get_irrigation_recommendation():
+async def get_irrigation_recommendation(
+    lat: Optional[float] = Query(default=None, ge=-90, le=90, description="Field latitude"),
+    lon: Optional[float] = Query(default=None, ge=-180, le=180, description="Field longitude"),
+):
     """
     Get comprehensive irrigation recommendation based on weather.
     
@@ -168,8 +178,8 @@ async def get_irrigation_recommendation():
     actionable irrigation guidance for the next 7 days.
     """
     try:
-        current = await weather_client.get_current_weather()
-        forecast = await weather_client.get_forecast(7)
+        current = await weather_client.get_current_weather(lat=lat, lon=lon)
+        forecast = await weather_client.get_forecast(7, lat=lat, lon=lon)
         if current.get("status") == "source_unavailable":
             raise HTTPException(status_code=503, detail=current)
         if forecast.get("status") == "source_unavailable":
@@ -284,7 +294,10 @@ async def get_irrigation_recommendation():
 
 
 @router.get("/summary")
-async def get_weather_summary():
+async def get_weather_summary(
+    lat: Optional[float] = Query(default=None, ge=-90, le=90, description="Field latitude"),
+    lon: Optional[float] = Query(default=None, ge=-180, le=180, description="Field longitude"),
+):
     """
     Get a comprehensive weather summary for dashboard display.
     
@@ -292,8 +305,8 @@ async def get_weather_summary():
     and irrigation impact into a single response.
     """
     try:
-        current = await weather_client.get_current_weather()
-        forecast = await weather_client.get_forecast(3)
+        current = await weather_client.get_current_weather(lat=lat, lon=lon)
+        forecast = await weather_client.get_forecast(3, lat=lat, lon=lon)
         if current.get("status") == "source_unavailable":
             raise HTTPException(status_code=503, detail=current)
         if forecast.get("status") == "source_unavailable":

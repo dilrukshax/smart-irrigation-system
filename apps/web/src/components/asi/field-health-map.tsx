@@ -230,7 +230,6 @@ export function FieldHealthMap({
       observationMarkerById.current = {};
       fittedRef.current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---- Layer toggle ----

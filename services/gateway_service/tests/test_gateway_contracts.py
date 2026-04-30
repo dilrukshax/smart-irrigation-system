@@ -267,6 +267,17 @@ def test_irrigation_officer_overview_route_contract(mock_request):
 
 
 @patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_farmer_forecast_summary_route_contract(mock_request):
+    mock_request.return_value = _response({"status": "ok"})
+
+    resp = client.get("/api/v1/irrigation/farmer/fields/field-1/forecast-summary")
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8002/api/v1/irrigation/farmer/fields/field-1/forecast-summary"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
 def test_forecast_weather_route_contract(mock_request):
     mock_request.return_value = _response({"status": "ok"})
 

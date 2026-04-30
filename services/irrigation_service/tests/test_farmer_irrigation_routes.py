@@ -147,6 +147,27 @@ def _patch_upstreams(
         monkeypatch.setattr(farmer_irrigation, "_compute_auto_decision", _decision_fn)
 
 
+def _patch_forecast_summary_upstreams(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    weather_payload: Any,
+    forecast_payload: Any,
+    model_payload: Any,
+) -> None:
+    async def _weather(*_args: Any, **_kwargs: Any):
+        return weather_payload
+
+    async def _forecast(*_args: Any, **_kwargs: Any):
+        return forecast_payload
+
+    async def _model(*_args: Any, **_kwargs: Any):
+        return model_payload
+
+    monkeypatch.setattr(farmer_irrigation, "_fetch_weather_forecast", _weather)
+    monkeypatch.setattr(farmer_irrigation, "_fetch_weekly_outlook", _forecast)
+    monkeypatch.setattr(farmer_irrigation, "_fetch_forecast_model_summary", _model)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures: payload shapes
 # ---------------------------------------------------------------------------
@@ -210,6 +231,63 @@ def forecast_payload() -> Dict[str, Any]:
             for i in range(7)
         ],
         "source": "forecasting_service",
+    }
+
+
+@pytest.fixture
+def weather_forecast_payload() -> Dict[str, Any]:
+    return {
+        "status": "ok",
+        "source": "open-meteo",
+        "generated_at": datetime.utcnow().isoformat(),
+        "location": {"latitude": 7.21, "longitude": 80.65, "region": "Field coordinates, Sri Lanka"},
+        "summary": {
+            "total_precipitation_7d_mm": 22.0,
+            "average_temp_c": 29.1,
+            "rainy_days_count": 2,
+            "irrigation_recommendation": "MAINTAIN",
+        },
+        "daily": [
+            {
+                "date": (datetime.utcnow() + timedelta(days=i)).date().isoformat(),
+                "temp_max_c": 30.0 + i,
+                "temp_min_c": 23.0,
+                "rain_mm": 1.0 * i,
+                "precipitation_probability": 20 + i,
+                "evapotranspiration_mm": 4.5,
+                "weather_description": "Partly cloudy",
+            }
+            for i in range(14)
+        ],
+    }
+
+
+@pytest.fixture
+def model_summary_payload() -> Dict[str, Any]:
+    return {
+        "status": "ok",
+        "source": "forecasting_service",
+        "basic_model": {
+            "name": "LinearRegression",
+            "version": "1.0.0",
+            "ready": True,
+            "features_used_count": 24,
+            "data_points": {"water_level": 48, "rainfall": 48, "dam_gates": 48},
+        },
+        "advanced_models": {
+            "available": True,
+            "trained": True,
+            "models": ["Random Forest", "Gradient Boosting"],
+            "best_model": "Random Forest",
+            "metrics": {"Random Forest": {"rmse": 2.1, "mae": 1.4, "r2": 0.91}},
+            "features_engineered": 18,
+            "uncertainty_supported": True,
+        },
+        "scope": {
+            "weather": "field_coordinates",
+            "water_level_model": "service_observations",
+            "field_specific_ml": False,
+        },
     }
 
 
@@ -344,6 +422,87 @@ def test_summary_happy_path(
     # merged envelope
     assert body["status"] == "ok"
     assert body["data_available"] is True
+
+
+def test_forecast_summary_happy_path(
+    monkeypatch: pytest.MonkeyPatch,
+    fresh_reading: Dict[str, Any],
+    forecast_payload: Dict[str, Any],
+    weather_forecast_payload: Dict[str, Any],
+    model_summary_payload: Dict[str, Any],
+):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    _patch_db(
+        monkeypatch,
+        field=_farmer_field(),
+        latest=fresh_reading,
+    )
+    _patch_forecast_summary_upstreams(
+        monkeypatch,
+        weather_payload=weather_forecast_payload,
+        forecast_payload=forecast_payload,
+        model_payload=model_summary_payload,
+    )
+
+    client = TestClient(app)
+    resp = client.get("/api/v1/irrigation/farmer/fields/field-1/forecast-summary")
+    assert resp.status_code == 200
+    body = resp.json()
+
+    assert body["field"]["field_id"] == "field-1"
+    assert body["weather"]["available"] is True
+    assert len(body["weather"]["daily"]) == 14
+    assert body["weather"]["location"]["latitude"] == 7.21
+    assert body["week_plan"]["available"] is True
+    assert body["model_summary"]["available"] is True
+    assert body["model_summary"]["basic_model"]["name"] == "LinearRegression"
+    assert body["model_summary"]["advanced_models"]["best_model"] == "Random Forest"
+    assert body["data_available"] is True
+
+
+def test_forecast_summary_weather_unavailable_degrades(
+    monkeypatch: pytest.MonkeyPatch,
+    fresh_reading: Dict[str, Any],
+    forecast_payload: Dict[str, Any],
+    model_summary_payload: Dict[str, Any],
+):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    _patch_db(monkeypatch, field=_farmer_field(), latest=fresh_reading)
+    _patch_forecast_summary_upstreams(
+        monkeypatch,
+        weather_payload=None,
+        forecast_payload=forecast_payload,
+        model_payload=model_summary_payload,
+    )
+
+    client = TestClient(app)
+    resp = client.get("/api/v1/irrigation/farmer/fields/field-1/forecast-summary")
+    assert resp.status_code == 200
+    body = resp.json()
+
+    assert body["weather"]["available"] is False
+    assert body["weather"]["daily"] == []
+    assert body["week_plan"]["available"] is True
+    assert body["model_summary"]["available"] is True
+    assert body["data_available"] is True
+
+
+def test_forecast_summary_403_for_foreign_farmer(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _foreign_farmer_context
+    _patch_db(monkeypatch, field=_farmer_field())
+    _patch_forecast_summary_upstreams(
+        monkeypatch,
+        weather_payload=None,
+        forecast_payload=None,
+        model_payload=None,
+    )
+
+    client = TestClient(app)
+    resp = client.get("/api/v1/irrigation/farmer/fields/field-1/forecast-summary")
+    assert resp.status_code == 403
 
 
 def test_summary_forecasting_unavailable_degrades_week_plan(
