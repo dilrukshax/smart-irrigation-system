@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import random
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -22,15 +22,24 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.core.contracts import (
+    STALE_TIMEOUT_SECONDS as _STALE_TIMEOUT_SECONDS,
+    build_contract as _build_contract,
+    merge_contracts as _merge_contracts,
+    now_utc as _now_utc,
+    parse_dt as _parse_dt,
+)
 from app.db.repository import (
     add_sensor_reading,
     confirm_pairing_session,
     close_manual_request,
     create_authority_policy,
+    create_field_observation,
     create_hydraulic_schedule,
     create_manual_request,
     create_pairing_session,
     delete_crop_field,
+    delete_field_observation,
     estimate_accepted_schedule_volume_mcm,
     find_conflicting_hydraulic_schedule,
     get_active_authority_policy,
@@ -39,6 +48,7 @@ from app.db.repository import (
     get_confirmed_pairing_by_device,
     get_crop_field,
     get_crop_field_by_device,
+    get_field_observation,
     get_hydraulic_topology_node,
     get_hydraulic_schedule,
     get_latest_authority_policy_for_scheme,
@@ -52,6 +62,7 @@ from app.db.repository import (
     get_valve_state,
     list_authority_policies,
     list_crop_fields,
+    list_field_observations,
     list_pairing_sessions_for_field,
     list_hydraulic_schedules,
     list_hydraulic_topology_nodes,
@@ -62,6 +73,7 @@ from app.db.repository import (
     review_manual_request,
     set_pairing_first_telemetry,
     update_crop_field_partial,
+    update_field_observation,
     upsert_hydraulic_topology_node,
     upsert_crop_field,
     upsert_valve_state,
@@ -72,7 +84,7 @@ from app.dependencies.auth import get_current_user_context
 router = APIRouter(prefix="/api/v1", tags=["Farmer Operations"])
 logger = logging.getLogger(__name__)
 
-STALE_TIMEOUT_SECONDS = 300
+STALE_TIMEOUT_SECONDS = _STALE_TIMEOUT_SECONDS
 
 CROP_DEFAULTS: Dict[str, Dict[str, float | int]] = {
     "rice": {
@@ -253,91 +265,6 @@ class CropConfirmRequest(BaseModel):
     expected_profit_per_ha: Optional[float] = None
 
 
-def _now_utc() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _parse_dt(value: Optional[str]) -> Optional[datetime]:
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
-    except Exception:
-        return None
-
-
-def _build_contract(
-    *,
-    observed_at: Optional[str],
-    source: str,
-    data_available: bool,
-    message: Optional[str] = None,
-) -> Dict[str, Any]:
-    observed_dt = _parse_dt(observed_at)
-    staleness = (_now_utc() - observed_dt).total_seconds() if observed_dt else None
-
-    if not data_available:
-        status_value = "data_unavailable"
-        quality = "unknown"
-        is_live = False
-    elif source == "simulated":
-        status_value = "stale"
-        quality = "unknown"
-        is_live = False
-    elif staleness is not None and staleness > STALE_TIMEOUT_SECONDS:
-        status_value = "stale"
-        quality = "stale"
-        is_live = False
-    else:
-        status_value = "ok"
-        quality = "good"
-        is_live = True
-
-    return {
-        "status": status_value,
-        "source": source,
-        "is_live": is_live,
-        "observed_at": observed_at,
-        "staleness_sec": round(staleness, 2) if staleness is not None else None,
-        "quality": quality,
-        "data_available": data_available,
-        "message": message,
-    }
-
-
-def _contract_rank(status_value: str) -> int:
-    ordering = {
-        "ok": 0,
-        "stale": 1,
-        "data_unavailable": 2,
-        "source_unavailable": 3,
-    }
-    return ordering.get(status_value, 2)
-
-
-def _merge_contracts(contracts: List[Dict[str, Any]]) -> Dict[str, Any]:
-    if not contracts:
-        return _build_contract(
-            observed_at=None,
-            source="aggregate",
-            data_available=False,
-            message="No source contracts",
-        )
-
-    selected = max(contracts, key=lambda item: _contract_rank(str(item.get("status") or "data_unavailable")))
-    merged: Dict[str, Any] = {
-        "status": selected.get("status", "data_unavailable"),
-        "source": "aggregate",
-        "is_live": all(bool(item.get("is_live")) for item in contracts),
-        "observed_at": selected.get("observed_at"),
-        "staleness_sec": selected.get("staleness_sec"),
-        "quality": selected.get("quality", "unknown"),
-        "data_available": any(bool(item.get("data_available")) for item in contracts),
-        "message": selected.get("message"),
-    }
-    return merged
-
-
 def _extract_manual_policy_context(item: Dict[str, Any]) -> Dict[str, Any]:
     source = item.get("source_decision")
     source_dict = source if isinstance(source, dict) else {}
@@ -462,16 +389,59 @@ def _status_bucket(value: float, low: float, high: float, critical: float, label
     return excess
 
 
-async def _fetch_forecast_adjustment() -> float:
+async def _fetch_weekly_outlook(
+    *, lat: Optional[float] = None, lon: Optional[float] = None
+) -> Optional[Dict[str, Any]]:
+    """Fetch the full forecasting `irrigation-recommendation` payload.
+
+    Returns ``None`` when the upstream is unreachable or returns a non-2xx
+    response so callers can degrade gracefully. ``lat``/``lon`` are passed
+    through as query params; the forecasting service currently ignores them
+    (zone-scoped) but accepting them today makes field-scoped forecasts a
+    one-line follow-up there.
+    """
+    # TODO(field-scoped-forecast): wire forecasting_service to honor lat/lon.
+    params: Dict[str, Any] = {}
+    if lat is not None:
+        params["lat"] = lat
+    if lon is not None:
+        params["lon"] = lon
     try:
         async with httpx.AsyncClient(timeout=4.0) as client:
-            resp = await client.get(f"{settings.forecasting_service_url}/api/weather/irrigation-recommendation")
+            resp = await client.get(
+                f"{settings.forecasting_service_url}/api/weather/irrigation-recommendation",
+                params=params or None,
+            )
         if resp.status_code >= 400:
-            return 100.0
-        payload = resp.json() or {}
-        weekly = payload.get("weekly_outlook") or {}
-        return float(weekly.get("average_irrigation_adjustment_percent") or 100.0)
+            return None
+        payload = resp.json()
+        return payload if isinstance(payload, dict) else None
     except Exception:
+        return None
+
+
+async def _fetch_forecast_adjustment(
+    *,
+    forecast_payload: Optional[Dict[str, Any]] = None,
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+) -> float:
+    """Resolve the weekly irrigation adjustment percent.
+
+    Accepts a pre-fetched ``forecast_payload`` so aggregator endpoints can
+    fan out the upstream call once and reuse both the adjustment factor
+    (for the auto-decision) and the daily schedule (for the panel UI)
+    without double-billing forecasting_service.
+    """
+    payload = forecast_payload
+    if payload is None:
+        payload = await _fetch_weekly_outlook(lat=lat, lon=lon)
+    if not isinstance(payload, dict):
+        return 100.0
+    weekly = payload.get("weekly_outlook") or {}
+    try:
+        return float(weekly.get("average_irrigation_adjustment_percent") or 100.0)
+    except (TypeError, ValueError):
         return 100.0
 
 
@@ -608,11 +578,16 @@ async def _compute_auto_decision(
     policy: Optional[Dict[str, Any]],
     *,
     quota_remaining_mcm: Optional[float] = None,
+    forecast_payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     water_level = float(reading["water_level_pct"])
     soil_moisture = float(reading["soil_moisture_pct"])
 
-    forecast_adj = await _fetch_forecast_adjustment()
+    forecast_adj = await _fetch_forecast_adjustment(
+        forecast_payload=forecast_payload,
+        lat=field.get("latitude"),
+        lon=field.get("longitude"),
+    )
     stress_penalty = await _fetch_stress_penalty(field["field_id"])
 
     effective_water_min = max(0.0, min(100.0, float(field["water_level_min_pct"]) * (forecast_adj / 100.0)))
@@ -2252,3 +2227,174 @@ async def get_local_field_profile(
         "pending_manual_requests": pending,
         "manual_requests": recent,
     }
+
+
+# ---------------------------------------------------------------------------
+# Field observations (Crop Health tab — geo-tagged farmer notes)
+# ---------------------------------------------------------------------------
+
+
+ALLOWED_OBSERVATION_KINDS = {"disease", "pest", "water_stress", "healthy", "note"}
+ALLOWED_OBSERVATION_SEVERITIES = {"low", "medium", "high", "critical"}
+
+
+class FieldObservationCreate(BaseModel):
+    latitude: float = Field(..., ge=-90.0, le=90.0)
+    longitude: float = Field(..., ge=-180.0, le=180.0)
+    kind: str = Field(..., description="disease | pest | water_stress | healthy | note")
+    severity: Optional[str] = None
+    title: str = Field(..., min_length=1, max_length=160)
+    note: Optional[str] = Field(default=None, max_length=2000)
+    photo_url: Optional[str] = Field(default=None, max_length=2000)
+    prediction_label: Optional[str] = Field(default=None, max_length=120)
+    prediction_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
+
+class FieldObservationUpdate(BaseModel):
+    kind: Optional[str] = None
+    severity: Optional[str] = None
+    title: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    note: Optional[str] = Field(default=None, max_length=2000)
+    photo_url: Optional[str] = Field(default=None, max_length=2000)
+    prediction_label: Optional[str] = Field(default=None, max_length=120)
+    prediction_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
+
+def _validate_observation_kind(kind: str) -> str:
+    normalized = (kind or "").strip().lower()
+    if normalized not in ALLOWED_OBSERVATION_KINDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid observation kind: {kind!r}",
+        )
+    return normalized
+
+
+def _validate_observation_severity(severity: Optional[str]) -> Optional[str]:
+    if severity is None or severity == "":
+        return None
+    normalized = severity.strip().lower()
+    if normalized not in ALLOWED_OBSERVATION_SEVERITIES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid observation severity: {severity!r}",
+        )
+    return normalized
+
+
+@router.post("/farm/fields/{field_id}/observations", status_code=201)
+async def create_field_observation_endpoint(
+    field_id: str,
+    payload: FieldObservationCreate,
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+):
+    _require_roles(user_context, {"farmer", "officer", "authority"})
+    kind = _validate_observation_kind(payload.kind)
+    severity = _validate_observation_severity(payload.severity)
+
+    async with session_scope() as session:
+        field = await get_crop_field(session, field_id)
+        if not field:
+            raise HTTPException(status_code=404, detail="Field not found")
+        _assert_field_access(user_context, field)
+
+        observation = await create_field_observation(
+            session,
+            field_id=field_id,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            kind=kind,
+            severity=severity,
+            title=payload.title.strip(),
+            note=payload.note,
+            photo_url=payload.photo_url,
+            prediction_label=payload.prediction_label,
+            prediction_confidence=payload.prediction_confidence,
+            created_by=user_context.get("id"),
+        )
+
+    return observation
+
+
+@router.get("/farm/fields/{field_id}/observations")
+async def list_field_observations_endpoint(
+    field_id: str,
+    limit: int = Query(50, ge=1, le=500),
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+):
+    async with session_scope() as session:
+        field = await get_crop_field(session, field_id)
+        if not field:
+            raise HTTPException(status_code=404, detail="Field not found")
+        _assert_field_access(user_context, field)
+
+        items = await list_field_observations(session, field_id=field_id, limit=limit)
+
+    return {"field_id": field_id, "count": len(items), "items": items}
+
+
+@router.patch("/farm/fields/{field_id}/observations/{observation_id}")
+async def patch_field_observation_endpoint(
+    field_id: str,
+    observation_id: str,
+    payload: FieldObservationUpdate,
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+):
+    _require_roles(user_context, {"farmer", "officer", "authority"})
+
+    fields: Dict[str, Any] = {}
+    raw = payload.model_dump(exclude_unset=True)
+    if "kind" in raw:
+        fields["kind"] = _validate_observation_kind(raw["kind"])
+    if "severity" in raw:
+        fields["severity"] = _validate_observation_severity(raw["severity"])
+    for key in ("title", "note", "photo_url", "prediction_label", "prediction_confidence"):
+        if key in raw:
+            value = raw[key]
+            fields[key] = value.strip() if isinstance(value, str) and key == "title" else value
+
+    async with session_scope() as session:
+        field = await get_crop_field(session, field_id)
+        if not field:
+            raise HTTPException(status_code=404, detail="Field not found")
+        _assert_field_access(user_context, field)
+
+        existing = await get_field_observation(session, observation_id)
+        if not existing or existing.get("field_id") != field_id:
+            raise HTTPException(status_code=404, detail="Observation not found")
+
+        if not fields:
+            return existing
+
+        updated = await update_field_observation(
+            session,
+            observation_id=observation_id,
+            fields=fields,
+        )
+
+    return updated
+
+
+@router.delete("/farm/fields/{field_id}/observations/{observation_id}")
+async def delete_field_observation_endpoint(
+    field_id: str,
+    observation_id: str,
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+):
+    _require_roles(user_context, {"farmer", "officer", "authority"})
+
+    async with session_scope() as session:
+        field = await get_crop_field(session, field_id)
+        if not field:
+            raise HTTPException(status_code=404, detail="Field not found")
+        _assert_field_access(user_context, field)
+
+        existing = await get_field_observation(session, observation_id)
+        if not existing or existing.get("field_id") != field_id:
+            raise HTTPException(status_code=404, detail="Observation not found")
+
+        deleted = await delete_field_observation(session, observation_id)
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Observation not found")
+    return {"observation_id": observation_id, "deleted": True}

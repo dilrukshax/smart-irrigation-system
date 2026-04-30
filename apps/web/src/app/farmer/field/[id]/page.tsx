@@ -25,9 +25,11 @@ import {
 import { farmerNav, officerNav, authorityNav, irrigationNav, optNav } from '@/components/asi/nav';
 import { PublicTop } from '@/components/asi/public-top';
 import { ApiState, InlineLoader } from '@/components/asi/api-state';
-import { apiGet, apiPost, uploadFile, ApiError } from '@/lib/api';
+import { apiGet, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { OptimizationWizard } from './_components/optimization-wizard';
+import { IrrigationPanel } from './_components/irrigation-panel';
+import { CropHealthPanel } from './_components/crop-health-panel';
 
 const formatAreaValue = (value: any) => {
   const parsed = Number(value);
@@ -94,20 +96,6 @@ const FieldWorkspace = () => {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
-  // Manual request form state
-  const [requestVolume, setRequestVolume] = React.useState('25');
-  const [requestReason, setRequestReason] = React.useState('');
-  const [requestSubmitting, setRequestSubmitting] = React.useState(false);
-  const [requestMsg, setRequestMsg] = React.useState<{type: string, text: string} | null>(null);
-
-  // Image upload state
-  const [uploadedFile, setUploadedFile] = React.useState<File | null>(null);
-  const [uploading, setUploading] = React.useState(false);
-  const [predictionResult, setPredictionResult] = React.useState<any>(null);
-
-  // Valve control state
-  const [valveActing, setValveActing] = React.useState(false);
-
   const loadProfile = React.useCallback(async () => {
     if (!fieldId) return;
     setLoading(true);
@@ -135,61 +123,6 @@ const FieldWorkspace = () => {
   React.useEffect(() => {
     loadProfile();
   }, [loadProfile]);
-
-  const handleManualRequest = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!requestReason.trim()) {
-      setRequestMsg({ type: 'error', text: 'Please provide a reason for the request.' });
-      return;
-    }
-    setRequestSubmitting(true);
-    setRequestMsg(null);
-    try {
-      const requestedPositionPct = Math.max(0, Math.min(100, Number.parseInt(requestVolume, 10) || 100));
-      await apiPost(`/irrigation/fields/${fieldId}/manual-requests`, {
-        requested_action: 'OPEN',
-        requested_position_pct: requestedPositionPct,
-        reason: requestReason,
-      });
-      setRequestMsg({ type: 'success', text: 'Request submitted to officer for review.' });
-      setRequestReason('');
-      loadProfile();
-    } catch (err: any) {
-      setRequestMsg({ type: 'error', text: err?.message || 'Failed to submit request' });
-    } finally {
-      setRequestSubmitting(false);
-    }
-  };
-
-  const handleValveCommand = async (action: string) => {
-    setValveActing(true);
-    try {
-      await apiPost(`/irrigation/fields/${fieldId}/commands`, {
-        action,
-        position_pct: action === 'OPEN' ? 100 : 0,
-        reason: 'Manual override from farmer workspace',
-      });
-      loadProfile();
-    } catch (err: any) {
-      alert(`Failed: ${err?.message || 'Unknown error'}`);
-    } finally {
-      setValveActing(false);
-    }
-  };
-
-  const handleImageUpload = async () => {
-    if (!uploadedFile) return;
-    setUploading(true);
-    setPredictionResult(null);
-    try {
-      const res = await uploadFile<any>('/crop-health/predict', uploadedFile);
-      setPredictionResult(res);
-    } catch (err: any) {
-      setPredictionResult({ error: err?.message || 'Prediction failed' });
-    } finally {
-      setUploading(false);
-    }
-  };
 
   const displayName = user?.username || 'Farmer';
 
@@ -227,10 +160,7 @@ const FieldWorkspace = () => {
     : null;
 
   const stressSummary = f2.stress_summary || {};
-  const healthScore = stressSummary.health_score ?? stressSummary.ndvi_score ?? null;
-  const stressLevel = stressSummary.stress_level || 'unknown';
   const zones = stressSummary.zones || [];
-  const stressAlerts = stressSummary.alerts || [];
 
   const weatherSummary = f3.weather_summary || {};
   const forecastRec = f3.irrigation_recommendation || {};
@@ -633,164 +563,20 @@ const FieldWorkspace = () => {
 
           {/* Irrigation Tab */}
           {tab === TAB_IRRIGATION && (
-            <div className="field-workspace-panel-grid field-workspace-panel-grid-2">
-              <div className="card">
-                <div className="card-title" style={{ marginBottom: 10 }}>Auto decision</div>
-                {autoDecision.decision ? (
-                  <div style={{ padding: 14, background: 'var(--primary-50)', borderRadius: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--primary-600)' }}>DECISION</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>
-                      {autoDecision.decision}
-                    </div>
-                    <div className="tiny muted" style={{ marginTop: 4 }}>
-                      Model: {autoDecision.model_name || 'ACA-I'} · confidence {autoDecision.confidence?.toFixed(2) || 'N/A'}
-                      {autoDecision.reason && ` · ${autoDecision.reason}`}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="tiny muted">No recent auto-decision available</div>
-                )}
-                <div style={{ marginTop: 20 }}>
-                  <div className="card-title" style={{ marginBottom: 10 }}>Manual request</div>
-                  <form onSubmit={handleManualRequest}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 10 }}>
-                      <div className="field">
-                        <label>Requested valve opening (%)</label>
-                        <input
-                          className="input"
-                          type="number"
-                          min="1"
-                          max="100"
-                          value={requestVolume}
-                          onChange={(e) => setRequestVolume(e.target.value)}
-                          disabled={requestSubmitting}
-                        />
-                      </div>
-                      <div className="field" style={{ gridColumn: '1 / -1' }}>
-                        <label>Reason</label>
-                        <textarea
-                          className="textarea"
-                          rows={2}
-                          value={requestReason}
-                          onChange={(e) => setRequestReason(e.target.value)}
-                          placeholder="Describe why you need extra irrigation..."
-                          disabled={requestSubmitting}
-                        />
-                      </div>
-                    </div>
-                    {requestMsg && (
-                      <div style={{
-                        marginTop: 10,
-                        padding: 10,
-                        background: requestMsg.type === 'success' ? '#DCFCE7' : '#FEE2E2',
-                        border: `1px solid ${requestMsg.type === 'success' ? '#86EFAC' : '#FECACA'}`,
-                        borderRadius: 6,
-                        color: requestMsg.type === 'success' ? '#166534' : '#DC2626',
-                        fontSize: 12,
-                      }}>
-                        {requestMsg.text}
-                      </div>
-                    )}
-                    <button
-                      type="submit"
-                      className="btn btn-primary"
-                      style={{ marginTop: 10, width: '100%' }}
-                      disabled={requestSubmitting}
-                    >
-                      {requestSubmitting ? 'Submitting...' : 'Submit to officer'}
-                    </button>
-                  </form>
-                </div>
-              </div>
-              <div className="card">
-                <div className="card-head">
-                  <div className="card-title">Field status</div>
-                </div>
-                <div style={{ fontSize: 12.5, lineHeight: 1.8 }}>
-                  <div>Auto-control: <b>{fieldStatus.auto_control_enabled ? 'Enabled' : 'Disabled'}</b></div>
-                  <div>Lifecycle: <b>{fieldLifecycle}</b></div>
-                  <div>Pairing: <b>{pairingStatus}</b></div>
-                  {deviceId && <div>Device: <b>{deviceId}</b></div>}
-                  {fieldStatus.soil_moisture_optimal_pct && <div>Optimal soil moisture: <b>{fieldStatus.soil_moisture_optimal_pct}%</b></div>}
-                </div>
-              </div>
-            </div>
+            <IrrigationPanel
+              fieldId={fieldId}
+              fieldStatus={fieldStatus}
+              onRefresh={loadProfile}
+            />
           )}
 
           {/* Crop Health Tab */}
           {tab === TAB_CROP_HEALTH && (
-            <div className="field-workspace-panel-grid field-workspace-panel-grid-3">
-              <div className="card">
-                <div className="card-title" style={{ marginBottom: 10 }}>Health score</div>
-                <div style={{ display: 'flex', justifyContent: 'center' }}>
-                  <Gauge
-                    value={healthScore !== null ? Math.round(healthScore * 100) : 0}
-                    size={160}
-                    color={healthScore > 0.7 ? 'var(--primary)' : healthScore > 0.4 ? 'var(--accent)' : 'var(--danger)'}
-                    sub={healthScore !== null ? `Score ${healthScore.toFixed(2)}` : 'No data'}
-                  />
-                </div>
-                <div className="divider" style={{ margin: '14px 0' }}/>
-                <div className="tiny muted">Stress level: <b>{stressLevel}</b></div>
-              </div>
-
-              <div className="card">
-                <div className="card-title" style={{ marginBottom: 10 }}>Image diagnosis</div>
-                <div className="field">
-                  <label>Upload leaf image for disease detection</label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => setUploadedFile(e.target.files?.[0] || null)}
-                    className="input"
-                    disabled={uploading}
-                  />
-                </div>
-                <button
-                  className="btn btn-primary btn-sm"
-                  style={{ marginTop: 8, width: '100%' }}
-                  onClick={handleImageUpload}
-                  disabled={!uploadedFile || uploading}
-                >
-                  {uploading ? 'Analyzing...' : 'Run detection'}
-                </button>
-                {predictionResult && (
-                  <div style={{ marginTop: 12, padding: 10, background: predictionResult.error ? '#FEE2E2' : '#DCFCE7', borderRadius: 6, fontSize: 12 }}>
-                    {predictionResult.error ? (
-                      <div style={{ color: '#DC2626' }}>{predictionResult.error}</div>
-                    ) : (
-                      <>
-                        <div style={{ fontWeight: 600 }}>{predictionResult.predicted_class || predictionResult.class_label || 'Unknown'}</div>
-                        {predictionResult.confidence && (
-                          <div className="tiny muted" style={{ marginTop: 4 }}>
-                            Confidence: {(predictionResult.confidence * 100).toFixed(1)}%
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="card">
-                <div className="card-title" style={{ marginBottom: 10 }}>Stress alerts</div>
-                {stressAlerts.length === 0 ? (
-                  <div className="tiny muted">No alerts</div>
-                ) : (
-                  stressAlerts.map((a: any, i: number) => (
-                    <div key={i} style={{ padding: '10px 0', borderBottom: i < stressAlerts.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                      <div className="between">
-                        <Chip kind={a.severity === 'high' ? 'crit' : a.severity === 'medium' ? 'warn' : 'info'}>
-                          {a.type || 'Alert'}
-                        </Chip>
-                        <span className="tiny muted">{a.timestamp ? new Date(a.timestamp).toLocaleDateString() : ''}</span>
-                      </div>
-                      <div style={{ fontSize: 12.5, marginTop: 4 }}>{a.message || a.description || '—'}</div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
+            <CropHealthPanel
+              fieldId={fieldId}
+              fieldStatus={fieldStatus}
+              onRefresh={loadProfile}
+            />
           )}
 
           {/* Forecast Tab */}

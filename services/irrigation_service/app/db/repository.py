@@ -15,6 +15,7 @@ from app.db.models import (
     AuthorityPolicyAudit,
     CropField,
     DevicePairingSession,
+    FieldObservation,
     HydraulicSchedule,
     HydraulicTopologyNode,
     ManualRequest,
@@ -1158,3 +1159,122 @@ async def get_active_authority_policy(
     )
     row = result.scalar_one_or_none()
     return _policy_to_dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# Field observations (farmer-recorded geo-tagged notes for the Crop Health tab)
+# ---------------------------------------------------------------------------
+
+
+def _observation_to_dict(row: FieldObservation) -> Dict[str, Any]:
+    return {
+        "observation_id": row.observation_id,
+        "field_id": row.field_id,
+        "latitude": row.latitude,
+        "longitude": row.longitude,
+        "kind": row.kind,
+        "severity": row.severity,
+        "title": row.title,
+        "note": row.note,
+        "photo_url": row.photo_url,
+        "prediction_label": row.prediction_label,
+        "prediction_confidence": row.prediction_confidence,
+        "created_by": row.created_by,
+        "created_at": _iso(row.created_at),
+        "updated_at": _iso(row.updated_at),
+    }
+
+
+async def create_field_observation(
+    session: AsyncSession,
+    *,
+    field_id: str,
+    latitude: float,
+    longitude: float,
+    kind: str,
+    title: str,
+    severity: Optional[str] = None,
+    note: Optional[str] = None,
+    photo_url: Optional[str] = None,
+    prediction_label: Optional[str] = None,
+    prediction_confidence: Optional[float] = None,
+    created_by: Optional[str] = None,
+) -> Dict[str, Any]:
+    row = FieldObservation(
+        field_id=field_id,
+        latitude=latitude,
+        longitude=longitude,
+        kind=kind,
+        severity=severity,
+        title=title,
+        note=note,
+        photo_url=photo_url,
+        prediction_label=prediction_label,
+        prediction_confidence=prediction_confidence,
+        created_by=created_by,
+    )
+    session.add(row)
+    await session.flush()
+    return _observation_to_dict(row)
+
+
+async def list_field_observations(
+    session: AsyncSession,
+    *,
+    field_id: str,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    result = await session.execute(
+        select(FieldObservation)
+        .where(FieldObservation.field_id == field_id)
+        .order_by(desc(FieldObservation.created_at))
+        .limit(limit)
+    )
+    rows = result.scalars().all()
+    return [_observation_to_dict(row) for row in rows]
+
+
+async def get_field_observation(
+    session: AsyncSession,
+    observation_id: str,
+) -> Optional[Dict[str, Any]]:
+    row = await session.get(FieldObservation, observation_id)
+    return _observation_to_dict(row) if row else None
+
+
+async def update_field_observation(
+    session: AsyncSession,
+    *,
+    observation_id: str,
+    fields: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    row = await session.get(FieldObservation, observation_id)
+    if row is None:
+        return None
+    mutable = {
+        "kind",
+        "severity",
+        "title",
+        "note",
+        "photo_url",
+        "prediction_label",
+        "prediction_confidence",
+    }
+    for key, value in fields.items():
+        if key in mutable:
+            setattr(row, key, value)
+    row.updated_at = datetime.utcnow()
+    await session.flush()
+    return _observation_to_dict(row)
+
+
+async def delete_field_observation(
+    session: AsyncSession,
+    observation_id: str,
+) -> bool:
+    row = await session.get(FieldObservation, observation_id)
+    if row is None:
+        return False
+    await session.delete(row)
+    await session.flush()
+    return True
