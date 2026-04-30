@@ -57,17 +57,19 @@ def _safe_int(value: object) -> int | None:
 
 
 def _seed_crop_catalog_if_empty() -> None:
-    """Idempotently seed crop catalog from CSV when DB catalog is empty."""
+    """Idempotently seed the crop catalog when the DB has no rows.
+
+    Falls back through three layers in order:
+      1. ``app/data/crops.csv`` if present (lets ops override)
+      2. ``app.data.crop_catalog.DEFAULT_CROPS`` (baked-in catalog matching
+         the LightGBM price model's label encoder)
+    """
     try:
         from app.data.db import SessionLocal
         from app.data.models_orm import Crop
+        from app.data.crop_catalog import DEFAULT_CROPS
     except Exception as exc:  # pragma: no cover - defensive import path
         logger.warning("Unable to import DB models for crop bootstrap: %s", exc)
-        return
-
-    data_path = Path(__file__).resolve().parents[1] / "data" / "crops.csv"
-    if not data_path.exists():
-        logger.warning("Crop seed file not found: %s", data_path)
         return
 
     db = SessionLocal()
@@ -77,32 +79,55 @@ def _seed_crop_catalog_if_empty() -> None:
             logger.info("Crop catalog already populated (%s rows); bootstrap skipped", existing)
             return
 
-        inserted = 0
-        with data_path.open("r", encoding="utf-8") as handle:
-            for row in csv.DictReader(handle):
-                crop_id = str(row.get("crop_id") or "").strip()
-                if not crop_id:
-                    continue
-                db.add(
-                    Crop(
-                        id=crop_id,
-                        name=row.get("crop_name") or crop_id,
-                        category=row.get("category"),
-                        water_sensitivity=row.get("water_sensitivity"),
-                        growth_duration_days=_safe_int(row.get("growth_duration_days")),
-                        base_yield_t_per_ha=_safe_float(
-                            row.get("base_yield_t_per_ha") or row.get("typical_yield_t_ha")
-                        ),
-                        water_requirement_mm=_safe_float(row.get("water_requirement_mm")),
-                        ph_min=_safe_float(row.get("ph_min")),
-                        ph_max=_safe_float(row.get("ph_max")),
-                        ec_max=_safe_float(row.get("ec_max")),
-                    )
+        rows: list[dict] = []
+        data_path = Path(__file__).resolve().parents[1] / "data" / "crops.csv"
+        if data_path.exists():
+            with data_path.open("r", encoding="utf-8") as handle:
+                rows.extend(csv.DictReader(handle))
+            source_label = f"CSV {data_path}"
+        else:
+            for entry in DEFAULT_CROPS:
+                rows.append(
+                    {
+                        "crop_id": entry["id"],
+                        "crop_name": entry["name"],
+                        "category": entry.get("category"),
+                        "water_sensitivity": entry.get("water_sensitivity"),
+                        "growth_duration_days": entry.get("growth_duration_days"),
+                        "base_yield_t_per_ha": entry.get("base_yield_t_per_ha"),
+                        "water_requirement_mm": entry.get("water_requirement_mm"),
+                        "ph_min": entry.get("ph_min"),
+                        "ph_max": entry.get("ph_max"),
+                        "ec_max": entry.get("ec_max"),
+                    }
                 )
-                inserted += 1
+            source_label = "baked-in DEFAULT_CROPS"
+
+        inserted = 0
+        for row in rows:
+            crop_id = str(row.get("crop_id") or "").strip()
+            if not crop_id:
+                continue
+            db.add(
+                Crop(
+                    id=crop_id,
+                    name=row.get("crop_name") or crop_id,
+                    category=row.get("category"),
+                    water_sensitivity=row.get("water_sensitivity"),
+                    growth_duration_days=_safe_int(row.get("growth_duration_days")),
+                    base_yield_t_per_ha=_safe_float(
+                        row.get("base_yield_t_per_ha") or row.get("typical_yield_t_ha")
+                    ),
+                    water_requirement_mm=_safe_float(row.get("water_requirement_mm")),
+                    ph_min=_safe_float(row.get("ph_min")),
+                    ph_max=_safe_float(row.get("ph_max")),
+                    ec_max=_safe_float(row.get("ec_max")),
+                )
+            )
+            inserted += 1
 
         db.commit()
-        logger.info("Crop catalog bootstrap inserted %s rows from %s", inserted, data_path)
+        logger.info("Crop catalog bootstrap inserted %s rows from %s", inserted, source_label)
     except Exception as exc:
         db.rollback()
         logger.warning("Crop catalog bootstrap failed: %s", exc)
@@ -285,6 +310,10 @@ app.include_router(demo_router)
 # Import and include adaptive recommendations router
 from app.api.routes_adaptive import router as adaptive_router
 app.include_router(adaptive_router)
+
+# Import and include farmer-facing recommendation router
+from app.api.routes_farmer import router as farmer_router
+app.include_router(farmer_router)
 
 
 @app.get("/", tags=["root"])

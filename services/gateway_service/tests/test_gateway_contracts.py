@@ -313,6 +313,51 @@ def test_planning_scenario_contract(mock_request):
     assert kwargs["url"] == "http://127.0.0.1:8004/f4/recommendations/scenario-evaluate"
 
 
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_planning_farmer_recommend_contract(mock_request):
+    mock_request.return_value = _response({"recommendations": []})
+
+    resp = client.post(
+        "/api/v1/planning/farmer/recommend",
+        json={"field_id": "FIELD-001", "soil_type": "Loam", "season": "Maha-2025"},
+    )
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8004/f4/farmer/recommend"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_planning_farmer_crop_detail_contract(mock_request):
+    mock_request.return_value = _response({"crop": {}})
+
+    resp = client.get(
+        "/api/v1/planning/farmer/crop-detail"
+        "?field_id=FIELD-001&crop_id=CROP-002&season=Maha-2025"
+    )
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == (
+        "http://127.0.0.1:8004/f4/farmer/crop-detail"
+        "?field_id=FIELD-001&crop_id=CROP-002&season=Maha-2025"
+    )
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_planning_farmer_select_contract(mock_request):
+    mock_request.return_value = _response({"persisted": True})
+
+    resp = client.post(
+        "/api/v1/planning/farmer/select",
+        json={"field_id": "FIELD-001", "crop_id": "CROP-002", "season": "Maha-2025"},
+    )
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8004/f4/farmer/select"
+
+
 @patch.object(_gateway.http_client, "get", new_callable=AsyncMock)
 def test_unified_field_profile_contract_success(mock_get):
     mock_get.side_effect = [

@@ -1,15 +1,15 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck
-'use client';
+"use client";
 /* eslint-disable */
 
-import * as React from 'react';
+import * as React from "react";
 
 const SRI_LANKA_CENTER = [7.8731, 80.7718] as const;
 const INITIAL_ZOOM = 8;
 const DETAIL_ZOOM = 15;
 
-type MapLayer = 'terrain' | 'satellite';
+type MapLayer = "terrain" | "satellite";
 
 type Props = {
   latitude: string;
@@ -26,7 +26,14 @@ const toNumber = (value: string): number => {
 };
 
 const hasValidCoordinates = (lat: number, lng: number): boolean => {
-  return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180
+  );
 };
 
 export function LocationPickerMap({
@@ -60,16 +67,23 @@ export function LocationPickerMap({
     let disposed = false;
 
     const initialize = async () => {
-      if (typeof window === 'undefined' || !mapContainerRef.current || mapRef.current) {
+      if (
+        typeof window === "undefined" ||
+        !mapContainerRef.current ||
+        mapRef.current
+      ) {
         return;
       }
 
-      const L = await import('leaflet');
+      const L = await import("leaflet");
       if (disposed || !mapContainerRef.current || mapRef.current) {
         return;
       }
 
-      const hasCoordinates = hasValidCoordinates(parsedLatitude, parsedLongitude);
+      const hasCoordinates = hasValidCoordinates(
+        parsedLatitude,
+        parsedLongitude,
+      );
       const initialCenter = hasCoordinates
         ? [parsedLatitude, parsedLongitude]
         : [SRI_LANKA_CENTER[0], SRI_LANKA_CENTER[1]];
@@ -81,19 +95,22 @@ export function LocationPickerMap({
       mapRef.current = map;
       map.setView(initialCenter, hasCoordinates ? DETAIL_ZOOM : INITIAL_ZOOM);
 
-      terrainLayerRef.current = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors',
-      });
-      satelliteLayerRef.current = L.tileLayer(
-        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      terrainLayerRef.current = L.tileLayer(
+        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
         {
           maxZoom: 19,
-          attribution: 'Tiles &copy; Esri',
-        }
+          attribution: "&copy; OpenStreetMap contributors",
+        },
+      );
+      satelliteLayerRef.current = L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        {
+          maxZoom: 19,
+          attribution: "Tiles &copy; Esri",
+        },
       );
 
-      if (mapLayer === 'satellite') {
+      if (mapLayer === "satellite") {
         satelliteLayerRef.current.addTo(map);
       } else {
         terrainLayerRef.current.addTo(map);
@@ -101,13 +118,13 @@ export function LocationPickerMap({
 
       markerRef.current = L.circleMarker(initialCenter, {
         radius: 7,
-        color: '#2E7D32',
+        color: "#2E7D32",
         weight: 2,
-        fillColor: '#2E7D32',
+        fillColor: "#2E7D32",
         fillOpacity: 0.85,
       }).addTo(map);
 
-      map.on('click', (event: any) => {
+      map.on("click", (event: any) => {
         if (disabledRef.current) {
           return;
         }
@@ -139,7 +156,7 @@ export function LocationPickerMap({
       return;
     }
 
-    if (mapLayer === 'satellite') {
+    if (mapLayer === "satellite") {
       if (!map.hasLayer(satelliteLayer)) {
         satelliteLayer.addTo(map);
       }
@@ -179,20 +196,36 @@ export function LocationPickerMap({
 
   return (
     <div style={{ marginTop: 8 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-        <div style={{ display: 'flex', gap: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 8,
+          marginBottom: 8,
+          alignItems: "center",
+        }}
+      >
+        <div style={{ display: "flex", gap: 8 }}>
           <button
             type="button"
-            className={mapLayer === 'satellite' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
-            onClick={() => onMapLayerChange('satellite')}
+            className={
+              mapLayer === "satellite"
+                ? "btn btn-primary btn-sm"
+                : "btn btn-ghost btn-sm"
+            }
+            onClick={() => onMapLayerChange("satellite")}
             disabled={disabled}
           >
             Satellite
           </button>
           <button
             type="button"
-            className={mapLayer === 'terrain' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
-            onClick={() => onMapLayerChange('terrain')}
+            className={
+              mapLayer === "terrain"
+                ? "btn btn-primary btn-sm"
+                : "btn btn-ghost btn-sm"
+            }
+            onClick={() => onMapLayerChange("terrain")}
             disabled={disabled}
           >
             Terrain
@@ -204,12 +237,12 @@ export function LocationPickerMap({
       <div
         ref={mapContainerRef}
         style={{
-          width: '100%',
+          width: "100%",
           height: 300,
           borderRadius: 12,
-          border: '1px solid var(--border)',
-          overflow: 'hidden',
-          background: '#EAF1E8',
+          border: "1px solid var(--border)",
+          overflow: "hidden",
+          background: "#EAF1E8",
         }}
       />
 

@@ -25,6 +25,10 @@ downloads/
 eggs/
 .eggs/
 lib/
+!apps/web/src/lib/
+!apps/web/src/lib/*.ts
+!apps/marketing-web/src/lib/
+!apps/marketing-web/src/lib/*.ts
 lib64/
 parts/
 sdist/

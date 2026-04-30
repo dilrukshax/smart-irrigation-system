@@ -27,6 +27,7 @@ import { PublicTop } from '@/components/asi/public-top';
 import { ApiState, InlineLoader } from '@/components/asi/api-state';
 import { apiGet, apiPost, uploadFile, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { OptimizationWizard } from './_components/optimization-wizard';
 
 const formatAreaValue = (value: any) => {
   const parsed = Number(value);
@@ -623,59 +624,11 @@ const FieldWorkspace = () => {
 
           {/* Optimization Tab */}
           {tab === TAB_OPTIMIZATION && (
-            <div className="field-workspace-panel-grid field-workspace-panel-grid-optimization">
-              <div className="card">
-                <div className="card-title" style={{ marginBottom: 10 }}>Recommended crops</div>
-                {recommendations.length === 0 ? (
-                  <div className="tiny muted">No recommendations yet. Visit the <a href="/optimization/planner" style={{ color: 'var(--primary-600)' }}>planner</a> to generate one.</div>
-                ) : (
-                  <table className="tbl">
-                    <thead>
-                      <tr><th>Crop</th><th>Suitability</th><th>Yield</th><th>Profit</th><th>Water</th></tr>
-                    </thead>
-                    <tbody>
-                      {recommendations.slice(0, 5).map((r: any, i: number) => (
-                        <tr key={i}>
-                          <td style={{ fontWeight: 600 }}>{r.crop_name || r.name || '—'}</td>
-                          <td style={{ width: 180 }}>
-                            {r.suitability_score !== undefined && (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <div className="prog" style={{ flex: 1 }}>
-                                  <div className="prog-fill" style={{ width: (r.suitability_score * 100) + '%', background: r.suitability_score > 0.85 ? 'var(--primary)' : r.suitability_score > 0.7 ? '#8BC34A' : 'var(--accent)' }}/>
-                                </div>
-                                <span className="tabular small" style={{ fontWeight: 600 }}>{r.suitability_score.toFixed(2)}</span>
-                              </div>
-                            )}
-                          </td>
-                          <td className="tabular">{r.expected_yield_t_ha ? `${r.expected_yield_t_ha.toFixed(1)} t/ha` : '—'}</td>
-                          <td className="tabular">{r.projected_profit_lkr ? `LKR ${Math.round(r.projected_profit_lkr / 1000)}k` : '—'}</td>
-                          <td className="tabular muted">{r.water_requirement_mm ? `${r.water_requirement_mm} mm` : '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              <div className="card">
-                <div className="card-title" style={{ marginBottom: 10 }}>Field context</div>
-                <div style={{ fontSize: 12.5, lineHeight: 1.8 }}>
-                  <div>Soil type: <b>{fieldStatus.soil_type || 'Unknown'}</b></div>
-                  <div>Area: <b>{area} ha</b></div>
-                  <div>Current crop: <b>{cropType}</b></div>
-                  <div>Scheme: <b>{fieldStatus.scheme_id || '—'}</b></div>
-                </div>
-                {f4.optimization_context && (
-                  <>
-                    <div className="divider" style={{ margin: '14px 0' }}/>
-                    <div className="tiny muted" style={{ marginBottom: 4 }}>Optimization context</div>
-                    <div style={{ fontSize: 12 }}>
-                      Source: {f4.optimization_context.source || 'model'}
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
+            <OptimizationWizard
+              fieldId={fieldId}
+              fieldStatus={fieldStatus}
+              area={Number(area) || 0}
+            />
           )}
 
           {/* Irrigation Tab */}
