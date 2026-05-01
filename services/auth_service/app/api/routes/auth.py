@@ -135,6 +135,7 @@ async def login(
         "username": user.username,
         "roles": normalized_roles,
     }
+    scheme_ids = await _fetch_scheme_ids(db, user.id)
     return TokenResponse(
         access_token=create_access_token(token_data),
         refresh_token=create_refresh_token(token_data),
@@ -143,7 +144,11 @@ async def login(
             id=str(user.id),
             username=user.username,
             full_name=user.full_name,
+            national_id=user.national_id,
+            phone_number=user.phone_number,
+            email=user.email,
             roles=normalized_roles,
+            scheme_ids=scheme_ids,
         ),
     )
 

@@ -7,6 +7,12 @@
 **Domain:** Irrigation decision support and crop planning for quota-based irrigation schemes (Sri Lanka)
 **Status:** 4th Year Software Engineering Research Project — 4-person team
 
+### Current Project Idea
+
+This repository is the working codebase for an adaptive smart irrigation platform that connects farmers, officers, and authorities through a single Next.js dashboard and a FastAPI microservice backend. The product idea is to combine field registration, ESP32 telemetry, irrigation control, satellite crop-stress signals, weather and reservoir forecasts, and crop/area optimization so each field can receive practical water and crop-planning guidance under limited scheme-level water quotas.
+
+The active implementation is code-first: `services/*/app/`, `apps/web/src/`, gateway tests, service tests, Alembic migrations, infrastructure manifests, and ESP32 firmware are the source of truth. Documentation files can be useful context, but when they disagree with code, trust code and update `CLAUDE.md` to reflect the code-level reality.
+
 ---
 
 ## Team Structure (4 Functional Streams)
@@ -14,14 +20,14 @@
 | Stream | Owner | Service | Port | Responsibility |
 |--------|-------|---------|------|----------------|
 | **F0** | Shared | `auth_service` | 8001 | Authentication, JWT, role-based access control |
-| **F1** | Hesara | `irrigation_service` | 8002 | IoT sensor ingestion, ML valve control, crop fields, water management |
+| **F1** | Hesara | `irrigation_service` | 8002 | Field registration, device pairing, telemetry ingestion, valve decisions, water management, authority policies |
 | **F2** | Abishek | `crop_health_and_water_stress_detection` | 8007 | Satellite zone health, image disease prediction, stress detection |
 | **F3** | Trishni | `forecasting_service` | 8003 | Time-series forecasting, weather intelligence, risk alerts |
 | **F4** | Dilruksha | `optimize_service` | 8004 | Crop suitability, area optimization, water budgeting, Plan B |
 | **IoT** | Shared | `iot_service` | 8006 | MQTT telemetry ingest, device commands, ESP32 bridge |
 | **Web** | Shared | `apps/web/` | 3000 (dev) | Next.js 16 dashboard app — farmers, officers, authority |
-| **Mktg** | Shared | `apps/marketing-web/` | 3001 (dev) | Public marketing & research website |
 | **GW** | Shared | `gateway_service` | 8000 | API gateway, unified routing, header forwarding |
+| **CFG** | Shared | `config_server` | 8010 | Runtime config registry for local/Docker service startup |
 
 ---
 
@@ -61,6 +67,28 @@ Prometheus + Grafana (observability)
 - **IoT → F1**: Bridges MQTT telemetry to field sensor ingestion endpoint
 - **ESP32 → IoT**: Publishes ADC sensor readings over MQTT topic `devices/{id}/telemetry`
 
+### Officer Functionality Plan
+
+Officer users are scheme-scoped operational users. They should not manage authority policy or user roles, but they should be able to inspect all farmers and fields in assigned schemes and use the four functional streams for operational decisions.
+
+**Backend contracts**
+- `GET /api/v1/farm/farmers`: F1 groups accessible `irrigation_crop_fields` by `owner_id`, returns farmer-level area, scheme, crop, telemetry, valve, and manual-request summaries.
+- `GET /api/v1/farm/farmers/{farmer_id}`: F1 returns one farmer summary plus every accessible field with latest telemetry, valve state, pending requests, and operational status.
+- `GET /api/v1/farm/fields/{field_id}/profile`: Gateway cross-service field workspace, combining F1 irrigation status/decision, F2 stress summary, F3 weather/irrigation forecast, and F4 recommendations/water budget.
+- Existing `GET /api/v1/irrigation/officer/overview`, `/irrigation/manual-requests`, `/irrigation/network/*`, `/crop-health/*`, `/forecast/*`, and `/planning/*` remain the module-level officer surfaces.
+
+**Frontend officer routes**
+- `/operations`: officer overview across assigned schemes.
+- `/operations/farmers`: farmer directory with field count, area, telemetry coverage, critical fields, and pending manual requests.
+- `/operations/farmers/[id]`: individual farmer view with all fields owned by that farmer and quick links into irrigation, forecasting, crop health, and optimization modules.
+- `/operations/fields/[id]`: officer-safe field workspace showing detailed F1/F2/F3/F4 sections for one field.
+- Officers can view `/irrigation`, `/forecasting`, `/crop-health`, and `/optimization`; `/authority/*` remains authority-only.
+
+**Next enhancements**
+- Add an officer-safe Auth endpoint or gateway join to enrich farmer cards with full name, NIC, and phone once the privacy rules are finalized.
+- Add area-level officer pages that preselect a farmer's fields and call existing area summary contracts: F1 `/irrigation/farmer/area-summary`, F1 `/irrigation/farmer/forecast-area-summary`, and F4 `/planning/farmer/area-optimize`.
+- Add CSV/PDF export for farmer field summaries and officer inspection reports.
+
 ---
 
 ## Repository Map
@@ -74,10 +102,10 @@ smart-irrigation-system/
 │   ├── forecasting_service/         # F3 (port 8003)
 │   ├── optimize_service/            # F4 (port 8004)
 │   ├── iot_service/                 # IoT telemetry bridge (port 8006)
-│   └── crop_health_and_water_stress_detection/  # F2 (port 8007)
+│   ├── crop_health_and_water_stress_detection/  # F2 (port 8007)
+│   └── config_server/               # Runtime config registry (port 8010)
 ├── apps/
-│   ├── web/                         # Next.js 16 dashboard app (port 3000 dev)
-│   └── marketing-web/               # Next.js 16 public marketing site (port 3001 dev)
+│   └── web/                         # Next.js 16 dashboard + public routes (port 3000 dev)
 ├── web/                             # Legacy stub — contains only .next cache, not in active use
 ├── hardware/esp32/                  # ESP32 sensor firmware
 ├── infrastructure/
@@ -85,9 +113,9 @@ smart-irrigation-system/
 │   ├── kubernetes/                  # K8s manifests + Kustomize overlays
 │   └── terraform/                   # Azure IaC (AKS, ACR, DB, Monitoring)
 ├── platform/observability/          # Prometheus rules + Grafana configs
-├── shared/                          # Shared JSON schema / event definitions
-├── docs/                            # Project and function documentation
-├── notebooks/                       # ML training notebooks
+├── shared/                          # Shared placeholders; no active runtime code currently
+├── docs/                            # Documentation; not source of truth when code differs
+├── services/*/notebooks/            # Service-local ML notebooks and artifacts
 ├── AGENT.md                         # Operational guide (humans + AI agents)
 ├── README.md
 ├── Makefile
@@ -116,9 +144,9 @@ smart-irrigation-system/
 | Data processing | pandas, NumPy | All ML services |
 | Frontend language | TypeScript 5.2+ | Next.js codebase |
 | Frontend framework | Next.js 16 + React 19 | App Router frontend |
-| UI styling | Tailwind CSS v4 + global CSS | Both frontend apps |
+| UI styling | Tailwind CSS v4 + global CSS | Active `apps/web` app |
 | Routing | Next.js App Router | File-based frontend navigation |
-| HTTP client | Fetch/Axios (project choice) | API calls |
+| HTTP client | Fetch wrappers | `apps/web/src/lib/api.ts` |
 | Containerization | Docker 24+ | Service images |
 | Orchestration | Kubernetes 1.28+ | Production cluster |
 | K8s config | Kustomize | Env overlays |
@@ -182,9 +210,13 @@ smart-irrigation-system/
 - `app/main.py`
 - `app/ml/irrigation_model.py` — RandomForest wrapper
 - `app/ml/water_management_model.py` — water management logic
-- `app/api/crop_fields.py` — field CRUD + sensor ingestion
+- `app/api/farm_ops.py` — active field CRUD, device pairing, telemetry, irrigation, policy, and hydraulic routes
+- `app/api/sensors.py` — legacy/basic sensor routes
 - `app/api/water_management.py` — reservoir + override endpoints
 - `app/db/models.py` — ORM models
+
+### Active router note
+`app/main.py` mounts `health`, `sensors`, `water_management`, and `farm_ops`. `app/api/crop_fields.py` exists in the tree but is not mounted by the active FastAPI app; do not add new field workflows there unless the router is intentionally restored and tested.
 
 ### Database tables (PostgreSQL)
 ```
@@ -195,23 +227,49 @@ irrigation_manual_requests
 irrigation_manual_request_audit
 irrigation_device_pairings
 irrigation_reservoir_snapshots
+irrigation_hydraulic_schedules
+irrigation_hydraulic_topology_nodes
+irrigation_authority_policies
+irrigation_authority_policy_audit
 irrigation_water_management_state
 ```
 
-### Key API endpoints (internal prefix `/api/v1`, gateway prefix `/api/v1/irrigation/`)
+### Key API endpoints (internal prefix `/api/v1`; gateway prefixes shown in Gateway Integration)
 ```
-POST   /crop-fields/fields                     Create field
-GET    /crop-fields/fields/{id}                Get field
-PUT    /crop-fields/fields/{id}                Update field
-POST   /crop-fields/fields/{id}/sensor-data    Ingest sensor telemetry
-GET    /crop-fields/fields/{id}/status         Field status + live sensor
-GET    /crop-fields/fields/{id}/auto-decision  ML-based irrigation decision
-POST   /crop-fields/fields/{id}/valve          Manual valve control
-POST   /crop-fields/fields/{id}/manual-requests  Submit manual request
-GET    /crop-fields/manual-requests            List requests (officer/authority)
-POST   /crop-fields/manual-requests/{id}/review  Approve/reject (officer)
+GET    /farm/crops/defaults                    Crop defaults
+POST   /farm/fields                            Create field
+GET    /farm/fields                            List fields
+GET    /farm/fields/{id}                       Get field
+PATCH  /farm/fields/{id}                       Update field
+POST   /farm/fields/{id}/confirm-crop          Confirm selected crop
+DELETE /farm/fields/{id}                       Delete field
+POST   /devices/pairing/initiate               Start device pairing
+GET    /devices/pairing/{id}                   Get pairing status
+GET    /devices/fields/{field_id}/pairings     Field pairings
+POST   /devices/pairing/{id}/confirm           Confirm pairing
+GET    /devices                                Device catalog
+POST   /telemetry/ingest                       Ingest telemetry
+GET    /telemetry/fields/{field_id}/latest     Latest field telemetry
+GET    /telemetry/fields/{field_id}/history    Field telemetry history
+GET    /irrigation/fields/{id}/status          Field irrigation status
+GET    /irrigation/fields/{id}/auto-decision   ML-based irrigation decision
+POST   /irrigation/fields/{id}/commands        Valve command
+POST   /irrigation/fields/{id}/manual-requests Submit manual request
+GET    /irrigation/manual-requests             List requests (officer/authority)
+POST   /irrigation/manual-requests/{id}/review Approve/reject
+POST   /irrigation/manual-requests/{id}/close  Close manual request
+GET    /irrigation/officer/overview            Officer overview
+GET    /irrigation/network/state               Network state
+GET    /irrigation/network/schedules           Hydraulic schedules
+POST   /irrigation/network/schedules           Create schedule
+GET    /irrigation/network/topology            Hydraulic topology
+POST   /authority/policies                     Create authority policy
+GET    /authority/policies                     List policies
+POST   /authority/policies/{id}/publish        Publish policy
 GET    /water-management/reservoir/current     Current reservoir state
-POST   /water-management/reservoir/ingest      Ingest reservoir snapshot
+POST   /water-management/predict               Water release prediction
+POST   /water-management/decide                Water control decision
+POST   /water-management/recommend             Recommendation
 POST   /water-management/manual-override       Override water control
 ```
 
@@ -250,11 +308,16 @@ Apple (scab, black rot, cedar apple rust, healthy), Blueberry (healthy), Cherry 
 
 ### Key API endpoints (gateway prefix `/api/v1/crop-health/`)
 ```
-POST   /zones/analyze              Zone health analysis (coordinates + imagery)
-GET    /zones/{zone_id}            Zone health status
-POST   /predict/image-url          Disease prediction from image URL
-POST   /predict/image-upload       Disease prediction from upload
-GET    /fields/{field_id}          Field-level stress summary (used by F1)
+POST   /analyze                    Zone health analysis (coordinates + imagery)
+GET    /zones                      Generate/query health zones
+GET    /zones/geojson              GeoJSON health zones for maps
+GET    /zones/summary              Zone health summary
+GET    /fields/{field_id}/stress-summary  Field-level stress summary (used by F1/F4)
+POST   /fields/{field_id}/stress-summary/ingest  Ingest live stress artifact (admin)
+POST   /predict                    Disease prediction from image upload
+POST   /predict/url                Disease prediction from image URL
+GET    /model/status               Model readiness and contract status
+GET    /model/classes              Available prediction classes
 ```
 
 ### Notes
@@ -307,28 +370,35 @@ GET    /fields/{field_id}          Field-level stress summary (used by F1)
 - `app/ml/ensemble_models.py` — Ensemble combining
 - `app/ml/advanced_forecasting.py` — RF/GB/LSTM pathway
 - `app/ml/anomaly_detection.py` — Anomaly detection
-- `app/api/routes_forecast.py` — core forecast endpoints
-- `app/api/routes_weather.py` — weather + irrigation recommendation
-- `app/api/routes_advanced.py` — admin analytics (v2)
+- `app/api/forecast.py` — core forecast endpoints
+- `app/api/weather.py` — weather + irrigation recommendation
+- `app/api/advanced_forecast.py` — v2 advanced forecast routes
+- `app/api/analytics.py` — ARIMA, ensemble, anomaly, seasonal analytics
 
 ### Database tables (PostgreSQL)
 ```
 forecasting_observations
-forecasting_artifacts
-forecasting_alerts
-forecasting_training_metadata
+forecasting_weather_artifacts
+forecasting_irrigation_recommendations
+forecasting_v2_training_runs
 ```
 
 ### Key API endpoints (gateway prefix `/api/v1/forecast/`)
 ```
-GET    /weather                          Weather summary + conditions
-GET    /predictions                      Multi-horizon forecasts (1–14 days)
-GET    /risk                             Risk assessment (P10/P50/P90)
+GET    /status                           Forecast service status
+GET    /current-data                     Current observed data
+GET    /forecast                         Multi-horizon forecasts
+GET    /risk-assessment                  Risk assessment
+POST   /submit-data                      Submit observation data
+GET    /weather/current                  Current weather
+GET    /weather/forecast                 Weather forecast
+GET    /weather/summary                  Weather summary
 GET    /weather/irrigation-recommendation  Irrigation guidance
-POST   /observations                     Submit historical data (admin)
-GET    /v2/analytics/arima               ARIMA analysis (admin)
-GET    /v2/analytics/ensemble            Ensemble analysis (admin)
-GET    /v2/analytics/anomaly             Anomaly detection (admin)
+GET    /v2/status                        Advanced forecast status
+GET    /v2/forecast                      Advanced forecast
+GET    /v2/risk-assessment               Advanced risk assessment
+POST   /v2/analytics/arima/train         ARIMA training
+POST   /v2/analytics/anomaly/detect      Anomaly detection
 ```
 
 ---
@@ -402,9 +472,13 @@ GET    /v2/analytics/anomaly             Anomaly detection (admin)
 - `app/api/routes_planb.py`
 - `app/api/routes_supply.py`
 - `app/api/routes_adaptive.py`
+- `app/api/routes_farmer.py` — farmer-facing recommendation workflow
+- `app/api/routes_internal.py` — internal field sync
 - `app/data/models_orm.py` — ORM models
 - `app/data/repositories.py` — data access layer
 - `app/services/recommendation_service.py` — business logic
+- `app/services/farmer_service.py` — farmer wizard context, water banding, histories
+- `app/models/*.joblib` — price and recommendation model artifacts
 
 ### Database tables (PostgreSQL)
 ```
@@ -416,18 +490,24 @@ recommendations
 optimization_run_artifacts
 ```
 
-### Key API endpoints (gateway prefix `/api/v1/optimization/`, internal prefix `/f4/`)
+### Key API endpoints (gateway prefix `/api/v1/planning/`, internal prefix `/f4/`)
 ```
 GET    /recommendations                  List recommendations
 POST   /recommendations                  Generate new recommendation
 POST   /recommendations/optimize         Scenario evaluation / optimization run
-GET    /planb                            Get Plan B alternatives
-POST   /planb/generate                   Generate Plan B
+POST   /recommendations/scenario-evaluate  Scenario contract route used by gateway
+POST   /planb                            Generate Plan B
 GET    /supply                           Water supply status
 GET    /supply/water-budget              Detailed water budget
-GET    /adaptive                         Adaptive parameters
-POST   /adaptive/simulate                What-if simulation
-POST   /internal/fields/{id}            Internal field sync (upstream use only)
+POST   /adaptive                         Adaptive crop recommendation pipeline
+GET    /adaptive/parameters              Adaptive model parameters
+GET    /adaptive/crops                   Adaptive crop catalog
+GET    /farmer/current                   Latest saved farmer optimization plan
+POST   /farmer/recommend                 Farmer wizard recommendation flow
+GET    /farmer/crop-detail               Crop detail for latest recommendation
+POST   /farmer/select                    Persist selected farmer crop
+PUT    /internal/fields/{id}             Internal field sync (upstream use only)
+DELETE /internal/fields/{id}             Internal field removal
 ```
 
 ---
@@ -448,13 +528,13 @@ POST   /internal/fields/{id}            Internal field sync (upstream use only)
 - `app/iot/service.py`
 - `app/api/iot.py`
 
-### Key API endpoints (gateway prefix `/api/v1/iot/`)
+### Key API endpoints (service prefix `/api/v1/iot`; gateway exposes device passthrough at `/api/v1/devices/*`)
 ```
 GET    /devices                   List known devices
-GET    /devices/{id}/telemetry/latest  Latest telemetry
-GET    /devices/{id}/telemetry    Range telemetry query
-POST   /devices/{id}/telemetry    Manual ingest (dev/test)
+GET    /devices/{id}/latest       Latest telemetry
+GET    /devices/{id}/range        Range telemetry query
 POST   /devices/{id}/cmd          Send command to device
+POST   /telemetry                 Manual ingest (dev/test)
 ```
 
 ### Hardware (ESP32)
@@ -466,11 +546,35 @@ POST   /devices/{id}/cmd          Send command to device
 
 ---
 
-## Web Frontend — Two Apps (`apps/`)
+## Config Server (`services/config_server`, port 8010)
 
-The frontend is split into two Next.js 16 applications under `apps/`.
+### What it does
+- Serves centralized runtime configuration for Docker/local/prod profiles.
+- Exposes one-service and all-service config endpoints.
+- Used by service `config_bootstrap.py` modules when `CONFIG_ENABLED=true`.
 
-### Stack (both apps)
+### Key files
+- `app/main.py` — FastAPI entry
+- `app/config_registry.py` — profile-specific config generation
+- `tests/test_config_server.py` — config endpoint contract tests
+
+### Key API endpoints
+```
+GET    /health
+GET    /config/all?profile=docker|local|production
+GET    /config/{service_name}?profile=docker|local|production
+GET    /
+```
+
+---
+
+## Web Frontend — Active Dashboard App (`apps/web/`)
+
+The active frontend code lives under `apps/web/`. Public project pages such as `/`, `/domain`, `/milestones`, `/documents`, `/presentations`, `/about`, `/contact`, `/login`, and `/register` are implemented inside the dashboard app under `apps/web/src/app/(public)/`.
+
+There is no active `apps/marketing-web/` application in the current source tree. If a marketing app is added later, update this section, the repository map, run commands, compose/build references, and route protection notes in the same change.
+
+### Stack
 Next.js 16 + React 19 + TypeScript 5 (App Router), Tailwind CSS v4, ESLint
 
 ---
@@ -547,48 +651,11 @@ src/proxy.ts                   # Next.js 16 proxy (replaces middleware) — rout
 
 ---
 
-### `apps/marketing-web/` — Public Marketing Site (port 3001)
-
-Static public site for the research project. No authentication required.
-
-#### Pages
-```
-src/app/
-├── page.tsx            # Home — project overview, stats, module cards
-├── about/              # Team bios
-├── contact/            # Contact form
-├── documents/          # Research document links
-├── domain/             # Problem domain description
-├── milestones/         # Project milestones
-├── presentations/      # Slide decks
-└── not-found.tsx       # 404
-```
-
-#### Key components & content
-```
-src/components/
-├── site-header.tsx / site-footer.tsx / site-shell.tsx  # Layout
-├── contact-form.tsx       # Contact form
-├── milestone-picker.tsx   # Interactive milestone selector
-├── page-hero.tsx          # Section hero banner
-└── research-image.tsx     # Research figure renderer
-
-src/content/site-data.ts   # Nav items, project stats, module descriptions
-```
-
-#### Nav items
-Home · Domain · Milestones · Documents · Slides · About Us · Contact Us
-
----
-
-### Running the frontend apps
+### Running the frontend app
 
 ```bash
 # Dashboard app
 cd apps/web && npm run dev          # http://localhost:3000
-
-# Marketing site
-cd apps/marketing-web && npm run dev  # http://localhost:3001 (default Next.js port)
 ```
 
 ---
@@ -600,12 +667,18 @@ cd apps/marketing-web && npm run dev  # http://localhost:3001 (default Next.js p
 | Gateway prefix | Target service | Target prefix |
 |----------------|----------------|---------------|
 | `/api/v1/auth/*` | auth_service (8001) | `/api/auth/*` |
-| `/api/v1/authority/*` | auth_service (8001) | `/api/authority/*` |
-| `/api/v1/irrigation/*` | irrigation_service (8002) | `/api/v1/*` |
+| `/api/v1/authority/users*` | auth_service (8001) | `/api/authority/*` |
+| `/api/v1/authority/policies*` | irrigation_service (8002) | `/api/v1/authority/policies*` |
+| `/api/v1/farm/*` | irrigation_service (8002) | `/api/v1/farm/*` |
+| `/api/v1/farm/fields/{id}/profile` | gateway aggregate | F1 + F2 + F3 + F4 snapshot |
+| `/api/v1/devices/pairing/*` | irrigation_service (8002) | `/api/v1/devices/pairing/*` |
+| `/api/v1/devices/*` | iot_service (8006) | `/api/v1/iot/devices/*` |
+| `/api/v1/telemetry/ingest` | irrigation_service (8002) | `/api/v1/telemetry/ingest` |
+| `/api/v1/telemetry/fields/*` | irrigation_service (8002) | `/api/v1/telemetry/fields/*` |
+| `/api/v1/irrigation/*` | irrigation_service (8002) | `/api/v1/irrigation/*` |
 | `/api/v1/crop-health/*` | crop_health... (8007) | `/api/v1/crop-health/*` |
 | `/api/v1/forecast/*` | forecasting_service (8003) | `/api/v1`, `/api/v2`, `/api/weather` |
-| `/api/v1/optimization/*` | optimize_service (8004) | `/f4/*` |
-| `/api/v1/iot/*` | iot_service (8006) | `/api/v1/iot/*` |
+| `/api/v1/planning/*` | optimize_service (8004) | `/f4/*` |
 
 ### Gateway behavior
 - HTTP proxy; preserves `Authorization` headers, forwards query params and request bodies
@@ -701,9 +774,7 @@ NEXT_PUBLIC_API_BASE_URL=https://api.example.com/api/v1  # prod
 ```bash
 docker compose -f infrastructure/docker/docker-compose.yml up -d
 # Dashboard app: cd apps/web && npm run dev    -> http://localhost:3000
-# Marketing site: cd apps/marketing-web && npm run dev -> http://localhost:3001
 # Gateway:   http://localhost:8000
-# Grafana:   http://localhost:3001
 # Prometheus:http://localhost:9090
 ```
 
@@ -741,18 +812,25 @@ make lint
 
 ### Per-service test files
 ```
+services/auth_service/tests/test_auth.py
+services/auth_service/tests/test_auth_me_scheme_scope.py
 services/irrigation_service/tests/test_decision_integration.py
 services/forecasting_service/tests/test_forecasting_contracts.py
 services/optimize_service/tests/test_recommendations_api.py
+services/optimize_service/tests/test_farmer_routes.py
 services/crop_health_and_water_stress_detection/tests/test_health_analysis_contracts.py
+services/iot_service/tests/test_api.py
+services/iot_service/tests/test_service.py
 services/gateway_service/tests/test_gateway_contracts.py
+services/config_server/tests/test_config_server.py
 ```
 
-### IoT utilities
+### IoT tests
 ```
 test_api.py
-test_mqtt_send.py
-test_crop_health.py
+test_schemas.py
+test_config.py
+test_service.py
 ```
 
 ---
@@ -761,21 +839,65 @@ test_crop_health.py
 
 These affect AI agents and new contributors — read before editing.
 
-1. **Service naming drift** — Some docs/compose files reference `aca_o_service`; canonical path is `services/optimize_service`. Use `optimize_service` everywhere.
+1. **Optimization service naming** — Canonical path is `services/optimize_service`, service name is `optimize_service`, and gateway/public API namespace is planning (`/api/v1/planning/*`) even though the feature is shown as Optimization in the UI.
 
 2. **Auth datastore docs vs code** — Docs mention MongoDB for auth. Active code uses PostgreSQL. A Mongo module exists but is not imported in `app/main.py`.
 
-3. **docker-compose.yml inconsistencies** — Contains both `iot-service` and `iot_service` entries; also references non-existent `services/aca_o_service` for the optimization service path. Do not trust these entries literally.
+3. **Frontend build path drift** — Active frontend source is `apps/web/`, but the root `Makefile` still has `build-web` pointing at `web/Dockerfile`, and local Docker Compose currently builds `../../web`. Treat `apps/web/` as canonical until build files are corrected.
 
-4. **NGINX config stale** — Gateway Nginx config files contain outdated routes and duplicate upstreams. The FastAPI gateway (`services/gateway_service/`) is the active proxy — not Nginx.
+4. **Gateway is FastAPI** — The active proxy is `services/gateway_service/app/main.py`. Update gateway route tests for every route mapping change.
 
-5. **Frontend relocated to `apps/`** — Active frontend is `apps/web/` (dashboard) and `apps/marketing-web/` (public site). The root `web/` directory is a legacy stub with only a `.next` cache — do not edit it. Compose files and older docs that reference `web/` as the frontend path are stale.
+5. **Frontend relocated to `apps/`** — Active frontend is `apps/web/`. There is no active `apps/marketing-web/` source tree. The root `web/` directory is a legacy stub/cache location — do not edit it for product UI work.
 
 6. **InfluxDB references** — IoT docs and some configs mention InfluxDB. Current active storage is PostgreSQL via `pg_repo.py`.
 
 7. **Model artifacts** — F2 MobileNetV2 model artifact must be pre-trained and placed at `MODEL_PATH`. The service degrades gracefully without it but predictions won't work.
 
 **Rule:** Treat service source code (`services/*/app/`) and service tests as the source of truth. Treat docs and compose files as guidance only.
+
+---
+
+## Claude Project Handling Protocol
+
+Use this protocol whenever the user mentions `CLAUDE.md`, asks to update project guidance, or gives a project implementation prompt that should be governed by this file.
+
+### Source-of-truth rule
+1. Read `CLAUDE.md` first only to understand the existing rules and structure.
+2. Analyze the active codebase at code level before changing guidance: service entrypoints, routers, schemas, config, models, tests, frontend routes, infrastructure manifests, and firmware when relevant.
+3. Do not rely on README/docs notes for facts that can be verified in code. If docs and code disagree, use code as source of truth and record the mismatch in `CLAUDE.md`.
+4. If the user explicitly says not to read documentation files, only read `CLAUDE.md` plus source/config/test files needed for the task.
+
+### Prompt handling rule
+For every implementation prompt:
+1. Restate the intended outcome in practical terms.
+2. Inspect the relevant code paths before deciding.
+3. Ask concise questions only if missing information blocks a safe implementation.
+4. Create a short plan and todo list before editing.
+5. Make the needed code changes directly; do not stop at advice when the user asked for implementation.
+6. Update or add focused tests when behavior changes.
+7. Run the smallest reliable verification first, then broader tests when the change touches shared contracts, gateway routes, auth, persistence, or frontend/backend integration.
+8. Summarize what changed, what was verified, and any remaining risk.
+
+### CLAUDE.md maintenance rule
+When a change affects architecture, service ownership, route structure, tests, environment variables, model artifacts, database tables, frontend routing, infrastructure, or agent workflow:
+1. Update the matching section of `CLAUDE.md` in the same work session.
+2. If the repository layout changes, update the "Repository Map" and any affected service/frontend sections.
+3. If a gateway route changes, update "Gateway Integration" and run `services/gateway_service/tests/test_gateway_contracts.py`.
+4. If a service contract changes, update "Runtime Contracts", the service section, and the relevant tests.
+5. Add a dated entry under "CLAUDE.md Change Log" describing the guidance update.
+
+### Default todo template
+Use this shape unless the task is tiny:
+```
+1. Identify affected code paths and contracts.
+2. Inspect existing implementation and tests.
+3. Ask blocking questions, if any.
+4. Plan the implementation.
+5. Apply focused code changes.
+6. Update tests and CLAUDE.md guidance when needed.
+7. Run verification.
+8. Report changed files, verification result, and follow-up risks.
+```
 
 ---
 
@@ -791,8 +913,14 @@ These affect AI agents and new contributors — read before editing.
 8. **Schema migrations** — add Alembic migrations; do not drop/alter tables manually.
 9. **Frontend API changes** — update `apps/web/src/lib/api.ts` and relevant page modules to match backend contracts. Do not edit the root `web/` directory.
 10. **Similar scope across F1–F4** — when adding a feature to one function, consider if analogous functionality is needed in the others (aligned research contribution requirement).
+11. **Planning namespace** — public gateway routes for F4 optimization use `/api/v1/planning/*`; internal optimize service routes use `/f4/*`.
+12. **CLAUDE.md updates** — when this file is part of the request, update it only from verified code-level facts and add a dated change-log entry.
 
 ---
+
+## CLAUDE.md Change Log
+
+- 2026-04-30 — Added current project idea, code-as-source-of-truth rule, Claude project handling protocol, CLAUDE.md maintenance rule, config server ownership, active `apps/web` frontend clarification, and corrected F4 gateway namespace to `/api/v1/planning/*`.
 
 ## Documentation Index
 
@@ -802,7 +930,7 @@ These affect AI agents and new contributors — read before editing.
 | README.md | root | Project overview, quick start, architecture |
 | Docs index | docs/README.md | Small map of the organized docs folder |
 | Project overview | docs/overview/project-overview.md | Full system design, features, use cases |
-| Frontend structure | docs/frontend/frontend-structure.md | Legacy React/Vite reference (superseded by `apps/web/` and `apps/marketing-web/`) |
+| Frontend structure | docs/frontend/frontend-structure.md | Legacy React/Vite reference (superseded by `apps/web/`) |
 | Role flows and flaws | docs/frontend/role-functional-flows-and-flaws.md | Farmer, officer, and authority flow notes |
 | Farmer portal notes | docs/planning/farmer-portal-implementation-notes.md | Farmer portal features, API, multilingual |
 | F1 Irrigation | docs/functions/f1-irrigation.md | F1 endpoints, persistence, role guards, flows |
@@ -820,10 +948,9 @@ These affect AI agents and new contributors — read before editing.
 
 Priority items for engineering alignment:
 
-1. Normalize service naming in compose files and docs (`optimize_service` everywhere, remove `aca_o_service` references).
-2. Fix duplicate and misaligned compose entries (`iot-service` vs `iot_service`, fix optimize path).
-3. Retire or correct Nginx gateway configs — FastAPI gateway is the active proxy.
-4. Update auth documentation to reflect PostgreSQL (or intentionally migrate to Mongo and update code).
-5. Generate a single authoritative route map from gateway + service routers.
-6. Green all gateway + contract test suites after each integration change.
-7. Add F2 model artifact provisioning step to setup guides.
+1. Fix frontend build path drift so Makefile and Docker Compose build from `apps/web/` instead of legacy `web/`.
+2. Keep the generated route map aligned with `services/gateway_service/app/main.py` and mounted service routers.
+3. Green all gateway + contract test suites after each integration change.
+4. Update auth references to reflect PostgreSQL as the active datastore unless the code intentionally changes.
+5. Add F2 model artifact provisioning and readiness checks to setup/run guidance.
+6. Decide whether `shared/` should remain documentation-only or gain real shared runtime schemas/events.

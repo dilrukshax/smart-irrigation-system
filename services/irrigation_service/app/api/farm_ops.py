@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import random
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -22,17 +22,25 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.core.contracts import (
+    STALE_TIMEOUT_SECONDS as _STALE_TIMEOUT_SECONDS,
+    build_contract as _build_contract,
+    merge_contracts as _merge_contracts,
+    now_utc as _now_utc,
+    parse_dt as _parse_dt,
+)
 from app.db.repository import (
     add_sensor_reading,
     confirm_pairing_session,
     close_manual_request,
     create_authority_policy,
+    create_field_observation,
     create_hydraulic_schedule,
     create_manual_request,
     create_pairing_session,
     delete_crop_field,
+    delete_field_observation,
     estimate_accepted_schedule_volume_mcm,
-    ensure_default_field,
     find_conflicting_hydraulic_schedule,
     get_active_authority_policy,
     get_authority_policy,
@@ -40,6 +48,7 @@ from app.db.repository import (
     get_confirmed_pairing_by_device,
     get_crop_field,
     get_crop_field_by_device,
+    get_field_observation,
     get_hydraulic_topology_node,
     get_hydraulic_schedule,
     get_latest_authority_policy_for_scheme,
@@ -53,6 +62,7 @@ from app.db.repository import (
     get_valve_state,
     list_authority_policies,
     list_crop_fields,
+    list_field_observations,
     list_pairing_sessions_for_field,
     list_hydraulic_schedules,
     list_hydraulic_topology_nodes,
@@ -63,6 +73,7 @@ from app.db.repository import (
     review_manual_request,
     set_pairing_first_telemetry,
     update_crop_field_partial,
+    update_field_observation,
     upsert_hydraulic_topology_node,
     upsert_crop_field,
     upsert_valve_state,
@@ -73,7 +84,7 @@ from app.dependencies.auth import get_current_user_context
 router = APIRouter(prefix="/api/v1", tags=["Farmer Operations"])
 logger = logging.getLogger(__name__)
 
-STALE_TIMEOUT_SECONDS = 300
+STALE_TIMEOUT_SECONDS = _STALE_TIMEOUT_SECONDS
 
 CROP_DEFAULTS: Dict[str, Dict[str, float | int]] = {
     "rice": {
@@ -254,91 +265,6 @@ class CropConfirmRequest(BaseModel):
     expected_profit_per_ha: Optional[float] = None
 
 
-def _now_utc() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _parse_dt(value: Optional[str]) -> Optional[datetime]:
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
-    except Exception:
-        return None
-
-
-def _build_contract(
-    *,
-    observed_at: Optional[str],
-    source: str,
-    data_available: bool,
-    message: Optional[str] = None,
-) -> Dict[str, Any]:
-    observed_dt = _parse_dt(observed_at)
-    staleness = (_now_utc() - observed_dt).total_seconds() if observed_dt else None
-
-    if not data_available:
-        status_value = "data_unavailable"
-        quality = "unknown"
-        is_live = False
-    elif source == "simulated":
-        status_value = "stale"
-        quality = "unknown"
-        is_live = False
-    elif staleness is not None and staleness > STALE_TIMEOUT_SECONDS:
-        status_value = "stale"
-        quality = "stale"
-        is_live = False
-    else:
-        status_value = "ok"
-        quality = "good"
-        is_live = True
-
-    return {
-        "status": status_value,
-        "source": source,
-        "is_live": is_live,
-        "observed_at": observed_at,
-        "staleness_sec": round(staleness, 2) if staleness is not None else None,
-        "quality": quality,
-        "data_available": data_available,
-        "message": message,
-    }
-
-
-def _contract_rank(status_value: str) -> int:
-    ordering = {
-        "ok": 0,
-        "stale": 1,
-        "data_unavailable": 2,
-        "source_unavailable": 3,
-    }
-    return ordering.get(status_value, 2)
-
-
-def _merge_contracts(contracts: List[Dict[str, Any]]) -> Dict[str, Any]:
-    if not contracts:
-        return _build_contract(
-            observed_at=None,
-            source="aggregate",
-            data_available=False,
-            message="No source contracts",
-        )
-
-    selected = max(contracts, key=lambda item: _contract_rank(str(item.get("status") or "data_unavailable")))
-    merged: Dict[str, Any] = {
-        "status": selected.get("status", "data_unavailable"),
-        "source": "aggregate",
-        "is_live": all(bool(item.get("is_live")) for item in contracts),
-        "observed_at": selected.get("observed_at"),
-        "staleness_sec": selected.get("staleness_sec"),
-        "quality": selected.get("quality", "unknown"),
-        "data_available": any(bool(item.get("data_available")) for item in contracts),
-        "message": selected.get("message"),
-    }
-    return merged
-
-
 def _extract_manual_policy_context(item: Dict[str, Any]) -> Dict[str, Any]:
     source = item.get("source_decision")
     source_dict = source if isinstance(source, dict) else {}
@@ -463,16 +389,59 @@ def _status_bucket(value: float, low: float, high: float, critical: float, label
     return excess
 
 
-async def _fetch_forecast_adjustment() -> float:
+async def _fetch_weekly_outlook(
+    *, lat: Optional[float] = None, lon: Optional[float] = None
+) -> Optional[Dict[str, Any]]:
+    """Fetch the full forecasting `irrigation-recommendation` payload.
+
+    Returns ``None`` when the upstream is unreachable or returns a non-2xx
+    response so callers can degrade gracefully. ``lat``/``lon`` are passed
+    through as query params; the forecasting service currently ignores them
+    (zone-scoped) but accepting them today makes field-scoped forecasts a
+    one-line follow-up there.
+    """
+    # TODO(field-scoped-forecast): wire forecasting_service to honor lat/lon.
+    params: Dict[str, Any] = {}
+    if lat is not None:
+        params["lat"] = lat
+    if lon is not None:
+        params["lon"] = lon
     try:
         async with httpx.AsyncClient(timeout=4.0) as client:
-            resp = await client.get(f"{settings.forecasting_service_url}/api/weather/irrigation-recommendation")
+            resp = await client.get(
+                f"{settings.forecasting_service_url}/api/weather/irrigation-recommendation",
+                params=params or None,
+            )
         if resp.status_code >= 400:
-            return 100.0
-        payload = resp.json() or {}
-        weekly = payload.get("weekly_outlook") or {}
-        return float(weekly.get("average_irrigation_adjustment_percent") or 100.0)
+            return None
+        payload = resp.json()
+        return payload if isinstance(payload, dict) else None
     except Exception:
+        return None
+
+
+async def _fetch_forecast_adjustment(
+    *,
+    forecast_payload: Optional[Dict[str, Any]] = None,
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+) -> float:
+    """Resolve the weekly irrigation adjustment percent.
+
+    Accepts a pre-fetched ``forecast_payload`` so aggregator endpoints can
+    fan out the upstream call once and reuse both the adjustment factor
+    (for the auto-decision) and the daily schedule (for the panel UI)
+    without double-billing forecasting_service.
+    """
+    payload = forecast_payload
+    if payload is None:
+        payload = await _fetch_weekly_outlook(lat=lat, lon=lon)
+    if not isinstance(payload, dict):
+        return 100.0
+    weekly = payload.get("weekly_outlook") or {}
+    try:
+        return float(weekly.get("average_irrigation_adjustment_percent") or 100.0)
+    except (TypeError, ValueError):
         return 100.0
 
 
@@ -609,11 +578,16 @@ async def _compute_auto_decision(
     policy: Optional[Dict[str, Any]],
     *,
     quota_remaining_mcm: Optional[float] = None,
+    forecast_payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     water_level = float(reading["water_level_pct"])
     soil_moisture = float(reading["soil_moisture_pct"])
 
-    forecast_adj = await _fetch_forecast_adjustment()
+    forecast_adj = await _fetch_forecast_adjustment(
+        forecast_payload=forecast_payload,
+        lat=field.get("latitude"),
+        lon=field.get("longitude"),
+    )
     stress_penalty = await _fetch_stress_penalty(field["field_id"])
 
     effective_water_min = max(0.0, min(100.0, float(field["water_level_min_pct"]) * (forecast_adj / 100.0)))
@@ -751,34 +725,160 @@ async def _delete_field_from_planning(field_id: str) -> None:
         logger.warning("Field delete sync to planning failed for %s: %s", field_id, exc)
 
 
+def _farmer_id_for_field(field: Dict[str, Any]) -> str:
+    owner_id = str(field.get("owner_id") or "").strip()
+    return owner_id or "unassigned"
+
+
+def _farmer_label(farmer_id: str) -> str:
+    if farmer_id == "unassigned":
+        return "Unassigned farmer"
+    suffix = farmer_id[-6:] if len(farmer_id) > 6 else farmer_id
+    return f"Farmer {suffix}"
+
+
+def _field_operational_status(
+    field: Dict[str, Any],
+    latest: Optional[Dict[str, Any]],
+    valve: Dict[str, Any],
+) -> Dict[str, Any]:
+    if not latest:
+        return {
+            "overall_status": "NO_SENSOR",
+            "soil_status": "UNKNOWN",
+            "water_status": "UNKNOWN",
+            "sensor_connected": False,
+        }
+
+    contract = _build_contract(
+        observed_at=latest.get("timestamp"),
+        source="iot_sensors",
+        data_available=True,
+    )
+    water_status = _status_bucket(
+        float(latest.get("water_level_pct") or 0.0),
+        float(field.get("water_level_min_pct") or 0.0),
+        float(field.get("water_level_max_pct") or 100.0),
+        float(field.get("water_level_critical_pct") or 0.0),
+        ("CRITICAL", "LOW", "OPTIMAL", "HIGH", "EXCESS"),
+    )
+    soil_status = _status_bucket(
+        float(latest.get("soil_moisture_pct") or 0.0),
+        float(field.get("soil_moisture_min_pct") or 0.0),
+        float(field.get("soil_moisture_max_pct") or 100.0),
+        float(field.get("soil_moisture_critical_pct") or 0.0),
+        ("CRITICAL", "DRY", "OPTIMAL", "WET", "SATURATED"),
+    )
+
+    overall_status = "OK"
+    if contract.get("status") == "stale":
+        overall_status = "WARNING"
+    if water_status == "CRITICAL" or soil_status == "CRITICAL":
+        overall_status = "CRITICAL"
+    elif str(valve.get("status") or "").upper() == "OPEN":
+        overall_status = "IRRIGATING"
+    elif water_status in {"LOW", "HIGH"} or soil_status in {"DRY", "WET"}:
+        overall_status = "WARNING"
+
+    return {
+        "overall_status": overall_status,
+        "soil_status": soil_status,
+        "water_status": water_status,
+        "sensor_connected": bool(contract.get("is_live")),
+    }
+
+
+async def _build_officer_field_snapshot(session: Any, field: Dict[str, Any]) -> Dict[str, Any]:
+    field_id = str(field["field_id"])
+    latest = await get_latest_sensor_reading(session, field_id)
+    valve = await get_valve_state(session, field_id)
+    manual = await list_manual_requests(session, field_id=field_id, limit=20)
+    pending = [item for item in manual if item.get("status") == "PENDING"]
+    status_view = _field_operational_status(field, latest, valve)
+    contract = _build_contract(
+        observed_at=latest.get("timestamp") if latest else None,
+        source="iot_sensors",
+        data_available=bool(latest),
+        message=None if latest else "No telemetry available",
+    )
+
+    return {
+        **field,
+        "farmer_id": _farmer_id_for_field(field),
+        "latest_telemetry": latest,
+        "valve_state": valve,
+        "pending_manual_requests": pending,
+        "recent_manual_requests": manual[:5],
+        "manual_request_count": len(manual),
+        "pending_manual_request_count": len(pending),
+        **status_view,
+        **contract,
+    }
+
+
+def _build_farmer_summary(farmer_id: str, fields: List[Dict[str, Any]]) -> Dict[str, Any]:
+    contracts = [
+        _build_contract(
+            observed_at=(field.get("latest_telemetry") or {}).get("timestamp"),
+            source="iot_sensors",
+            data_available=bool(field.get("latest_telemetry")),
+            message=None if field.get("latest_telemetry") else "No telemetry available",
+        )
+        for field in fields
+    ]
+    merged = _merge_contracts(contracts) if contracts else _build_contract(
+        observed_at=None,
+        source="aggregate",
+        data_available=False,
+        message="No fields registered for this farmer",
+    )
+    merged["source"] = "officer_farmers"
+
+    scheme_ids = sorted({str(field.get("scheme_id")) for field in fields if field.get("scheme_id")})
+    crop_types = sorted({str(field.get("crop_type")) for field in fields if field.get("crop_type")})
+    latest_times = [
+        (field.get("latest_telemetry") or {}).get("timestamp")
+        for field in fields
+        if field.get("latest_telemetry")
+    ]
+
+    return {
+        "farmer_id": farmer_id,
+        "owner_id": None if farmer_id == "unassigned" else farmer_id,
+        "display_name": _farmer_label(farmer_id),
+        "scheme_ids": scheme_ids,
+        "field_count": len(fields),
+        "total_area_hectares": round(sum(float(field.get("area_hectares") or 0.0) for field in fields), 3),
+        "crop_types": crop_types,
+        "latest_telemetry_at": _max_iso_timestamp(latest_times),
+        "telemetry": {
+            "live_fields": sum(1 for field in fields if field.get("is_live")),
+            "stale_fields": sum(1 for field in fields if field.get("status") == "stale"),
+            "no_telemetry_fields": sum(1 for field in fields if not field.get("latest_telemetry")),
+            "critical_fields": sum(1 for field in fields if field.get("overall_status") == "CRITICAL"),
+        },
+        "irrigation": {
+            "open_valves": sum(1 for field in fields if str((field.get("valve_state") or {}).get("status") or "").upper() == "OPEN"),
+            "pending_manual_requests": sum(int(field.get("pending_manual_request_count") or 0) for field in fields),
+            "manual_request_count": sum(int(field.get("manual_request_count") or 0) for field in fields),
+        },
+        **merged,
+    }
+
+
 async def ensure_default_field_seed() -> None:
     async with session_scope() as session:
         fields = await list_crop_fields(session)
-        if not fields:
-            defaults = CROP_DEFAULTS["rice"]
-            await ensure_default_field(
-                session,
-                {
-                    "field_id": "field-rice-01",
-                    "field_name": "Default Rice Field",
-                    "crop_type": "rice",
-                    "soil_type": "loam",
-                    "area_hectares": 1.0,
-                    "device_id": None,
-                    "owner_id": None,
-                    "scheme_id": "scheme-default",
-                    "latitude": None,
-                    "longitude": None,
-                    "location_name": None,
-                    "lifecycle_state": "CONFIGURED",
-                    "pairing_status": "UNPAIRED",
-                    "last_handshake_at": None,
-                    "live_since": None,
-                    "suspended_reason": None,
-                    **defaults,
-                    "auto_control_enabled": True,
-                },
+        for field in fields:
+            # Cleanup legacy bootstrap field so new users start with an empty field list.
+            is_legacy_default = (
+                field.get("field_id") == "field-rice-01"
+                and (field.get("field_name") or "").lower() == "default rice field"
+                and field.get("scheme_id") == "scheme-default"
+                and field.get("owner_id") is None
             )
+            if is_legacy_default:
+                await delete_crop_field(session, field["field_id"])
 
         default_topology = [
             {
@@ -910,6 +1010,95 @@ async def get_fields(user_context: Dict[str, Any] = Depends(get_current_user_con
         user_id = user_context.get("id")
         rows = [row for row in rows if row.get("owner_id") in {None, user_id}]
     return rows
+
+
+@router.get("/farm/farmers")
+async def get_officer_farmers(
+    scheme_id: Optional[str] = Query(None),
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+):
+    if not _is_officer_or_authority(user_context):
+        raise HTTPException(status_code=403, detail="Officer or authority role required")
+
+    allowed_schemes = sorted(_ensure_scoped_roles_have_schemes(user_context))
+    if scheme_id:
+        _assert_scheme_access(user_context, scheme_id)
+
+    async with session_scope() as session:
+        rows = await list_crop_fields(session)
+        scoped_rows = [
+            row
+            for row in rows
+            if (row.get("scheme_id") or "") in allowed_schemes
+            and (scheme_id is None or row.get("scheme_id") == scheme_id)
+        ]
+        field_snapshots = [
+            await _build_officer_field_snapshot(session, field)
+            for field in scoped_rows
+        ]
+
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for field in field_snapshots:
+        grouped.setdefault(str(field.get("farmer_id") or "unassigned"), []).append(field)
+
+    items = [
+        _build_farmer_summary(farmer_id, fields)
+        for farmer_id, fields in sorted(grouped.items(), key=lambda item: item[0])
+    ]
+    top_contract = _merge_contracts(items) if items else _build_contract(
+        observed_at=None,
+        source="officer_farmers",
+        data_available=False,
+        message="No farmers found in assigned schemes",
+    )
+    top_contract["source"] = "officer_farmers"
+
+    return {
+        "count": len(items),
+        "items": items,
+        "generated_at": _now_utc().isoformat(),
+        **top_contract,
+    }
+
+
+@router.get("/farm/farmers/{farmer_id}")
+async def get_officer_farmer_detail(
+    farmer_id: str,
+    scheme_id: Optional[str] = Query(None),
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+):
+    if not _is_officer_or_authority(user_context):
+        raise HTTPException(status_code=403, detail="Officer or authority role required")
+
+    requested_farmer_id = str(farmer_id or "").strip() or "unassigned"
+    allowed_schemes = sorted(_ensure_scoped_roles_have_schemes(user_context))
+    if scheme_id:
+        _assert_scheme_access(user_context, scheme_id)
+
+    async with session_scope() as session:
+        rows = await list_crop_fields(session)
+        scoped_rows = [
+            row
+            for row in rows
+            if (row.get("scheme_id") or "") in allowed_schemes
+            and (scheme_id is None or row.get("scheme_id") == scheme_id)
+            and _farmer_id_for_field(row) == requested_farmer_id
+        ]
+        field_snapshots = [
+            await _build_officer_field_snapshot(session, field)
+            for field in scoped_rows
+        ]
+
+    if not field_snapshots:
+        raise HTTPException(status_code=404, detail="Farmer not found in assigned schemes")
+
+    summary = _build_farmer_summary(requested_farmer_id, field_snapshots)
+    return {
+        "farmer": summary,
+        "fields": field_snapshots,
+        "generated_at": _now_utc().isoformat(),
+        **{k: v for k, v in summary.items() if k in {"status", "source", "is_live", "observed_at", "staleness_sec", "quality", "data_available", "message"}},
+    }
 
 
 @router.get("/farm/fields/{field_id}")
@@ -1407,7 +1596,16 @@ async def get_field_status(
                 "field_name": field["field_name"],
                 "crop_type": field["crop_type"],
                 "soil_type": field.get("soil_type"),
+                "area_hectares": field.get("area_hectares"),
+                "scheme_id": field.get("scheme_id"),
+                "latitude": field.get("latitude"),
+                "longitude": field.get("longitude"),
+                "location_name": field.get("location_name"),
                 "device_id": field.get("device_id"),
+                "lifecycle_state": field.get("lifecycle_state"),
+                "pairing_status": field.get("pairing_status"),
+                "last_handshake_at": field.get("last_handshake_at"),
+                "live_since": field.get("live_since"),
                 "sensor_connected": False,
                 "is_simulated": False,
                 "last_real_data_time": None,
@@ -1421,6 +1619,12 @@ async def get_field_status(
                 "last_sensor_reading": None,
                 "last_valve_action": valve.get("last_action_time"),
                 "auto_control_enabled": field.get("auto_control_enabled", True),
+                "soil_moisture_optimal_pct": field.get("soil_moisture_optimal_pct"),
+                "soil_moisture_min_pct": field.get("soil_moisture_min_pct"),
+                "soil_moisture_max_pct": field.get("soil_moisture_max_pct"),
+                "water_level_optimal_pct": field.get("water_level_optimal_pct"),
+                "water_level_min_pct": field.get("water_level_min_pct"),
+                "water_level_max_pct": field.get("water_level_max_pct"),
                 "next_action": None,
                 "manual_request_required": False,
                 "manual_request_id": None,
@@ -1470,7 +1674,16 @@ async def get_field_status(
             "field_name": field["field_name"],
             "crop_type": field["crop_type"],
             "soil_type": field.get("soil_type"),
+            "area_hectares": field.get("area_hectares"),
+            "scheme_id": field.get("scheme_id"),
+            "latitude": field.get("latitude"),
+            "longitude": field.get("longitude"),
+            "location_name": field.get("location_name"),
             "device_id": field.get("device_id"),
+            "lifecycle_state": field.get("lifecycle_state"),
+            "pairing_status": field.get("pairing_status"),
+            "last_handshake_at": field.get("last_handshake_at"),
+            "live_since": field.get("live_since"),
             "sensor_connected": not stale,
             "is_simulated": False,
             "last_real_data_time": latest.get("timestamp"),
@@ -1484,6 +1697,12 @@ async def get_field_status(
             "last_sensor_reading": latest.get("timestamp"),
             "last_valve_action": valve.get("last_action_time"),
             "auto_control_enabled": field.get("auto_control_enabled", True),
+            "soil_moisture_optimal_pct": field.get("soil_moisture_optimal_pct"),
+            "soil_moisture_min_pct": field.get("soil_moisture_min_pct"),
+            "soil_moisture_max_pct": field.get("soil_moisture_max_pct"),
+            "water_level_optimal_pct": field.get("water_level_optimal_pct"),
+            "water_level_min_pct": field.get("water_level_min_pct"),
+            "water_level_max_pct": field.get("water_level_max_pct"),
             "next_action": None,
             "manual_request_required": False,
             "manual_request_id": None,
@@ -1828,6 +2047,9 @@ async def get_officer_overview(
             no_telemetry_fields = 0
             live_fields = 0
             degraded_fields = 0
+            open_valves = 0
+            closed_valves = 0
+            auto_control_enabled = 0
             telemetry_observed_values: List[Optional[str]] = []
             worst_staleness_sec: Optional[float] = None
 
@@ -1837,6 +2059,14 @@ async def get_officer_overview(
                     live_fields += 1
                 if lifecycle == "DEGRADED":
                     degraded_fields += 1
+
+                valve = await get_valve_state(session, str(field["field_id"]))
+                if str(valve.get("status") or "").upper() == "OPEN":
+                    open_valves += 1
+                else:
+                    closed_valves += 1
+                if field.get("auto_control_enabled", True):
+                    auto_control_enabled += 1
 
                 latest = await get_latest_sensor_reading(session, str(field["field_id"]))
                 if not latest:
@@ -1923,6 +2153,9 @@ async def get_officer_overview(
                         "fresh_fields": fresh_fields,
                         "stale_fields": stale_fields,
                         "no_telemetry_fields": no_telemetry_fields,
+                        "open_valves": open_valves,
+                        "closed_valves": closed_valves,
+                        "auto_control_enabled": auto_control_enabled,
                         "worst_staleness_sec": round(float(worst_staleness_sec), 2)
                         if worst_staleness_sec is not None
                         else None,
@@ -1946,7 +2179,89 @@ async def get_officer_overview(
     return {
         "count": len(scheme_summaries),
         "items": scheme_summaries,
+        "total_fields": sum(int(item["telemetry"].get("total_fields") or 0) for item in scheme_summaries),
+        "online_fields": sum(int(item["telemetry"].get("fresh_fields") or 0) for item in scheme_summaries),
+        "offline_fields": sum(
+            int(item["telemetry"].get("stale_fields") or 0)
+            + int(item["telemetry"].get("no_telemetry_fields") or 0)
+            for item in scheme_summaries
+        ),
+        "active_valves": sum(int(item["telemetry"].get("open_valves") or 0) for item in scheme_summaries),
+        "auto_control_enabled_fields": sum(
+            int(item["telemetry"].get("auto_control_enabled") or 0) for item in scheme_summaries
+        ),
         "generated_at": observed_at,
+        **top_contract,
+    }
+
+
+@router.get("/irrigation/officer/valves")
+async def get_officer_valves(
+    scheme_id: Optional[str] = Query(None),
+    status_filter: Optional[str] = Query(None, alias="status"),
+    limit: int = Query(200, ge=1, le=500),
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+):
+    if not _is_officer_or_authority(user_context):
+        raise HTTPException(status_code=403, detail="Officer or authority role required")
+
+    allowed_schemes = sorted(_ensure_scoped_roles_have_schemes(user_context))
+    if scheme_id:
+        _assert_scheme_access(user_context, scheme_id)
+
+    normalized_status = str(status_filter or "").strip().upper()
+
+    async with session_scope() as session:
+        rows = await list_crop_fields(session)
+        scoped_rows = [
+            row
+            for row in rows
+            if (row.get("scheme_id") or "") in allowed_schemes
+            and (scheme_id is None or row.get("scheme_id") == scheme_id)
+        ]
+        snapshots = [
+            await _build_officer_field_snapshot(session, field)
+            for field in scoped_rows
+        ]
+
+    if normalized_status:
+        snapshots = [
+            item
+            for item in snapshots
+            if str((item.get("valve_state") or {}).get("status") or "").upper() == normalized_status
+        ]
+
+    items = snapshots[:limit]
+    contracts = [
+        _build_contract(
+            observed_at=(item.get("latest_telemetry") or {}).get("timestamp"),
+            source="iot_sensors",
+            data_available=bool(item.get("latest_telemetry")),
+            message=None if item.get("latest_telemetry") else "No telemetry available",
+        )
+        for item in snapshots
+    ]
+    top_contract = _merge_contracts(contracts) if contracts else _build_contract(
+        observed_at=None,
+        source="officer_valves",
+        data_available=False,
+        message="No valve-controlled fields found in assigned schemes",
+    )
+    top_contract["source"] = "officer_valves"
+
+    return {
+        "count": len(items),
+        "total_fields": len(snapshots),
+        "open_valves": sum(
+            1 for item in snapshots if str((item.get("valve_state") or {}).get("status") or "").upper() == "OPEN"
+        ),
+        "closed_valves": sum(
+            1 for item in snapshots if str((item.get("valve_state") or {}).get("status") or "").upper() != "OPEN"
+        ),
+        "auto_control_enabled_fields": sum(1 for item in snapshots if item.get("auto_control_enabled", True)),
+        "pending_manual_requests": sum(int(item.get("pending_manual_request_count") or 0) for item in snapshots),
+        "items": items,
+        "generated_at": _now_utc().isoformat(),
         **top_contract,
     }
 
@@ -2238,3 +2553,174 @@ async def get_local_field_profile(
         "pending_manual_requests": pending,
         "manual_requests": recent,
     }
+
+
+# ---------------------------------------------------------------------------
+# Field observations (Crop Health tab — geo-tagged farmer notes)
+# ---------------------------------------------------------------------------
+
+
+ALLOWED_OBSERVATION_KINDS = {"disease", "pest", "water_stress", "healthy", "note"}
+ALLOWED_OBSERVATION_SEVERITIES = {"low", "medium", "high", "critical"}
+
+
+class FieldObservationCreate(BaseModel):
+    latitude: float = Field(..., ge=-90.0, le=90.0)
+    longitude: float = Field(..., ge=-180.0, le=180.0)
+    kind: str = Field(..., description="disease | pest | water_stress | healthy | note")
+    severity: Optional[str] = None
+    title: str = Field(..., min_length=1, max_length=160)
+    note: Optional[str] = Field(default=None, max_length=2000)
+    photo_url: Optional[str] = Field(default=None, max_length=2000)
+    prediction_label: Optional[str] = Field(default=None, max_length=120)
+    prediction_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
+
+class FieldObservationUpdate(BaseModel):
+    kind: Optional[str] = None
+    severity: Optional[str] = None
+    title: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    note: Optional[str] = Field(default=None, max_length=2000)
+    photo_url: Optional[str] = Field(default=None, max_length=2000)
+    prediction_label: Optional[str] = Field(default=None, max_length=120)
+    prediction_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
+
+def _validate_observation_kind(kind: str) -> str:
+    normalized = (kind or "").strip().lower()
+    if normalized not in ALLOWED_OBSERVATION_KINDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid observation kind: {kind!r}",
+        )
+    return normalized
+
+
+def _validate_observation_severity(severity: Optional[str]) -> Optional[str]:
+    if severity is None or severity == "":
+        return None
+    normalized = severity.strip().lower()
+    if normalized not in ALLOWED_OBSERVATION_SEVERITIES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid observation severity: {severity!r}",
+        )
+    return normalized
+
+
+@router.post("/farm/fields/{field_id}/observations", status_code=201)
+async def create_field_observation_endpoint(
+    field_id: str,
+    payload: FieldObservationCreate,
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+):
+    _require_roles(user_context, {"farmer", "officer", "authority"})
+    kind = _validate_observation_kind(payload.kind)
+    severity = _validate_observation_severity(payload.severity)
+
+    async with session_scope() as session:
+        field = await get_crop_field(session, field_id)
+        if not field:
+            raise HTTPException(status_code=404, detail="Field not found")
+        _assert_field_access(user_context, field)
+
+        observation = await create_field_observation(
+            session,
+            field_id=field_id,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            kind=kind,
+            severity=severity,
+            title=payload.title.strip(),
+            note=payload.note,
+            photo_url=payload.photo_url,
+            prediction_label=payload.prediction_label,
+            prediction_confidence=payload.prediction_confidence,
+            created_by=user_context.get("id"),
+        )
+
+    return observation
+
+
+@router.get("/farm/fields/{field_id}/observations")
+async def list_field_observations_endpoint(
+    field_id: str,
+    limit: int = Query(50, ge=1, le=500),
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+):
+    async with session_scope() as session:
+        field = await get_crop_field(session, field_id)
+        if not field:
+            raise HTTPException(status_code=404, detail="Field not found")
+        _assert_field_access(user_context, field)
+
+        items = await list_field_observations(session, field_id=field_id, limit=limit)
+
+    return {"field_id": field_id, "count": len(items), "items": items}
+
+
+@router.patch("/farm/fields/{field_id}/observations/{observation_id}")
+async def patch_field_observation_endpoint(
+    field_id: str,
+    observation_id: str,
+    payload: FieldObservationUpdate,
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+):
+    _require_roles(user_context, {"farmer", "officer", "authority"})
+
+    fields: Dict[str, Any] = {}
+    raw = payload.model_dump(exclude_unset=True)
+    if "kind" in raw:
+        fields["kind"] = _validate_observation_kind(raw["kind"])
+    if "severity" in raw:
+        fields["severity"] = _validate_observation_severity(raw["severity"])
+    for key in ("title", "note", "photo_url", "prediction_label", "prediction_confidence"):
+        if key in raw:
+            value = raw[key]
+            fields[key] = value.strip() if isinstance(value, str) and key == "title" else value
+
+    async with session_scope() as session:
+        field = await get_crop_field(session, field_id)
+        if not field:
+            raise HTTPException(status_code=404, detail="Field not found")
+        _assert_field_access(user_context, field)
+
+        existing = await get_field_observation(session, observation_id)
+        if not existing or existing.get("field_id") != field_id:
+            raise HTTPException(status_code=404, detail="Observation not found")
+
+        if not fields:
+            return existing
+
+        updated = await update_field_observation(
+            session,
+            observation_id=observation_id,
+            fields=fields,
+        )
+
+    return updated
+
+
+@router.delete("/farm/fields/{field_id}/observations/{observation_id}")
+async def delete_field_observation_endpoint(
+    field_id: str,
+    observation_id: str,
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+):
+    _require_roles(user_context, {"farmer", "officer", "authority"})
+
+    async with session_scope() as session:
+        field = await get_crop_field(session, field_id)
+        if not field:
+            raise HTTPException(status_code=404, detail="Field not found")
+        _assert_field_access(user_context, field)
+
+        existing = await get_field_observation(session, observation_id)
+        if not existing or existing.get("field_id") != field_id:
+            raise HTTPException(status_code=404, detail="Observation not found")
+
+        deleted = await delete_field_observation(session, observation_id)
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Observation not found")
+    return {"observation_id": observation_id, "deleted": True}

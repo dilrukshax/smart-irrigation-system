@@ -85,40 +85,42 @@ const Logo: any = ({ mark = true }) => (
 // ——— AppBar ———
 const AppBar: any = ({ breadcrumb = [], user = 'Nimal P.', role = 'Farmer', notifCount = 3 }) => (
   <div className="appbar">
-    <Logo />
-    <div className="breadcrumb">
-      {breadcrumb.map((c, i) => (
-        <React.Fragment key={i}>
-          {i > 0 && <span style={{ opacity: 0.4 }}>/</span>}
-          <span style={i === breadcrumb.length - 1 ? { color: 'var(--text)', fontWeight: 500 } : null}>{c}</span>
-        </React.Fragment>
-      ))}
-    </div>
-    <div className="appbar-right">
-      <div className="chip sim" style={{ fontSize: 10.5 }}>
-        <span className="chip-dot"/> Maha 2025 · Mahaweli H
+    <div className="appbar-inner">
+      <Logo />
+      <div className="breadcrumb">
+        {breadcrumb.map((c, i) => (
+          <React.Fragment key={i}>
+            {i > 0 && <span style={{ opacity: 0.4 }}>/</span>}
+            <span style={i === breadcrumb.length - 1 ? { color: 'var(--text)', fontWeight: 500 } : null}>{c}</span>
+          </React.Fragment>
+        ))}
       </div>
-      <div className="bell">
-        <Icon name="bell" size={16}/>
-        {notifCount > 0 && <span className="bell-dot">{notifCount}</span>}
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div className="avatar">{user.split(' ').map(w => w[0]).join('')}</div>
-        <div style={{ fontSize: 12, lineHeight: 1.2 }}>
-          <div style={{ fontWeight: 600 }}>{user}</div>
-          <div style={{ color: 'var(--muted)', fontSize: 10.5 }}>{role}</div>
+      <div className="appbar-right">
+        <div className="chip sim" style={{ fontSize: 10.5 }}>
+          <span className="chip-dot"/> Maha 2025 · Mahaweli H
         </div>
+        <div className="bell">
+          <Icon name="bell" size={16}/>
+          {notifCount > 0 && <span className="bell-dot">{notifCount}</span>}
+        </div>
+        <div className="appbar-user">
+          <div className="avatar">{user.split(' ').map(w => w[0]).join('')}</div>
+          <div className="appbar-user-copy">
+            <div style={{ fontWeight: 600 }}>{user}</div>
+            <div style={{ color: 'var(--muted)', fontSize: 10.5 }}>{role}</div>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={logout}
+          aria-label="Log out"
+          title="Log out"
+        >
+          <Icon name="logout" size={13}/>
+          Logout
+        </button>
       </div>
-      <button
-        type="button"
-        className="btn btn-ghost btn-sm"
-        onClick={logout}
-        aria-label="Log out"
-        title="Log out"
-      >
-        <Icon name="logout" size={13}/>
-        Logout
-      </button>
     </div>
   </div>
 );
@@ -135,8 +137,10 @@ const NAV_ROUTE_MAP: Record<string, string> = {
   Scenarios: '/optimization/scenarios',
   Onboarding: '/farmer/onboarding',
   Overview: '/operations',
+  Farmers: '/operations/farmers',
   'Manual Requests': '/operations/requests',
   Hydraulics: '/operations/hydraulics',
+  'Alert Queue': '/operations/alerts',
   'Water Management': '/irrigation/water',
   'Sensor Telemetry': '/irrigation/telemetry',
   Recommendations: '/optimization/recommendations',
@@ -144,29 +148,104 @@ const NAV_ROUTE_MAP: Record<string, string> = {
   'Adaptive Tuning': '/optimization/adaptive',
   'User Management': '/authority/users',
   'Policies & Quotas': '/authority/policies',
+  'Scheme Zones': '/authority/schemes',
+  'Audit Log': '/authority/audit',
+  'System Health': '/authority/health',
+  'Seasonal Summary': '/authority/seasonal-summary',
 };
 
-const Sidebar: any = ({ items, footer }) => (
-  <div className="sidebar">
-    {items.map((g, gi) => (
-      <React.Fragment key={gi}>
-        {g.label && <div className="nav-section">{g.label}</div>}
-        {g.items.map((it, i) => (
-          <Link
-            key={i}
-            href={it.href || NAV_ROUTE_MAP[it.name] || '#'}
-            className={'nav-item' + (it.active ? ' active' : '')}
-          >
-            <span className="ico"><Icon name={it.icon} size={16}/></span>
-            {it.name}
-            {it.badge && <span style={{ marginLeft: 'auto', fontSize: 10, background: 'var(--accent)', color: '#3A2900', padding: '1px 6px', borderRadius: 99, fontWeight: 700 }}>{it.badge}</span>}
-          </Link>
-        ))}
-      </React.Fragment>
-    ))}
-    {footer && <div style={{ marginTop: 'auto', padding: 10, borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)' }}>{footer}</div>}
-  </div>
-);
+const Sidebar: any = ({ items, footer }) => {
+  const initialOpen = React.useMemo(() => {
+    const opened: Record<string, boolean> = {};
+    items.forEach((g, gi) => {
+      g.items?.forEach((it, i) => {
+        if (it.children?.length && (it.defaultOpen || it.active || it.children.some((child) => child.active))) {
+          opened[`${gi}-${i}-${it.name}`] = true;
+        }
+      });
+    });
+    return opened;
+  }, [items]);
+  const [openItems, setOpenItems] = React.useState<Record<string, boolean>>(initialOpen);
+
+  React.useEffect(() => {
+    setOpenItems((current) => ({ ...initialOpen, ...current }));
+  }, [initialOpen]);
+
+  return (
+    <div className="sidebar">
+      {items.map((g, gi) => (
+        <React.Fragment key={gi}>
+          {g.label && <div className="nav-section">{g.label}</div>}
+          {g.items.map((it, i) => {
+            const key = `${gi}-${i}-${it.name}`;
+            const hasChildren = Boolean(it.children?.length);
+            const isOpen = Boolean(openItems[key]);
+
+            if (hasChildren) {
+              return (
+                <div key={key} className={'nav-group' + (isOpen ? ' open' : '')}>
+                  <button
+                    type="button"
+                    className={'nav-item nav-disclosure' + (it.active ? ' active' : '')}
+                    aria-expanded={isOpen}
+                    onClick={() => setOpenItems((current) => ({ ...current, [key]: !current[key] }))}
+                  >
+                    <span className="ico"><Icon name={it.icon} size={16}/></span>
+                    <span className="nav-label">{it.name}</span>
+                    {it.badge && <span className="nav-badge">{it.badge}</span>}
+                    <span className="nav-chevron"><Icon name={isOpen ? 'up' : 'down'} size={13}/></span>
+                  </button>
+                  {isOpen && (
+                    <div className="nav-collapse">
+                      {it.children.map((child, ci) => {
+                        const content = (
+                          <>
+                            {child.icon && <span className="ico"><Icon name={child.icon} size={14}/></span>}
+                            <span className="nav-child-title">{child.name}</span>
+                          </>
+                        );
+                        if (child.href) {
+                          return (
+                            <Link
+                              key={ci}
+                              href={child.href}
+                              className={'nav-child' + (child.active ? ' active' : '')}
+                            >
+                              {content}
+                            </Link>
+                          );
+                        }
+                        return (
+                          <div key={ci} className={'nav-child' + (child.active ? ' active' : '')}>
+                            {content}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            return (
+              <Link
+                key={key}
+                href={it.href || NAV_ROUTE_MAP[it.name] || '#'}
+                className={'nav-item' + (it.active ? ' active' : '')}
+              >
+                <span className="ico"><Icon name={it.icon} size={16}/></span>
+                <span className="nav-label">{it.name}</span>
+                {it.badge && <span className="nav-badge">{it.badge}</span>}
+              </Link>
+            );
+          })}
+        </React.Fragment>
+      ))}
+      {footer && <div style={{ marginTop: 'auto', padding: 10, borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)' }}>{footer}</div>}
+    </div>
+  );
+};
 
 // ——— Status chip shortcut ———
 const Chip: any = ({ kind = 'live', children, dot = true }) => (
@@ -459,10 +538,10 @@ const SchemeMap: any = ({ height = 260, zones = [], markers = [], hasControls = 
 const Frame: any = ({ sidebar, appbar = true, breadcrumb, user, role, children, noPad, width = '100%' }) => (
   <div className="asi-root" style={{ width, height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
     {appbar && <AppBar breadcrumb={breadcrumb} user={user} role={role}/>}
-    <div className="shell" style={{ gridTemplateColumns: sidebar ? '220px 1fr' : '1fr', flex: 1, minHeight: 0 }}>
+    <div className="shell" style={{ gridTemplateColumns: sidebar ? 'var(--app-sidebar-width) minmax(0, 1fr)' : '1fr', flex: 1, minHeight: 0 }}>
       {sidebar && <Sidebar items={sidebar}/>}
       <div className="main" style={noPad ? { padding: 0, overflow: 'auto' } : { overflow: 'auto' }}>
-        {children}
+        {noPad ? children : <div className="main-inner">{children}</div>}
       </div>
     </div>
   </div>

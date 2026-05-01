@@ -21,7 +21,7 @@ import {
   SchemeMap,
   Frame,
 } from '@/components/asi/ui';
-import { farmerNav, officerNav, authorityNav, irrigationNav, optNav } from '@/components/asi/nav';
+import { farmerNav, officerNav, officerModuleNav, authorityNav, irrigationNav, optNav } from '@/components/asi/nav';
 import { PublicTop } from '@/components/asi/public-top';
 import { ApiState } from '@/components/asi/api-state';
 import { apiGet } from '@/lib/api';
@@ -87,7 +87,7 @@ const SensorTelemetry = () => {
 
   return (
     <Frame
-      sidebar={irrigationNav('tele')}
+      sidebar={officerModuleNav('Irrigation', 'Sensor Telemetry')}
       breadcrumb={['Modules', 'F1 · Irrigation', 'Sensor Telemetry']}
       user={displayName}
       role="Officer"

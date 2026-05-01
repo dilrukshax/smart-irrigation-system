@@ -26,7 +26,7 @@ async def test_weather_client_strict_live_returns_source_unavailable(monkeypatch
     client = weather.weather_client
     previous_strict = weather.settings.strict_live_data
 
-    async def _raise_current():
+    async def _raise_current(*_args: Any, **_kwargs: Any):
         raise RuntimeError("weather upstream down")
 
     monkeypatch.setattr(client, "_fetch_open_meteo_current", _raise_current)
@@ -45,7 +45,7 @@ async def test_weather_client_non_strict_fallback_is_stale(monkeypatch: pytest.M
     client = weather.weather_client
     previous_strict = weather.settings.strict_live_data
 
-    async def _raise_forecast(_days: int):
+    async def _raise_forecast(*_args: Any, **_kwargs: Any):
         raise RuntimeError("forecast upstream down")
 
     monkeypatch.setattr(client, "_fetch_open_meteo_forecast", _raise_forecast)
@@ -63,7 +63,7 @@ async def test_weather_client_non_strict_fallback_is_stale(monkeypatch: pytest.M
 def test_weather_summary_returns_contract_fields(monkeypatch: pytest.MonkeyPatch):
     app = _app()
 
-    async def _current() -> Dict[str, Any]:
+    async def _current(*_args: Any, **_kwargs: Any) -> Dict[str, Any]:
         return {
             "status": "stale",
             "source": "simulated",
@@ -78,7 +78,7 @@ def test_weather_summary_returns_contract_fields(monkeypatch: pytest.MonkeyPatch
             "irrigation_impact": {"recommendation": "NORMAL"},
         }
 
-    async def _forecast(_days: int) -> Dict[str, Any]:
+    async def _forecast(*_args: Any, **_kwargs: Any) -> Dict[str, Any]:
         return {
             "status": "stale",
             "source": "simulated",
@@ -114,7 +114,7 @@ def test_weather_summary_returns_contract_fields(monkeypatch: pytest.MonkeyPatch
 def test_irrigation_recommendation_returns_contract_fields(monkeypatch: pytest.MonkeyPatch):
     app = _app()
 
-    async def _current() -> Dict[str, Any]:
+    async def _current(*_args: Any, **_kwargs: Any) -> Dict[str, Any]:
         return {
             "status": "ok",
             "source": "open-meteo",
@@ -127,7 +127,7 @@ def test_irrigation_recommendation_returns_contract_fields(monkeypatch: pytest.M
             "irrigation_impact": {"recommendation": "NORMAL"},
         }
 
-    async def _forecast(_days: int) -> Dict[str, Any]:
+    async def _forecast(*_args: Any, **_kwargs: Any) -> Dict[str, Any]:
         return {
             "status": "ok",
             "source": "open-meteo",
@@ -160,6 +160,98 @@ def test_irrigation_recommendation_returns_contract_fields(monkeypatch: pytest.M
     assert payload["source"] == "forecasting_service"
     assert payload["data_available"] is True
     assert "message" in payload
+
+
+def test_weather_forecast_passes_field_coordinates(monkeypatch: pytest.MonkeyPatch):
+    app = _app()
+    seen: Dict[str, Any] = {}
+
+    async def _forecast(days: int, *, lat: float | None = None, lon: float | None = None) -> Dict[str, Any]:
+        seen.update({"days": days, "lat": lat, "lon": lon})
+        return {
+            "status": "ok",
+            "source": "open-meteo",
+            "data_available": True,
+            "observed_at": "2026-03-10T00:00:00Z",
+            "generated_at": "2026-03-10T00:00:00Z",
+            "daily": [],
+        }
+
+    @asynccontextmanager
+    async def _fake_session_scope():
+        yield object()
+
+    async def _noop(*_args: Any, **_kwargs: Any) -> Dict[str, Any]:
+        return {}
+
+    monkeypatch.setattr(weather.weather_client, "get_forecast", _forecast)
+    monkeypatch.setattr(weather, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(weather, "add_weather_artifact", _noop)
+
+    client = TestClient(app)
+    response = client.get("/api/weather/forecast?days=5&lat=7.21&lon=80.65")
+
+    assert response.status_code == 200
+    assert seen == {"days": 5, "lat": 7.21, "lon": 80.65}
+
+
+def test_weather_alerts_returns_operator_risk_contract(monkeypatch: pytest.MonkeyPatch):
+    app = _app()
+    seen: Dict[str, Any] = {}
+
+    async def _current(*, lat: float | None = None, lon: float | None = None) -> Dict[str, Any]:
+        seen.update({"current_lat": lat, "current_lon": lon})
+        return {
+            "status": "ok",
+            "source": "open-meteo",
+            "data_available": True,
+            "conditions": {
+                "temperature_c": 31.0,
+                "humidity_percent": 72.0,
+                "rain_mm": 0.0,
+            },
+        }
+
+    async def _forecast(days: int, *, lat: float | None = None, lon: float | None = None) -> Dict[str, Any]:
+        seen.update({"days": days, "forecast_lat": lat, "forecast_lon": lon})
+        return {
+            "status": "ok",
+            "source": "open-meteo",
+            "data_available": True,
+            "generated_at": "2026-03-10T00:00:00Z",
+            "daily": [
+                {"date": "2026-03-10", "rain_mm": 32.0, "evapotranspiration_mm": 4.0, "temp_max_c": 29.0},
+                {"date": "2026-03-11", "rain_mm": 0.0, "evapotranspiration_mm": 7.5, "temp_max_c": 36.0},
+                {"date": "2026-03-12", "rain_mm": 0.0, "evapotranspiration_mm": 7.0, "temp_max_c": 34.0},
+            ],
+            "location": {"latitude": lat, "longitude": lon},
+        }
+
+    @asynccontextmanager
+    async def _fake_session_scope():
+        yield object()
+
+    async def _noop(*_args: Any, **_kwargs: Any) -> Dict[str, Any]:
+        return {}
+
+    monkeypatch.setattr(weather.weather_client, "get_current_weather", _current)
+    monkeypatch.setattr(weather.weather_client, "get_forecast", _forecast)
+    monkeypatch.setattr(weather, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(weather, "add_weather_artifact", _noop)
+
+    client = TestClient(app)
+    response = client.get("/api/weather/alerts?days=3&lat=7.21&lon=80.65")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["source"] == "forecasting_service"
+    assert payload["data_available"] is True
+    assert payload["summary"]["highest_severity"] == "HIGH"
+    assert {"HEAVY_RAIN", "HEAT_STRESS", "WATER_DEFICIT"}.issubset(
+        {alert["type"] for alert in payload["alerts"]}
+    )
+    assert seen == {"current_lat": 7.21, "current_lon": 80.65, "days": 3, "forecast_lat": 7.21, "forecast_lon": 80.65}
 
 
 def test_v1_admin_endpoint_requires_auth():
@@ -214,6 +306,19 @@ def test_v1_admin_endpoint_returns_200_for_admin(monkeypatch: pytest.MonkeyPatch
     payload = response.json()
     assert payload["status"] == "ok"
     assert payload["data_available"] is True
+
+
+def test_model_summary_is_farmer_safe():
+    app = _app()
+    client = TestClient(app)
+
+    response = client.get("/api/v1/model-summary")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["basic_model"]["name"] == "LinearRegression"
+    assert payload["scope"]["weather"] == "field_coordinates"
 
 
 def test_v2_status_requires_admin():

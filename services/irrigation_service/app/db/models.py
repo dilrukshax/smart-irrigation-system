@@ -279,6 +279,43 @@ class AuthorityPolicyAudit(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
 
+class FieldObservation(Base):
+    """Farmer-recorded geo-tagged observations on a field.
+
+    Each row pins a note (disease, pest, water stress, healthy patch, free-text)
+    at a specific lat/lon inside the field. Used by the Crop Health tab map to
+    let farmers record on-the-ground observations and optionally attach an
+    image-prediction result.
+    """
+
+    __tablename__ = "irrigation_field_observations"
+
+    observation_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    field_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("irrigation_crop_fields.field_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    latitude: Mapped[float] = mapped_column(Float, nullable=False)
+    longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    severity: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    photo_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prediction_label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    prediction_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+
 class WaterManagementState(Base):
     __tablename__ = "irrigation_water_management_state"
 

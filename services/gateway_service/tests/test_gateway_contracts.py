@@ -21,6 +21,16 @@ _SPEC = importlib.util.spec_from_file_location("gateway_service_main", _MAIN_PAT
 _gateway = importlib.util.module_from_spec(_SPEC)
 assert _SPEC and _SPEC.loader
 _SPEC.loader.exec_module(_gateway)
+_gateway.SERVICES.update(
+    {
+        "auth": "http://127.0.0.1:8001",
+        "irrigation": "http://127.0.0.1:8002",
+        "forecasting": "http://127.0.0.1:8003",
+        "planning": "http://127.0.0.1:8004",
+        "iot": "http://127.0.0.1:8006",
+        "crop_health": "http://127.0.0.1:8007",
+    }
+)
 
 client = TestClient(_gateway.app)
 
@@ -267,6 +277,92 @@ def test_irrigation_officer_overview_route_contract(mock_request):
 
 
 @patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_irrigation_officer_valves_route_contract(mock_request):
+    mock_request.return_value = _response({"count": 1, "items": []})
+
+    resp = client.get("/api/v1/irrigation/officer/valves?status=OPEN")
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8002/api/v1/irrigation/officer/valves?status=OPEN"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_water_management_route_contract(mock_request):
+    mock_request.return_value = _response({"active_storage_mcm": 120.0})
+
+    resp = client.get("/api/v1/water-management/reservoir/current")
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8002/api/v1/water-management/reservoir/current"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_farmer_forecast_summary_route_contract(mock_request):
+    mock_request.return_value = _response({"status": "ok"})
+
+    resp = client.get("/api/v1/irrigation/farmer/fields/field-1/forecast-summary")
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8002/api/v1/irrigation/farmer/fields/field-1/forecast-summary"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_farmer_area_summary_route_contract(mock_request):
+    mock_request.return_value = _response({"status": "ok"})
+
+    resp = client.post(
+        "/api/v1/irrigation/farmer/area-summary",
+        json={"mode": "all"},
+    )
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8002/api/v1/irrigation/farmer/area-summary"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_farmer_forecast_area_summary_route_contract(mock_request):
+    mock_request.return_value = _response({"status": "ok"})
+
+    resp = client.post(
+        "/api/v1/irrigation/farmer/forecast-area-summary",
+        json={"mode": "all"},
+    )
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8002/api/v1/irrigation/farmer/forecast-area-summary"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_farmer_crop_health_area_summary_route_contract(mock_request):
+    mock_request.return_value = _response({"status": "ok"})
+
+    resp = client.post(
+        "/api/v1/irrigation/farmer/crop-health-area-summary",
+        json={"mode": "all"},
+    )
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8002/api/v1/irrigation/farmer/crop-health-area-summary"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_crop_health_alerts_route_contract(mock_request):
+    mock_request.return_value = _response({"status": "ok", "alerts": []})
+
+    resp = client.get("/api/v1/crop-health/alerts?num_zones=8")
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8007/api/v1/crop-health/alerts?num_zones=8"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
 def test_forecast_weather_route_contract(mock_request):
     mock_request.return_value = _response({"status": "ok"})
 
@@ -275,6 +371,17 @@ def test_forecast_weather_route_contract(mock_request):
     assert resp.status_code == 200
     _, kwargs = mock_request.call_args
     assert kwargs["url"] == "http://127.0.0.1:8003/api/weather/current"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_forecast_weather_alerts_route_contract(mock_request):
+    mock_request.return_value = _response({"status": "ok", "alerts": []})
+
+    resp = client.get("/api/v1/forecast/weather/alerts?days=14")
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8003/api/weather/alerts?days=14"
 
 
 @patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
@@ -311,6 +418,90 @@ def test_planning_scenario_contract(mock_request):
     assert resp.status_code == 200
     _, kwargs = mock_request.call_args
     assert kwargs["url"] == "http://127.0.0.1:8004/f4/recommendations/scenario-evaluate"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_planning_operator_overview_contract(mock_request):
+    mock_request.return_value = _response({"data": {"field_count": 0}})
+
+    resp = client.get("/api/v1/planning/operator/overview?season=Maha-2025")
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8004/f4/operator/overview?season=Maha-2025"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_planning_operator_plan_contract(mock_request):
+    mock_request.return_value = _response({"data": {"allocation": []}})
+
+    resp = client.post(
+        "/api/v1/planning/operator/plan",
+        json={"season": "Maha-2025", "water_quota_mm": 1200},
+    )
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8004/f4/operator/plan"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_planning_farmer_recommend_contract(mock_request):
+    mock_request.return_value = _response({"recommendations": []})
+
+    resp = client.post(
+        "/api/v1/planning/farmer/recommend",
+        json={"field_id": "FIELD-001", "soil_type": "Loam", "season": "Maha-2025"},
+    )
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8004/f4/farmer/recommend"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_planning_farmer_area_optimize_contract(mock_request):
+    mock_request.return_value = _response({"crop_rankings": []})
+
+    resp = client.post(
+        "/api/v1/planning/farmer/area-optimize",
+        json={"mode": "fields", "field_ids": ["FIELD-001"]},
+    )
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8004/f4/farmer/area-optimize"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_planning_farmer_crop_detail_contract(mock_request):
+    mock_request.return_value = _response({"crop": {}})
+
+    resp = client.get(
+        "/api/v1/planning/farmer/crop-detail"
+        "?field_id=FIELD-001&crop_id=CROP-002&season=Maha-2025"
+    )
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == (
+        "http://127.0.0.1:8004/f4/farmer/crop-detail"
+        "?field_id=FIELD-001&crop_id=CROP-002&season=Maha-2025"
+    )
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_planning_farmer_select_contract(mock_request):
+    mock_request.return_value = _response({"persisted": True})
+
+    resp = client.post(
+        "/api/v1/planning/farmer/select",
+        json={"field_id": "FIELD-001", "crop_id": "CROP-002", "season": "Maha-2025"},
+    )
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8004/f4/farmer/select"
 
 
 @patch.object(_gateway.http_client, "get", new_callable=AsyncMock)

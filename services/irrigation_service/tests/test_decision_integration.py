@@ -560,6 +560,115 @@ def test_officer_overview_requires_scheme_assignment():
     assert response.status_code == 403
 
 
+def test_officer_farmers_requires_scheme_assignment():
+    app = _test_app()
+
+    async def _officer_context() -> Dict[str, Any]:
+        return {"id": "u-officer-01", "username": "officer", "roles": ["officer"], "scheme_ids": []}
+
+    app.dependency_overrides[get_current_user_context] = _officer_context
+    client = TestClient(app)
+
+    response = client.get("/api/v1/farm/farmers")
+    assert response.status_code == 403
+
+
+def test_officer_farmers_grouped_contract(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
+    now = datetime.utcnow().replace(microsecond=0)
+
+    async def _officer_context() -> Dict[str, Any]:
+        return {
+            "id": "u-officer-01",
+            "username": "officer",
+            "roles": ["officer"],
+            "scheme_ids": ["scheme-1"],
+        }
+
+    async def _fields(_session: object):
+        return [
+            {
+                "field_id": "field-1",
+                "field_name": "North block",
+                "owner_id": "farmer-1",
+                "scheme_id": "scheme-1",
+                "crop_type": "rice",
+                "area_hectares": 1.5,
+                "lifecycle_state": "LIVE",
+                "water_level_min_pct": 40,
+                "water_level_max_pct": 80,
+                "water_level_critical_pct": 20,
+                "soil_moisture_min_pct": 50,
+                "soil_moisture_max_pct": 85,
+                "soil_moisture_critical_pct": 30,
+            },
+            {
+                "field_id": "field-2",
+                "field_name": "Outside scheme",
+                "owner_id": "farmer-2",
+                "scheme_id": "scheme-2",
+                "crop_type": "rice",
+                "area_hectares": 2.0,
+                "lifecycle_state": "LIVE",
+            },
+        ]
+
+    async def _latest(_session: object, field_id: str):
+        if field_id == "field-1":
+            return {
+                "field_id": "field-1",
+                "timestamp": (now - timedelta(seconds=20)).isoformat(),
+                "soil_moisture_pct": 54,
+                "water_level_pct": 64,
+            }
+        return None
+
+    async def _valve(_session: object, field_id: str):
+        return {"status": "OPEN" if field_id == "field-1" else "CLOSED", "position_pct": 70}
+
+    async def _manual(_session: object, **kwargs: Any):
+        assert kwargs["field_id"] == "field-1"
+        return [
+            {
+                "request_id": "req-1",
+                "field_id": "field-1",
+                "status": "PENDING",
+                "created_at": (now - timedelta(minutes=2)).isoformat(),
+                "requested_action": "OPEN",
+                "requested_position_pct": 80,
+                "reason": "quota review",
+            }
+        ]
+
+    app.dependency_overrides[get_current_user_context] = _officer_context
+    monkeypatch.setattr(farm_ops, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(farm_ops, "list_crop_fields", _fields)
+    monkeypatch.setattr(farm_ops, "get_latest_sensor_reading", _latest)
+    monkeypatch.setattr(farm_ops, "get_valve_state", _valve)
+    monkeypatch.setattr(farm_ops, "list_manual_requests", _manual)
+
+    client = TestClient(app)
+    response = client.get("/api/v1/farm/farmers")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 1
+    farmer = body["items"][0]
+    assert farmer["farmer_id"] == "farmer-1"
+    assert farmer["field_count"] == 1
+    assert farmer["total_area_hectares"] == 1.5
+    assert farmer["irrigation"]["open_valves"] == 1
+    assert farmer["irrigation"]["pending_manual_requests"] == 1
+    assert farmer["telemetry"]["live_fields"] == 1
+
+    detail = client.get("/api/v1/farm/farmers/farmer-1")
+    assert detail.status_code == 200
+    detail_body = detail.json()
+    assert detail_body["farmer"]["farmer_id"] == "farmer-1"
+    assert detail_body["fields"][0]["field_id"] == "field-1"
+    assert detail_body["fields"][0]["latest_telemetry"]["soil_moisture_pct"] == 54
+
+
 def test_officer_overview_contract(monkeypatch: pytest.MonkeyPatch):
     app = _test_app()
     now = datetime.utcnow().replace(microsecond=0)
@@ -613,6 +722,9 @@ def test_officer_overview_contract(monkeypatch: pytest.MonkeyPatch):
     async def _latest(_session: object, _field_id: str):
         return {"timestamp": (now - timedelta(seconds=40)).isoformat()}
 
+    async def _valve(_session: object, field_id: str):
+        return {"status": "OPEN" if field_id == "field-1" else "CLOSED", "position_pct": 60}
+
     async def _schedules(_session: object, **_kwargs: Any):
         return [
             {
@@ -629,6 +741,7 @@ def test_officer_overview_contract(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(farm_ops, "list_crop_fields", _fields)
     monkeypatch.setattr(farm_ops, "list_manual_requests", _manual)
     monkeypatch.setattr(farm_ops, "get_latest_sensor_reading", _latest)
+    monkeypatch.setattr(farm_ops, "get_valve_state", _valve)
     monkeypatch.setattr(farm_ops, "list_hydraulic_schedules", _schedules)
 
     client = TestClient(app)
@@ -645,8 +758,110 @@ def test_officer_overview_contract(monkeypatch: pytest.MonkeyPatch):
     assert summary["scheme_id"] == "scheme-1"
     assert summary["queue"]["pending_requests"] == 1
     assert summary["telemetry"]["total_fields"] == 1
+    assert summary["telemetry"]["open_valves"] == 1
     assert summary["hydraulic"]["accepted_schedules"] == 1
+    assert body["active_valves"] == 1
     assert "status" in summary
     assert "data_available" in summary
     assert "observed_at" in summary
     assert "staleness_sec" in summary
+
+
+def test_officer_valves_contract(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
+    now = datetime.utcnow().replace(microsecond=0)
+
+    async def _officer_context() -> Dict[str, Any]:
+        return {
+            "id": "u-officer-01",
+            "username": "officer",
+            "roles": ["officer"],
+            "scheme_ids": ["scheme-1"],
+        }
+
+    async def _fields(_session: object):
+        return [
+            {
+                "field_id": "field-1",
+                "field_name": "North block",
+                "owner_id": "farmer-1",
+                "scheme_id": "scheme-1",
+                "crop_type": "rice",
+                "area_hectares": 1.5,
+                "auto_control_enabled": True,
+                "lifecycle_state": "LIVE",
+                "water_level_min_pct": 40,
+                "water_level_max_pct": 80,
+                "water_level_critical_pct": 20,
+                "soil_moisture_min_pct": 50,
+                "soil_moisture_max_pct": 85,
+                "soil_moisture_critical_pct": 30,
+            },
+            {
+                "field_id": "field-2",
+                "field_name": "South block",
+                "owner_id": "farmer-2",
+                "scheme_id": "scheme-1",
+                "crop_type": "rice",
+                "area_hectares": 1.0,
+                "auto_control_enabled": False,
+                "lifecycle_state": "LIVE",
+                "water_level_min_pct": 40,
+                "water_level_max_pct": 80,
+                "water_level_critical_pct": 20,
+                "soil_moisture_min_pct": 50,
+                "soil_moisture_max_pct": 85,
+                "soil_moisture_critical_pct": 30,
+            },
+            {
+                "field_id": "field-3",
+                "field_name": "Outside scheme",
+                "owner_id": "farmer-3",
+                "scheme_id": "scheme-2",
+                "crop_type": "rice",
+                "area_hectares": 2.0,
+            },
+        ]
+
+    async def _latest(_session: object, field_id: str):
+        if field_id == "field-1":
+            return {
+                "field_id": field_id,
+                "timestamp": (now - timedelta(seconds=10)).isoformat(),
+                "soil_moisture_pct": 62,
+                "water_level_pct": 66,
+            }
+        return None
+
+    async def _valve(_session: object, field_id: str):
+        return {"status": "OPEN" if field_id == "field-1" else "CLOSED", "position_pct": 70}
+
+    async def _manual(_session: object, **kwargs: Any):
+        if kwargs["field_id"] == "field-2":
+            return [{"request_id": "req-2", "field_id": "field-2", "status": "PENDING"}]
+        return []
+
+    app.dependency_overrides[get_current_user_context] = _officer_context
+    monkeypatch.setattr(farm_ops, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(farm_ops, "list_crop_fields", _fields)
+    monkeypatch.setattr(farm_ops, "get_latest_sensor_reading", _latest)
+    monkeypatch.setattr(farm_ops, "get_valve_state", _valve)
+    monkeypatch.setattr(farm_ops, "list_manual_requests", _manual)
+
+    client = TestClient(app)
+    response = client.get("/api/v1/irrigation/officer/valves")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_fields"] == 2
+    assert body["open_valves"] == 1
+    assert body["closed_valves"] == 1
+    assert body["auto_control_enabled_fields"] == 1
+    assert body["pending_manual_requests"] == 1
+    assert [item["field_id"] for item in body["items"]] == ["field-1", "field-2"]
+
+    opened = client.get("/api/v1/irrigation/officer/valves?status=OPEN")
+    assert opened.status_code == 200
+    opened_body = opened.json()
+    assert opened_body["total_fields"] == 1
+    assert opened_body["items"][0]["field_id"] == "field-1"

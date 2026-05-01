@@ -32,6 +32,7 @@ from app.core.schemas import (
 )
 from app.core.config import get_settings
 from app.core.contracts import build_contract
+from app.data.crop_catalog import DEFAULT_CROPS
 from app.data.db import get_db
 from app.data.repositories import CropRepository, RunArtifactRepository
 from app.dependencies.auth import get_current_user_context
@@ -50,8 +51,21 @@ router = APIRouter(
 
 
 def load_crops_from_db(db_session: Session) -> List[Dict[str, Any]]:
-    """Load crop catalog from persisted database rows."""
+    """Load crop catalog with a baked-in fallback.
+
+    Order of preference: DB rows → ``DEFAULT_CROPS`` (baked-in catalog
+    that matches the LightGBM price model's label encoder). The fallback
+    keeps the recommendation engine usable when postgres is down or the
+    seed step never ran.
+    """
     crops = CropRepository.list_candidate_crops(db_session)
+    if not crops:
+        logger.info(
+            "Crop catalog empty in DB; falling back to %s baked-in defaults",
+            len(DEFAULT_CROPS),
+        )
+        crops = [dict(crop) for crop in DEFAULT_CROPS]
+
     result: List[Dict[str, Any]] = []
     for crop in crops:
         result.append(
@@ -426,7 +440,6 @@ async def get_adaptive_recommendations(
         )
         response = AdaptiveRecommendationResponse(
             success=success,
-            message=message,
             input_summary=_input_summary(crops_evaluated),
             recommendations=recommendations,
             total_crops_evaluated=crops_evaluated,

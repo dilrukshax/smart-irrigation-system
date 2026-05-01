@@ -12,6 +12,7 @@ Usage:
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 from urllib.parse import quote_plus
 
@@ -21,6 +22,17 @@ from app.core.config_bootstrap import apply_remote_config
 
 
 apply_remote_config(default_service_name="optimize_service")
+
+_CONFIG_FILE = Path(__file__).resolve()
+_SERVICE_ENV_FILE = _CONFIG_FILE.parents[2] / ".env"
+_REPO_ENV_FILE = next(
+    (
+        parent / ".env"
+        for parent in _CONFIG_FILE.parents
+        if (parent / "CLAUDE.md").exists()
+    ),
+    _SERVICE_ENV_FILE,
+)
 
 
 class Settings(BaseSettings):
@@ -66,6 +78,7 @@ class Settings(BaseSettings):
     db_name: str = "aca_o_db"
     db_sslmode: str = "disable"  # set to "require" for NeonDB/cloud Postgres
     database_url_override: Optional[str] = Field(default=None, validation_alias="DATABASE_URL")
+    neon_database_url: Optional[str] = Field(default=None, validation_alias="NEON_DATABASE_URL")
 
     # External service URLs (other microservices in the system)
     irrigation_service_url: str = "http://localhost:8002"
@@ -84,7 +97,9 @@ class Settings(BaseSettings):
 
     # Model configuration - tells Pydantic where to load settings from
     model_config = SettingsConfigDict(
-        env_file=".env",           # Load from .env file if present
+        # Load service-local settings first, then the repo root for shared
+        # local-dev values such as NEON_DATABASE_URL.
+        env_file=(str(_SERVICE_ENV_FILE), str(_REPO_ENV_FILE)),
         env_file_encoding="utf-8",
         case_sensitive=False,       # Environment variables are case-insensitive
         extra="ignore",             # Ignore extra fields in .env
@@ -103,6 +118,12 @@ class Settings(BaseSettings):
         """
         if self.database_url_override:
             return self.database_url_override
+        if (
+            self.neon_database_url
+            and self.app_env.lower() in {"development", "dev", "local"}
+            and self.db_host.strip().lower() in {"localhost", "127.0.0.1"}
+        ):
+            return self.neon_database_url
 
         # URL encode the password to handle special characters like @, %, etc.
         encoded_password = quote_plus(self.db_password)
@@ -136,6 +157,26 @@ class Settings(BaseSettings):
                     1,
                 )
             return self.database_url_override
+        if (
+            self.neon_database_url
+            and self.app_env.lower() in {"development", "dev", "local"}
+            and self.db_host.strip().lower() in {"localhost", "127.0.0.1"}
+        ):
+            if self.neon_database_url.startswith("postgresql+asyncpg://"):
+                return self.neon_database_url
+            if self.neon_database_url.startswith("postgresql://"):
+                return self.neon_database_url.replace(
+                    "postgresql://",
+                    "postgresql+asyncpg://",
+                    1,
+                )
+            if self.neon_database_url.startswith("postgres://"):
+                return self.neon_database_url.replace(
+                    "postgres://",
+                    "postgresql+asyncpg://",
+                    1,
+                )
+            return self.neon_database_url
 
         # URL encode the password to handle special characters
         encoded_password = quote_plus(self.db_password)

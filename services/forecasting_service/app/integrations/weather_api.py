@@ -84,29 +84,59 @@ class WeatherAPIClient:
                 stale_after_sec=900,
             ),
         }
+
+    def _resolve_coordinates(
+        self,
+        lat: Optional[float] = None,
+        lon: Optional[float] = None,
+    ) -> tuple[float, float]:
+        resolved_lat = float(lat) if lat is not None else float(self.latitude)
+        resolved_lon = float(lon) if lon is not None else float(self.longitude)
+        return resolved_lat, resolved_lon
+
+    def _coordinate_cache_key(self, prefix: str, lat: float, lon: float) -> str:
+        return f"{prefix}_{lat:.5f}_{lon:.5f}"
+
+    def _location_payload(self, lat: float, lon: float) -> Dict[str, Any]:
+        is_default = abs(lat - self.DEFAULT_LAT) < 0.0001 and abs(lon - self.DEFAULT_LON) < 0.0001
+        return {
+            "latitude": lat,
+            "longitude": lon,
+            "region": "Udawalawe, Sri Lanka" if is_default else "Field coordinates, Sri Lanka",
+        }
     
-    async def get_current_weather(self) -> Dict[str, Any]:
+    async def get_current_weather(
+        self,
+        lat: Optional[float] = None,
+        lon: Optional[float] = None,
+    ) -> Dict[str, Any]:
         """
         Get current weather conditions.
         
         Returns:
             Dict with temperature, humidity, rainfall, wind, etc.
         """
-        cache_key = "current"
+        resolved_lat, resolved_lon = self._resolve_coordinates(lat, lon)
+        cache_key = self._coordinate_cache_key("current", resolved_lat, resolved_lon)
         if self._is_cache_valid(cache_key):
             return self._cache[cache_key]
         
         try:
-            weather = await self._fetch_open_meteo_current()
+            weather = await self._fetch_open_meteo_current(resolved_lat, resolved_lon)
             self._update_cache(cache_key, weather)
             return weather
         except Exception as e:
             logger.warning(f"Failed to fetch weather API: {e}.")
             if settings.is_strict_live_data:
                 return self._source_unavailable("Current weather source unavailable")
-            return self._generate_simulated_current()
+            return self._generate_simulated_current(resolved_lat, resolved_lon)
     
-    async def get_forecast(self, days: int = 7) -> Dict[str, Any]:
+    async def get_forecast(
+        self,
+        days: int = 7,
+        lat: Optional[float] = None,
+        lon: Optional[float] = None,
+    ) -> Dict[str, Any]:
         """
         Get weather forecast for specified days.
         
@@ -116,21 +146,27 @@ class WeatherAPIClient:
         Returns:
             Dict with daily and hourly forecasts
         """
-        cache_key = f"forecast_{days}"
+        resolved_lat, resolved_lon = self._resolve_coordinates(lat, lon)
+        cache_key = self._coordinate_cache_key(f"forecast_{days}", resolved_lat, resolved_lon)
         if self._is_cache_valid(cache_key):
             return self._cache[cache_key]
         
         try:
-            forecast = await self._fetch_open_meteo_forecast(days)
+            forecast = await self._fetch_open_meteo_forecast(days, resolved_lat, resolved_lon)
             self._update_cache(cache_key, forecast)
             return forecast
         except Exception as e:
             logger.warning(f"Failed to fetch forecast: {e}.")
             if settings.is_strict_live_data:
                 return self._source_unavailable("Weather forecast source unavailable")
-            return self._generate_simulated_forecast(days)
+            return self._generate_simulated_forecast(days, resolved_lat, resolved_lon)
     
-    async def get_historical(self, days_back: int = 30) -> Dict[str, Any]:
+    async def get_historical(
+        self,
+        days_back: int = 30,
+        lat: Optional[float] = None,
+        lon: Optional[float] = None,
+    ) -> Dict[str, Any]:
         """
         Get historical weather data.
         
@@ -140,26 +176,27 @@ class WeatherAPIClient:
         Returns:
             Dict with historical weather data
         """
-        cache_key = f"historical_{days_back}"
+        resolved_lat, resolved_lon = self._resolve_coordinates(lat, lon)
+        cache_key = self._coordinate_cache_key(f"historical_{days_back}", resolved_lat, resolved_lon)
         if self._is_cache_valid(cache_key):
             return self._cache[cache_key]
         
         try:
-            historical = await self._fetch_open_meteo_historical(days_back)
+            historical = await self._fetch_open_meteo_historical(days_back, resolved_lat, resolved_lon)
             self._update_cache(cache_key, historical)
             return historical
         except Exception as e:
             logger.warning(f"Failed to fetch historical data: {e}.")
             if settings.is_strict_live_data:
                 return self._source_unavailable("Historical weather source unavailable")
-            return self._generate_simulated_historical(days_back)
+            return self._generate_simulated_historical(days_back, resolved_lat, resolved_lon)
     
-    async def _fetch_open_meteo_current(self) -> Dict[str, Any]:
+    async def _fetch_open_meteo_current(self, lat: float, lon: float) -> Dict[str, Any]:
         """Fetch current weather from Open-Meteo API."""
         url = f"{self.OPEN_METEO_BASE}/forecast"
         params = {
-            "latitude": self.latitude,
-            "longitude": self.longitude,
+            "latitude": lat,
+            "longitude": lon,
             "current": "temperature_2m,relative_humidity_2m,precipitation,rain,weather_code,wind_speed_10m,wind_direction_10m,pressure_msl,cloud_cover",
             "timezone": "Asia/Colombo"
         }
@@ -174,11 +211,7 @@ class WeatherAPIClient:
         return self._annotate_contract({
             "status": "success",
             "source": "open-meteo",
-            "location": {
-                "latitude": self.latitude,
-                "longitude": self.longitude,
-                "region": "Udawalawe, Sri Lanka"
-            },
+            "location": self._location_payload(lat, lon),
             "timestamp": datetime.now().isoformat(),
             "conditions": {
                 "temperature_c": current.get("temperature_2m", 28),
@@ -195,12 +228,12 @@ class WeatherAPIClient:
             "irrigation_impact": self._calculate_irrigation_impact(current)
         }, source="open-meteo", data_available=True)
     
-    async def _fetch_open_meteo_forecast(self, days: int) -> Dict[str, Any]:
+    async def _fetch_open_meteo_forecast(self, days: int, lat: float, lon: float) -> Dict[str, Any]:
         """Fetch weather forecast from Open-Meteo API."""
         url = f"{self.OPEN_METEO_BASE}/forecast"
         params = {
-            "latitude": self.latitude,
-            "longitude": self.longitude,
+            "latitude": lat,
+            "longitude": lon,
             "hourly": "temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,rain,weather_code,evapotranspiration",
             "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,rain_sum,precipitation_probability_max,weather_code,sunrise,sunset,et0_fao_evapotranspiration",
             "timezone": "Asia/Colombo",
@@ -251,11 +284,7 @@ class WeatherAPIClient:
         return self._annotate_contract({
             "status": "success",
             "source": "open-meteo",
-            "location": {
-                "latitude": self.latitude,
-                "longitude": self.longitude,
-                "region": "Udawalawe, Sri Lanka"
-            },
+            "location": self._location_payload(lat, lon),
             "generated_at": datetime.now().isoformat(),
             "forecast_days": days,
             "daily": daily_forecast,
@@ -268,15 +297,15 @@ class WeatherAPIClient:
             }
         }, source="open-meteo", data_available=True)
     
-    async def _fetch_open_meteo_historical(self, days_back: int) -> Dict[str, Any]:
+    async def _fetch_open_meteo_historical(self, days_back: int, lat: float, lon: float) -> Dict[str, Any]:
         """Fetch historical weather from Open-Meteo Archive API."""
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days_back)
         
         url = f"{self.OPEN_METEO_BASE}/forecast"  # Use forecast with past_days
         params = {
-            "latitude": self.latitude,
-            "longitude": self.longitude,
+            "latitude": lat,
+            "longitude": lon,
             "hourly": "temperature_2m,relative_humidity_2m,precipitation,rain",
             "past_days": min(days_back, 92),  # Max 92 days
             "forecast_days": 0,
@@ -306,6 +335,7 @@ class WeatherAPIClient:
         return self._annotate_contract({
             "status": "success",
             "source": "open-meteo",
+            "location": self._location_payload(lat, lon),
             "period": {
                 "start": start_date.isoformat(),
                 "end": end_date.isoformat(),
@@ -472,8 +502,9 @@ class WeatherAPIClient:
         self._cache[key] = data
         self._last_fetch[key] = datetime.now().timestamp()
     
-    def _generate_simulated_current(self) -> Dict[str, Any]:
+    def _generate_simulated_current(self, lat: Optional[float] = None, lon: Optional[float] = None) -> Dict[str, Any]:
         """Generate simulated current weather for fallback."""
+        resolved_lat, resolved_lon = self._resolve_coordinates(lat, lon)
         # Seasonal simulation for Sri Lanka
         month = datetime.now().month
         is_monsoon = month in [5, 6, 7, 10, 11]  # SW & NE monsoons
@@ -484,11 +515,7 @@ class WeatherAPIClient:
         return self._annotate_contract({
             "status": "success",
             "source": "simulated",
-            "location": {
-                "latitude": self.latitude,
-                "longitude": self.longitude,
-                "region": "Udawalawe, Sri Lanka"
-            },
+            "location": self._location_payload(resolved_lat, resolved_lon),
             "timestamp": datetime.now().isoformat(),
             "conditions": {
                 "temperature_c": round(base_temp + random.uniform(-3, 5), 1),
@@ -509,8 +536,14 @@ class WeatherAPIClient:
             }
         }, source="simulated", data_available=True)
     
-    def _generate_simulated_forecast(self, days: int) -> Dict[str, Any]:
+    def _generate_simulated_forecast(
+        self,
+        days: int,
+        lat: Optional[float] = None,
+        lon: Optional[float] = None,
+    ) -> Dict[str, Any]:
         """Generate simulated weather forecast for fallback."""
+        resolved_lat, resolved_lon = self._resolve_coordinates(lat, lon)
         daily_forecast = []
         hourly_forecast = []
         
@@ -553,11 +586,7 @@ class WeatherAPIClient:
         return self._annotate_contract({
             "status": "success",
             "source": "simulated",
-            "location": {
-                "latitude": self.latitude,
-                "longitude": self.longitude,
-                "region": "Udawalawe, Sri Lanka"
-            },
+            "location": self._location_payload(resolved_lat, resolved_lon),
             "generated_at": datetime.now().isoformat(),
             "forecast_days": days,
             "daily": daily_forecast,
@@ -570,8 +599,14 @@ class WeatherAPIClient:
             }
         }, source="simulated", data_available=True)
     
-    def _generate_simulated_historical(self, days_back: int) -> Dict[str, Any]:
+    def _generate_simulated_historical(
+        self,
+        days_back: int,
+        lat: Optional[float] = None,
+        lon: Optional[float] = None,
+    ) -> Dict[str, Any]:
         """Generate simulated historical weather for fallback."""
+        resolved_lat, resolved_lon = self._resolve_coordinates(lat, lon)
         daily_data = []
         
         for d in range(days_back):
@@ -593,6 +628,7 @@ class WeatherAPIClient:
         return self._annotate_contract({
             "status": "success",
             "source": "simulated",
+            "location": self._location_payload(resolved_lat, resolved_lon),
             "period": {
                 "start": (datetime.now() - timedelta(days=days_back)).isoformat(),
                 "end": datetime.now().isoformat(),

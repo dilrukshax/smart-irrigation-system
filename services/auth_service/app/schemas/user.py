@@ -143,6 +143,9 @@ class AdminUserCreate(BaseModel):
     """Request body for authority to create users."""
 
     username: str = Field(..., min_length=3, max_length=50)
+    full_name: Optional[str] = Field(None, min_length=2, max_length=120)
+    national_id: Optional[str] = Field(None, max_length=32)
+    phone_number: Optional[str] = Field(None, max_length=32)
     password: str = Field(..., min_length=6, max_length=100)
     email: Optional[str] = None
     roles: List[str] = Field(default_factory=lambda: ["farmer"])
@@ -155,6 +158,42 @@ class AdminUserCreate(BaseModel):
         if not value.replace("_", "").replace("-", "").isalnum():
             raise ValueError("Username can only contain letters, numbers, underscores, and hyphens")
         return value.lower().strip()
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = " ".join(value.strip().split())
+        return normalized or None
+
+    @field_validator("national_id")
+    @classmethod
+    def validate_national_id(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip().upper().replace(" ", "")
+        if normalized == "":
+            return None
+        if not normalized.replace("-", "").isalnum():
+            raise ValueError("ID number can only contain letters, numbers, and hyphens")
+        if len(normalized) < 5:
+            raise ValueError("ID number must have at least 5 characters")
+        return normalized
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone_number(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip().replace(" ", "")
+        if normalized == "":
+            return None
+        if not normalized.replace("+", "", 1).replace("-", "").isdigit():
+            raise ValueError("Phone number can only contain digits, +, spaces, and hyphens")
+        if len(normalized.replace("+", "").replace("-", "")) < 7:
+            raise ValueError("Phone number must have at least 7 digits")
+        return normalized
 
     @field_validator("email")
     @classmethod
@@ -184,6 +223,9 @@ class AdminUserUpdate(BaseModel):
     """Request body for authority to update users."""
 
     username: Optional[str] = Field(None, min_length=3, max_length=50)
+    full_name: Optional[str] = Field(None, min_length=2, max_length=120)
+    national_id: Optional[str] = Field(None, max_length=32)
+    phone_number: Optional[str] = Field(None, max_length=32)
     email: Optional[str] = None
     password: Optional[str] = Field(None, min_length=6, max_length=100)
     roles: Optional[List[str]] = None
@@ -198,6 +240,42 @@ class AdminUserUpdate(BaseModel):
         if not value.replace("_", "").replace("-", "").isalnum():
             raise ValueError("Username can only contain letters, numbers, underscores, and hyphens")
         return value.lower().strip()
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = " ".join(value.strip().split())
+        return normalized or None
+
+    @field_validator("national_id")
+    @classmethod
+    def validate_national_id(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip().upper().replace(" ", "")
+        if normalized == "":
+            return None
+        if not normalized.replace("-", "").isalnum():
+            raise ValueError("ID number can only contain letters, numbers, and hyphens")
+        if len(normalized) < 5:
+            raise ValueError("ID number must have at least 5 characters")
+        return normalized
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone_number(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip().replace(" ", "")
+        if normalized == "":
+            return None
+        if not normalized.replace("+", "", 1).replace("-", "").isdigit():
+            raise ValueError("Phone number can only contain digits, +, spaces, and hyphens")
+        if len(normalized.replace("+", "").replace("-", "")) < 7:
+            raise ValueError("Phone number must have at least 7 digits")
+        return normalized
 
     @field_validator("email")
     @classmethod

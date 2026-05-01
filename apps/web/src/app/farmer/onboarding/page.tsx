@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck
-'use client';
+"use client";
 /* eslint-disable */
 
-import * as React from 'react';
+import * as React from "react";
 import {
   Icon,
   LogoMark,
@@ -20,288 +20,547 @@ import {
   Donut,
   SchemeMap,
   Frame,
-} from '@/components/asi/ui';
-import { farmerNav, officerNav, authorityNav, irrigationNav, optNav } from '@/components/asi/nav';
-import { PublicTop } from '@/components/asi/public-top';
-import { apiPost, ApiError } from '@/lib/api';
-import { useAuth } from '@/lib/auth';
+} from "@/components/asi/ui";
+import {
+  farmerNav,
+  officerNav,
+  authorityNav,
+  irrigationNav,
+  optNav,
+} from "@/components/asi/nav";
+import { PublicTop } from "@/components/asi/public-top";
+import { apiPost, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { LocationPickerMap } from "@/components/asi/location-picker-map";
+
+const SCHEME_OPTIONS = [
+  {
+    value: "H-04",
+    label: "Mahaweli H-04 (Thalawa)",
+    center: [8.3346, 80.5054],
+  },
+  {
+    value: "H-05",
+    label: "Mahaweli H-05 (Galnewa)",
+    center: [8.1996, 80.3777],
+  },
+  {
+    value: "H-07",
+    label: "Mahaweli H-07 (Nochchiyagama)",
+    center: [8.2671, 80.2209],
+  },
+];
+const DEFAULT_SCHEME_ID = "H-04";
 
 const FarmerOnboarding = () => {
   const { user } = useAuth();
-  const [step, setStep] = React.useState(0);
-  const steps = ['Field Details', 'Crop Selection', 'Device Pairing', 'Done'];
 
   // Field details state
-  const [fieldName, setFieldName] = React.useState('');
-  const [areaHa, setAreaHa] = React.useState('2.4');
-  const [soilType, setSoilType] = React.useState('Reddish-Brown Earth');
-  const [schemeId, setSchemeId] = React.useState('H-04');
-  const [latitude, setLatitude] = React.useState('8.3421');
-  const [longitude, setLongitude] = React.useState('80.4891');
-
-  // Crop state
-  const [cropType, setCropType] = React.useState('Paddy Bg 352');
-
-  // Device pairing state
-  const [deviceId, setDeviceId] = React.useState('HP-3A1F-9K22');
-  const [pairingSessionId, setPairingSessionId] = React.useState<string | null>(null);
-  const [pairingStatus, setPairingStatus] = React.useState<string>('');
+  const [fieldName, setFieldName] = React.useState("");
+  const [areaHa, setAreaHa] = React.useState("");
+  const [soilType, setSoilType] = React.useState("");
+  const [schemeId, setSchemeId] = React.useState(DEFAULT_SCHEME_ID);
+  const [latitude, setLatitude] = React.useState("");
+  const [longitude, setLongitude] = React.useState("");
+  const [locationName, setLocationName] = React.useState("");
+  const [mapLayer, setMapLayer] = React.useState<"satellite" | "terrain">(
+    "satellite",
+  );
+  const [locationScreenshot, setLocationScreenshot] =
+    React.useState<File | null>(null);
+  const [locationScreenshotPreview, setLocationScreenshotPreview] =
+    React.useState<string | null>(null);
+  const [locating, setLocating] = React.useState(false);
 
   // Shared state
   const [submitting, setSubmitting] = React.useState(false);
-  const [message, setMessage] = React.useState<{ type: string; text: string } | null>(null);
-  const [createdFieldId, setCreatedFieldId] = React.useState<string | null>(null);
+  const [message, setMessage] = React.useState<{
+    type: string;
+    text: string;
+  } | null>(null);
+  const [createdFieldId, setCreatedFieldId] = React.useState<string | null>(
+    null,
+  );
+
+  const parsedArea = Number.parseFloat(areaHa);
+  const isValidArea = Number.isFinite(parsedArea) && parsedArea > 0;
+  const canCreateField = Boolean(fieldName.trim()) && isValidArea;
+
+  const handleSchemeChange = (nextSchemeId: string) => {
+    const resolvedSchemeId = nextSchemeId || DEFAULT_SCHEME_ID;
+    setSchemeId(resolvedSchemeId);
+    const selected = SCHEME_OPTIONS.find(
+      (scheme) => scheme.value === resolvedSchemeId,
+    );
+    if (!selected) {
+      return;
+    }
+    if (!latitude && !longitude) {
+      setLatitude(selected.center[0].toFixed(6));
+      setLongitude(selected.center[1].toFixed(6));
+    }
+  };
+
+  React.useEffect(() => {
+    const assignedSchemeId = user?.scheme_ids?.[0];
+    if (!assignedSchemeId || schemeId !== DEFAULT_SCHEME_ID) {
+      return;
+    }
+    handleSchemeChange(assignedSchemeId);
+  }, [user?.scheme_ids, schemeId]);
+
+  const handleMapLocationPick = React.useCallback(
+    (lat: number, lng: number) => {
+      setLatitude(lat.toFixed(6));
+      setLongitude(lng.toFixed(6));
+    },
+    [],
+  );
+
+  const handleUseCurrentLocation = () => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setMessage({
+        type: "error",
+        text: "Geolocation is not available on this browser.",
+      });
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLatitude(position.coords.latitude.toFixed(6));
+        setLongitude(position.coords.longitude.toFixed(6));
+        setLocating(false);
+      },
+      () => {
+        setMessage({
+          type: "error",
+          text: "Unable to fetch current location. Please select on the map.",
+        });
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  };
+
+  const handleLocationScreenshotChange = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      setMessage({
+        type: "error",
+        text: "Please upload an image file (PNG, JPG, WEBP).",
+      });
+      return;
+    }
+    if (file.size > 6 * 1024 * 1024) {
+      setMessage({
+        type: "error",
+        text: "Screenshot must be smaller than 6MB.",
+      });
+      return;
+    }
+    if (locationScreenshotPreview) {
+      URL.revokeObjectURL(locationScreenshotPreview);
+    }
+    setLocationScreenshot(file);
+    setLocationScreenshotPreview(URL.createObjectURL(file));
+  };
+
+  const clearLocationScreenshot = () => {
+    if (locationScreenshotPreview) {
+      URL.revokeObjectURL(locationScreenshotPreview);
+    }
+    setLocationScreenshot(null);
+    setLocationScreenshotPreview(null);
+  };
+
+  React.useEffect(() => {
+    return () => {
+      if (locationScreenshotPreview) {
+        URL.revokeObjectURL(locationScreenshotPreview);
+      }
+    };
+  }, [locationScreenshotPreview]);
 
   const handleFieldCreate = async () => {
     if (!fieldName.trim()) {
-      setMessage({ type: 'error', text: 'Field name is required' });
+      setMessage({ type: "error", text: "Field name is required" });
       return;
     }
+    if (!schemeId) {
+      handleSchemeChange(DEFAULT_SCHEME_ID);
+    }
+    if (!canCreateField) {
+      setMessage({
+        type: "error",
+        text: "Please enter a field name and a valid area.",
+      });
+      return;
+    }
+    if (!isValidArea) {
+      setMessage({ type: "error", text: "Please enter a valid field area." });
+      return;
+    }
+
+    const parsedLatitude = Number.parseFloat(latitude);
+    const parsedLongitude = Number.parseFloat(longitude);
+
     setSubmitting(true);
     setMessage(null);
     try {
-      const res = await apiPost<any>('/farm/fields', {
+      const res = await apiPost<any>("/farm/fields", {
         field_name: fieldName,
-        crop_type: cropType,
-        soil_type: soilType,
-        area_hectares: parseFloat(areaHa) || 0,
-        scheme_id: schemeId,
-        latitude: parseFloat(latitude) || null,
-        longitude: parseFloat(longitude) || null,
+        soil_type: soilType || null,
+        area_hectares: parsedArea,
+        scheme_id: schemeId || DEFAULT_SCHEME_ID,
+        latitude: Number.isFinite(parsedLatitude) ? parsedLatitude : null,
+        longitude: Number.isFinite(parsedLongitude) ? parsedLongitude : null,
+        location_name: locationName.trim() || null,
       });
       setCreatedFieldId(res.field_id || res.id);
-      setMessage({ type: 'success', text: 'Field created successfully!' });
-      setStep(2); // Jump to device pairing
+      setMessage({ type: "success", text: "Field created successfully!" });
     } catch (err: any) {
-      setMessage({ type: 'error', text: err?.message || 'Failed to create field' });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handlePairingInitiate = async () => {
-    if (!createdFieldId) {
-      setMessage({ type: 'error', text: 'Please create a field first' });
-      return;
-    }
-    setSubmitting(true);
-    setMessage(null);
-    try {
-      const res = await apiPost<any>('/devices/pairing/initiate', {
-        field_id: createdFieldId,
-        device_id: deviceId,
+      setMessage({
+        type: "error",
+        text: err?.message || "Failed to create field",
       });
-      setPairingSessionId(res.pairing_id || res.session_id);
-      setPairingStatus(res.status || 'PENDING');
-      setMessage({ type: 'success', text: 'Pairing initiated. Verify connection and confirm below.' });
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err?.message || 'Failed to initiate pairing' });
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handlePairingConfirm = async () => {
-    if (!pairingSessionId) return;
-    setSubmitting(true);
+  const resetForm = () => {
+    setFieldName("");
+    setAreaHa("");
+    setSoilType("");
+    setSchemeId(user?.scheme_ids?.[0] || DEFAULT_SCHEME_ID);
+    setLatitude("");
+    setLongitude("");
+    setLocationName("");
+    clearLocationScreenshot();
+    setCreatedFieldId(null);
     setMessage(null);
-    try {
-      await apiPost(`/devices/pairing/${pairingSessionId}/confirm`, { confirm: true });
-      setPairingStatus('CONFIRMED');
-      setMessage({ type: 'success', text: 'Device paired successfully!' });
-      setStep(3);
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err?.message || 'Failed to confirm pairing' });
-    } finally {
-      setSubmitting(false);
-    }
   };
 
-  const displayName = user?.username || 'Farmer';
+  const displayName = user?.username || "Farmer";
 
   return (
-    <div className="asi-root" style={{ width: '100%', minHeight: 820, background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
-      <AppBar breadcrumb={['Onboarding']} user={displayName} role="Setup"/>
-      <div style={{ padding: '28px 56px', flex: 1, overflow: 'auto' }}>
-        <div style={{ maxWidth: 860, margin: '0 auto' }}>
-          {/* Steps */}
-          <div style={{ display: 'flex', gap: 10, marginBottom: 28 }}>
-            {steps.map((s, i) => (
-              <div key={i} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: i === step ? 'white' : 'transparent', border: `1px solid ${i === step ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 10, opacity: i > step ? 0.55 : 1 }}>
-                <div style={{ width: 26, height: 26, borderRadius: 50, background: i < step ? 'var(--primary)' : i === step ? 'var(--primary)' : 'white', color: i <= step ? 'white' : 'var(--muted)', border: i > step ? '1px solid var(--border)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 11 }}>
-                  {i < step ? <Icon name="check" size={13}/> : i + 1}
-                </div>
-                <div>
-                  <div style={{ fontSize: 10.5, color: 'var(--muted)', letterSpacing: '0.05em' }}>STEP {i+1}</div>
-                  <div style={{ fontSize: 12.5, fontWeight: 600 }}>{s}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-
+    <div
+      className="asi-root"
+      style={{
+        width: "100%",
+        minHeight: 820,
+        background: "var(--bg)",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <AppBar breadcrumb={["Onboarding"]} user={displayName} role="Setup" />
+      <div style={{ padding: "28px 56px", flex: 1, overflow: "auto" }}>
+        <div style={{ maxWidth: 860, margin: "0 auto" }}>
           {message && (
-            <div style={{
-              marginBottom: 16,
-              padding: 12,
-              background: message.type === 'success' ? '#DCFCE7' : '#FEE2E2',
-              border: `1px solid ${message.type === 'success' ? '#86EFAC' : '#FECACA'}`,
-              borderRadius: 8,
-              color: message.type === 'success' ? '#166534' : '#DC2626',
-              fontSize: 13,
-            }}>
+            <div
+              style={{
+                marginBottom: 16,
+                padding: 12,
+                background: message.type === "success" ? "#DCFCE7" : "#FEE2E2",
+                border: `1px solid ${message.type === "success" ? "#86EFAC" : "#FECACA"}`,
+                borderRadius: 8,
+                color: message.type === "success" ? "#166534" : "#DC2626",
+                fontSize: 13,
+              }}
+            >
               {message.text}
             </div>
           )}
 
-          {/* Step 1 & 2: Field Details + Crop */}
-          {(step === 0 || step === 1) && (
+          {createdFieldId ? (
+            <div className="card" style={{ padding: 48, textAlign: "center" }}>
+              <Icon name="check" size={60} color="var(--primary)" />
+              <h2 style={{ fontSize: 24, marginTop: 16 }}>
+                Field created, {displayName}
+              </h2>
+              <p className="muted" style={{ fontSize: 14, marginTop: 8 }}>
+                This field is now registered to this farmer account. You can
+                view it from the field workspace or add another field.
+              </p>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  marginTop: 24,
+                  justifyContent: "center",
+                  flexWrap: "wrap",
+                }}
+              >
+                <a
+                  href={`/farmer/field/${createdFieldId}`}
+                  className="btn btn-primary"
+                >
+                  View field →
+                </a>
+                <a href="/farmer/fields" className="btn btn-ghost">
+                  My fields
+                </a>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={resetForm}
+                >
+                  Add another field
+                </button>
+              </div>
+            </div>
+          ) : (
             <div className="card" style={{ padding: 28 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '0.08em' }}>STEP {step + 1}</div>
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "var(--muted)",
+                  letterSpacing: "0.08em",
+                }}
+              >
+                NEW FIELD
+              </div>
               <h2 style={{ fontSize: 22, marginTop: 4 }}>
-                {step === 0 ? 'Enter your field details' : 'Select your crop'}
+                Enter your field details
               </h2>
               <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-                {step === 0 ? 'Tell us about your farmland' : 'Choose the crop you want to grow this season'}
+                Tell us about your farmland
               </p>
 
-              {step === 0 && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, marginTop: 22 }}>
-                  <div className="field" style={{ gridColumn: '1 / -1' }}>
-                    <label>Field name</label>
-                    <input className="input" value={fieldName} onChange={(e) => setFieldName(e.target.value)} placeholder="e.g. Home paddy" disabled={submitting}/>
-                  </div>
-                  <div className="field">
-                    <label>Scheme zone</label>
-                    <select className="select" value={schemeId} onChange={(e) => setSchemeId(e.target.value)} disabled={submitting}>
-                      <option value="H-04">Mahaweli H-04 (Thalawa)</option>
-                      <option value="H-05">Mahaweli H-05 (Galnewa)</option>
-                      <option value="H-07">Mahaweli H-07 (Nochchiyagama)</option>
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label>Area (hectares)</label>
-                    <input className="input" type="number" step="0.1" value={areaHa} onChange={(e) => setAreaHa(e.target.value)} disabled={submitting}/>
-                  </div>
-                  <div className="field">
-                    <label>Soil type</label>
-                    <select className="select" value={soilType} onChange={(e) => setSoilType(e.target.value)} disabled={submitting}>
-                      <option>Reddish-Brown Earth</option>
-                      <option>Low-Humic Gley</option>
-                      <option>Alluvial</option>
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label>Latitude</label>
-                    <input className="input" value={latitude} onChange={(e) => setLatitude(e.target.value)} disabled={submitting}/>
-                  </div>
-                  <div className="field">
-                    <label>Longitude</label>
-                    <input className="input" value={longitude} onChange={(e) => setLongitude(e.target.value)} disabled={submitting}/>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                  gap: 14,
+                  marginTop: 22,
+                }}
+              >
+                <div className="field" style={{ gridColumn: "1 / -1" }}>
+                  <label>Field name</label>
+                  <input
+                    className="input"
+                    value={fieldName}
+                    onChange={(e) => setFieldName(e.target.value)}
+                    placeholder="e.g. Home paddy"
+                    disabled={submitting}
+                  />
+                </div>
+                <div className="field">
+                  <label>Scheme zone</label>
+                  <select
+                    className="select"
+                    value={schemeId}
+                    onChange={(e) => handleSchemeChange(e.target.value)}
+                    disabled={submitting}
+                  >
+                    {SCHEME_OPTIONS.map((scheme) => (
+                      <option key={scheme.value} value={scheme.value}>
+                        {scheme.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Area (hectares)</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    value={areaHa}
+                    onChange={(e) => setAreaHa(e.target.value)}
+                    placeholder="e.g. 2.4"
+                    disabled={submitting}
+                  />
+                </div>
+                <div className="field">
+                  <label>Soil type (optional)</label>
+                  <select
+                    className="select"
+                    value={soilType}
+                    onChange={(e) => setSoilType(e.target.value)}
+                    disabled={submitting}
+                  >
+                    <option value="">Select soil type</option>
+                    <option>Reddish-Brown Earth</option>
+                    <option>Low-Humic Gley</option>
+                    <option>Alluvial</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Latitude</label>
+                  <input
+                    className="input"
+                    type="number"
+                    step="0.000001"
+                    value={latitude}
+                    onChange={(e) => setLatitude(e.target.value)}
+                    placeholder="Tap map or use current location"
+                    disabled={submitting}
+                  />
+                </div>
+                <div className="field">
+                  <label>Longitude</label>
+                  <input
+                    className="input"
+                    type="number"
+                    step="0.000001"
+                    value={longitude}
+                    onChange={(e) => setLongitude(e.target.value)}
+                    placeholder="Tap map or use current location"
+                    disabled={submitting}
+                  />
+                </div>
+                <div className="field" style={{ gridColumn: "1 / -1" }}>
+                  <label>Location label (optional)</label>
+                  <input
+                    className="input"
+                    value={locationName}
+                    onChange={(e) => setLocationName(e.target.value)}
+                    placeholder="e.g. Near turnout 3, east canal"
+                    disabled={submitting}
+                  />
+                </div>
+
+                <div className="field" style={{ gridColumn: "1 / -1" }}>
+                  <label>Location selection map</label>
+                  <LocationPickerMap
+                    latitude={latitude}
+                    longitude={longitude}
+                    mapLayer={mapLayer}
+                    onMapLayerChange={setMapLayer}
+                    onLocationPick={handleMapLocationPick}
+                    disabled={submitting}
+                  />
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      marginTop: 10,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={handleUseCurrentLocation}
+                      disabled={submitting || locating}
+                    >
+                      {locating ? "Finding location…" : "Use current location"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => {
+                        setLatitude("");
+                        setLongitude("");
+                      }}
+                      disabled={submitting}
+                    >
+                      Clear coordinates
+                    </button>
                   </div>
                 </div>
-              )}
 
-              {step === 1 && (
-                <div style={{ marginTop: 22 }}>
-                  <div className="field">
-                    <label>Primary crop</label>
-                    <select className="select" value={cropType} onChange={(e) => setCropType(e.target.value)} disabled={submitting}>
-                      <option>Paddy Bg 352</option>
-                      <option>Paddy Bg 360</option>
-                      <option>Maize</option>
-                      <option>Chili</option>
-                      <option>Groundnut</option>
-                      <option>Green gram</option>
-                    </select>
+                <div className="field" style={{ gridColumn: "1 / -1" }}>
+                  <label>Field screenshot / reference image (optional)</label>
+                  <div
+                    style={{
+                      border: "1px dashed var(--border)",
+                      borderRadius: 10,
+                      background: "var(--surface)",
+                      padding: 12,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <label
+                        className="btn btn-ghost btn-sm"
+                        style={{
+                          cursor: submitting ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        Choose image
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          onChange={handleLocationScreenshotChange}
+                          disabled={submitting}
+                          style={{ display: "none" }}
+                        />
+                      </label>
+                      {locationScreenshot && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          onClick={clearLocationScreenshot}
+                          disabled={submitting}
+                        >
+                          Remove image
+                        </button>
+                      )}
+                      <span className="tiny muted">
+                        {locationScreenshot
+                          ? `Attached: ${locationScreenshot.name}`
+                          : "Add a screenshot to document plot boundaries or landmarks."}
+                      </span>
+                    </div>
+
+                    {locationScreenshotPreview && (
+                      <div style={{ marginTop: 10 }}>
+                        <img
+                          src={locationScreenshotPreview}
+                          alt="Field screenshot preview"
+                          style={{
+                            width: "100%",
+                            maxHeight: 220,
+                            objectFit: "cover",
+                            borderRadius: 8,
+                            border: "1px solid var(--border)",
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
-              )}
+              </div>
 
-              <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'space-between' }}>
-                <button className="btn btn-ghost" onClick={() => setStep(step - 1)} disabled={step === 0 || submitting}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  marginTop: 24,
+                  justifyContent: "space-between",
+                }}
+              >
+                <a
+                  href="/farmer/fields"
+                  className="btn btn-ghost"
+                  aria-disabled={submitting}
+                >
                   ← Back
+                </a>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleFieldCreate}
+                  disabled={!canCreateField || submitting}
+                >
+                  {submitting ? "Creating..." : "Create field →"}
                 </button>
-                {step === 0 ? (
-                  <button className="btn btn-primary" onClick={() => setStep(1)} disabled={!fieldName.trim() || submitting}>
-                    Continue →
-                  </button>
-                ) : (
-                  <button className="btn btn-primary" onClick={handleFieldCreate} disabled={submitting}>
-                    {submitting ? 'Creating...' : 'Create field →'}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Step 3: Device Pairing */}
-          {step === 2 && (
-            <div className="card" style={{ padding: 28 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '0.08em' }}>STEP 3</div>
-              <h2 style={{ fontSize: 22, marginTop: 4 }}>Pair your sensor kit</h2>
-              <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>Enter the device ID printed on your kit's gateway.</p>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 22, marginTop: 22 }}>
-                <div style={{ padding: 22, border: '2px dashed var(--primary)', background: 'var(--primary-50)', borderRadius: 12, textAlign: 'center' }}>
-                  <div style={{ width: 110, height: 110, margin: '0 auto', background: 'white', borderRadius: 8, border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Icon name="qr" size={80} color="var(--primary)"/>
-                  </div>
-                  <div style={{ marginTop: 12, fontWeight: 600, fontSize: 13 }}>Device ID on gateway</div>
-                  <div className="tiny muted">Look at the back of your ESP32 kit</div>
-                </div>
-                <div>
-                  <div className="field">
-                    <label>Device ID</label>
-                    <input className="input" placeholder="HP-3A1F-9K22" value={deviceId} onChange={(e) => setDeviceId(e.target.value)} disabled={submitting || pairingStatus === 'CONFIRMED'}/>
-                  </div>
-                  <button className="btn btn-primary" style={{ marginTop: 12, width: '100%' }} onClick={handlePairingInitiate} disabled={submitting || !!pairingSessionId}>
-                    {submitting && !pairingSessionId ? 'Initiating...' : pairingSessionId ? 'Pairing initiated' : 'Initiate pairing'}
-                  </button>
-
-                  {pairingSessionId && pairingStatus !== 'CONFIRMED' && (
-                    <div style={{ marginTop: 16, padding: 12, background: '#F6F8F4', borderRadius: 8 }}>
-                      <div className="between">
-                        <div style={{ fontSize: 12, fontWeight: 600 }}>Pairing session</div>
-                        <Chip kind="warn">{pairingStatus}</Chip>
-                      </div>
-                      <div className="tiny muted" style={{ marginTop: 6 }}>Session: {pairingSessionId}</div>
-                      <button className="btn btn-primary btn-sm" style={{ marginTop: 8, width: '100%' }} onClick={handlePairingConfirm} disabled={submitting}>
-                        {submitting ? 'Confirming...' : 'Confirm pairing'}
-                      </button>
-                    </div>
-                  )}
-
-                  {pairingStatus === 'CONFIRMED' && (
-                    <div style={{ marginTop: 16, padding: 12, background: '#DCFCE7', borderRadius: 8 }}>
-                      <div className="between">
-                        <div style={{ fontSize: 12, fontWeight: 600, color: '#166534' }}>Device paired</div>
-                        <Chip kind="live">Connected</Chip>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'space-between' }}>
-                <button className="btn btn-ghost" onClick={() => setStep(1)} disabled={submitting}>← Back to crops</button>
-                {pairingStatus === 'CONFIRMED' && (
-                  <button className="btn btn-primary" onClick={() => setStep(3)}>Finish →</button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Step 4: Done */}
-          {step === 3 && (
-            <div className="card" style={{ padding: 48, textAlign: 'center' }}>
-              <Icon name="check" size={60} color="var(--primary)"/>
-              <h2 style={{ fontSize: 24, marginTop: 16 }}>All set, {displayName}!</h2>
-              <p className="muted" style={{ fontSize: 14, marginTop: 8 }}>
-                Your field is registered and the sensor is paired. You can start viewing telemetry and receiving auto-decisions.
-              </p>
-              <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'center' }}>
-                <a href="/farmer" className="btn btn-primary">Go to dashboard →</a>
-                <a href={createdFieldId ? `/farmer/field/${createdFieldId}` : '/farmer/fields'} className="btn btn-ghost">View field</a>
               </div>
             </div>
           )}

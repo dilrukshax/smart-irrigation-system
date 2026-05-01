@@ -1,339 +1,165 @@
-"""
-Tests for authentication endpoints.
-"""
+"""Tests for current PostgreSQL-backed authentication routes."""
+
+import uuid
+from datetime import datetime, timezone
+from typing import Any
 
 import pytest
-from httpx import AsyncClient, ASGITransport
-from unittest.mock import AsyncMock, patch, MagicMock
-from bson import ObjectId
-from datetime import datetime, timezone
+from fastapi import HTTPException
 
-# Test data
-TEST_USER_ID = str(ObjectId())
-TEST_USER = {
-    "_id": ObjectId(TEST_USER_ID),
-    "username": "testuser",
-    "email": "test@example.com",
-    "hashed_password": "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4.NnXVDp1UjH9XAG",  # "password123"
-    "roles": ["user"],
-    "is_active": True,
-    "created_at": datetime.now(timezone.utc),
-    "updated_at": datetime.now(timezone.utc),
-}
+from app.api.routes import auth as auth_routes
+from app.core.security import create_refresh_token, hash_password
+from app.models.user import User
+from app.schemas.auth import LoginRequest, RefreshTokenRequest
+from app.schemas.user import UserCreate
 
 
-@pytest.fixture
-def mock_db():
-    """Create a mock database."""
-    mock_collection = AsyncMock()
-    mock_database = MagicMock()
-    mock_database.__getitem__ = MagicMock(return_value=mock_collection)
-    return mock_database, mock_collection
+class _ScalarResult:
+    def __init__(self, value: Any) -> None:
+        self._value = value
+
+    def scalar_one_or_none(self) -> Any:
+        return self._value
 
 
-@pytest.fixture
-def app_with_mock_db(mock_db):
-    """Create app with mocked database."""
-    from app.main import app
-    from app.db import mongo
-    
-    mock_database, mock_collection = mock_db
-    mongo.db.database = mock_database
-    
-    return app, mock_collection
+class _RowsResult:
+    def __init__(self, rows: list[tuple[str]]) -> None:
+        self._rows = rows
+
+    def all(self) -> list[tuple[str]]:
+        return self._rows
 
 
-@pytest.mark.asyncio
-async def test_register_success(app_with_mock_db):
-    """Test successful user registration."""
-    app, mock_collection = app_with_mock_db
-    
-    # Mock insert_one to return a result with inserted_id
-    mock_result = MagicMock()
-    mock_result.inserted_id = ObjectId()
-    mock_collection.insert_one = AsyncMock(return_value=mock_result)
-    
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
-    ) as client:
-        response = await client.post(
-            "/api/auth/register",
-            json={
-                "username": "newuser",
-                "password": "password123",
-                "email": "newuser@example.com"
-            }
-        )
-    
-    assert response.status_code == 201
-    data = response.json()
-    assert data["username"] == "newuser"
-    assert data["email"] == "newuser@example.com"
-    assert data["roles"] == ["user"]
-    assert data["is_active"] is True
-    assert "hashed_password" not in data
+class _FakeSession:
+    def __init__(self, *results: Any) -> None:
+        self._results = list(results)
+        self.added: list[Any] = []
+        self.committed = False
+        self.flushed = False
+        self.rolled_back = False
+
+    def add(self, item: Any) -> None:
+        if getattr(item, "id", None) is None:
+            item.id = uuid.uuid4()
+        now = datetime.now(timezone.utc)
+        if getattr(item, "created_at", None) is None:
+            item.created_at = now
+        if getattr(item, "updated_at", None) is None:
+            item.updated_at = now
+        if getattr(item, "is_active", None) is None:
+            item.is_active = True
+        self.added.append(item)
+
+    async def execute(self, _query: Any) -> Any:
+        if not self._results:
+            raise AssertionError("No fake DB result queued")
+        return self._results.pop(0)
+
+    async def commit(self) -> None:
+        self.committed = True
+
+    async def rollback(self) -> None:
+        self.rolled_back = True
+
+    async def refresh(self, _item: Any) -> None:
+        return None
+
+    async def flush(self) -> None:
+        self.flushed = True
 
 
-@pytest.mark.asyncio
-async def test_register_duplicate_username(app_with_mock_db):
-    """Test registration with duplicate username."""
-    from pymongo.errors import DuplicateKeyError
-    
-    app, mock_collection = app_with_mock_db
-    
-    # Mock insert_one to raise DuplicateKeyError
-    mock_collection.insert_one = AsyncMock(
-        side_effect=DuplicateKeyError("username_1 dup key")
+def _user(*, active: bool = True, roles: list[str] | None = None) -> User:
+    now = datetime.now(timezone.utc)
+    return User(
+        id=uuid.uuid4(),
+        username="testuser",
+        full_name="Test User",
+        national_id="NIC12345",
+        phone_number="+94771234567",
+        email="test@example.com",
+        hashed_password=hash_password("password123"),
+        roles=roles or ["farmer"],
+        is_active=active,
+        created_at=now,
+        updated_at=now,
     )
-    
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
-    ) as client:
-        response = await client.post(
-            "/api/auth/register",
-            json={
-                "username": "existinguser",
-                "password": "password123"
-            }
+
+
+@pytest.mark.asyncio
+async def test_register_success_creates_farmer_account() -> None:
+    db = _FakeSession(_RowsResult([]))
+    payload = UserCreate(username="newuser", password="password123", email="new@example.com")
+
+    response = await auth_routes.register(payload, db=db)
+
+    assert response.username == "newuser"
+    assert response.email == "new@example.com"
+    assert response.roles == ["farmer"]
+    assert response.scheme_ids == []
+    assert db.added[0].hashed_password != "password123"
+    assert db.committed is True
+
+
+@pytest.mark.asyncio
+async def test_login_success_returns_tokens_and_scheme_scope() -> None:
+    user = _user(roles=["officer"])
+    db = _FakeSession(_ScalarResult(user), _RowsResult([("scheme-a",), ("scheme-b",)]))
+
+    response = await auth_routes.login(
+        LoginRequest(username="testuser", password="password123"),
+        db=db,
+    )
+
+    assert response.token_type == "bearer"
+    assert response.access_token
+    assert response.refresh_token
+    assert response.user.username == "testuser"
+    assert response.user.roles == ["officer"]
+    assert response.user.scheme_ids == ["scheme-a", "scheme-b"]
+    assert response.user.email == "test@example.com"
+
+
+@pytest.mark.asyncio
+async def test_login_invalid_password_rejected() -> None:
+    db = _FakeSession(_ScalarResult(_user()))
+
+    with pytest.raises(HTTPException) as exc:
+        await auth_routes.login(
+            LoginRequest(username="testuser", password="wrongpassword"),
+            db=db,
         )
-    
-    assert response.status_code == 409
-    assert "Username already exists" in response.json()["detail"]
+
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "Invalid username or password"
 
 
 @pytest.mark.asyncio
-async def test_login_success(app_with_mock_db):
-    """Test successful login."""
-    app, mock_collection = app_with_mock_db
-    
-    # Create a user with known password hash
-    from app.core.security import hash_password
-    test_user = TEST_USER.copy()
-    test_user["hashed_password"] = hash_password("password123")
-    
-    mock_collection.find_one = AsyncMock(return_value=test_user)
-    
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
-    ) as client:
-        response = await client.post(
-            "/api/auth/login",
-            json={
-                "username": "testuser",
-                "password": "password123"
-            }
+async def test_login_inactive_user_rejected() -> None:
+    db = _FakeSession(_ScalarResult(_user(active=False)))
+
+    with pytest.raises(HTTPException) as exc:
+        await auth_routes.login(
+            LoginRequest(username="testuser", password="password123"),
+            db=db,
         )
-    
-    assert response.status_code == 200
-    data = response.json()
-    assert "access_token" in data
-    assert "refresh_token" in data
-    assert data["token_type"] == "bearer"
-    assert data["user"]["username"] == "testuser"
+
+    assert exc.value.status_code == 403
+    assert "deactivated" in exc.value.detail
 
 
 @pytest.mark.asyncio
-async def test_login_invalid_password(app_with_mock_db):
-    """Test login with invalid password."""
-    app, mock_collection = app_with_mock_db
-    
-    from app.core.security import hash_password
-    test_user = TEST_USER.copy()
-    test_user["hashed_password"] = hash_password("password123")
-    
-    mock_collection.find_one = AsyncMock(return_value=test_user)
-    
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
-    ) as client:
-        response = await client.post(
-            "/api/auth/login",
-            json={
-                "username": "testuser",
-                "password": "wrongpassword"
-            }
-        )
-    
-    assert response.status_code == 401
-    assert "Invalid username or password" in response.json()["detail"]
+async def test_refresh_token_success_uses_current_user_roles() -> None:
+    user = _user(roles=["authority"])
+    refresh_token = create_refresh_token(
+        {"sub": str(user.id), "username": user.username, "roles": ["farmer"]}
+    )
+    db = _FakeSession(_ScalarResult(user))
 
+    response = await auth_routes.refresh_token(
+        RefreshTokenRequest(refresh_token=refresh_token),
+        db=db,
+    )
 
-@pytest.mark.asyncio
-async def test_login_user_not_found(app_with_mock_db):
-    """Test login with non-existent user."""
-    app, mock_collection = app_with_mock_db
-    
-    mock_collection.find_one = AsyncMock(return_value=None)
-    
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
-    ) as client:
-        response = await client.post(
-            "/api/auth/login",
-            json={
-                "username": "nonexistent",
-                "password": "password123"
-            }
-        )
-    
-    assert response.status_code == 401
-    assert "Invalid username or password" in response.json()["detail"]
-
-
-@pytest.mark.asyncio
-async def test_login_inactive_user(app_with_mock_db):
-    """Test login with deactivated user."""
-    app, mock_collection = app_with_mock_db
-    
-    from app.core.security import hash_password
-    test_user = TEST_USER.copy()
-    test_user["hashed_password"] = hash_password("password123")
-    test_user["is_active"] = False
-    
-    mock_collection.find_one = AsyncMock(return_value=test_user)
-    
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
-    ) as client:
-        response = await client.post(
-            "/api/auth/login",
-            json={
-                "username": "testuser",
-                "password": "password123"
-            }
-        )
-    
-    assert response.status_code == 403
-    assert "deactivated" in response.json()["detail"]
-
-
-@pytest.mark.asyncio
-async def test_get_me_success(app_with_mock_db):
-    """Test getting current user info with valid token."""
-    app, mock_collection = app_with_mock_db
-    
-    from app.core.security import create_access_token
-    
-    # Create a valid token
-    token = create_access_token({
-        "sub": TEST_USER_ID,
-        "username": "testuser",
-        "roles": ["user"]
-    })
-    
-    mock_collection.find_one = AsyncMock(return_value=TEST_USER)
-    
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
-    ) as client:
-        response = await client.get(
-            "/api/auth/me",
-            headers={"Authorization": f"Bearer {token}"}
-        )
-    
-    assert response.status_code == 200
-    data = response.json()
-    assert data["username"] == "testuser"
-    assert data["roles"] == ["user"]
-
-
-@pytest.mark.asyncio
-async def test_get_me_invalid_token(app_with_mock_db):
-    """Test getting current user with invalid token."""
-    app, mock_collection = app_with_mock_db
-    
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
-    ) as client:
-        response = await client.get(
-            "/api/auth/me",
-            headers={"Authorization": "Bearer invalid_token"}
-        )
-    
-    assert response.status_code == 401
-
-
-@pytest.mark.asyncio
-async def test_get_me_no_token(app_with_mock_db):
-    """Test getting current user without token."""
-    app, mock_collection = app_with_mock_db
-    
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
-    ) as client:
-        response = await client.get("/api/auth/me")
-    
-    assert response.status_code == 403
-
-
-@pytest.mark.asyncio
-async def test_refresh_token_success(app_with_mock_db):
-    """Test successful token refresh."""
-    app, mock_collection = app_with_mock_db
-    
-    from app.core.security import create_refresh_token
-    
-    # Create a valid refresh token
-    refresh_token = create_refresh_token({
-        "sub": TEST_USER_ID,
-        "username": "testuser",
-        "roles": ["user"]
-    })
-    
-    mock_collection.find_one = AsyncMock(return_value=TEST_USER)
-    
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
-    ) as client:
-        response = await client.post(
-            "/api/auth/refresh",
-            json={"refresh_token": refresh_token}
-        )
-    
-    assert response.status_code == 200
-    data = response.json()
-    assert "access_token" in data
-    assert "refresh_token" in data
-
-
-@pytest.mark.asyncio
-async def test_refresh_token_invalid(app_with_mock_db):
-    """Test token refresh with invalid token."""
-    app, mock_collection = app_with_mock_db
-    
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
-    ) as client:
-        response = await client.post(
-            "/api/auth/refresh",
-            json={"refresh_token": "invalid_token"}
-        )
-    
-    assert response.status_code == 401
-
-
-@pytest.mark.asyncio
-async def test_health_check(app_with_mock_db):
-    """Test health check endpoint."""
-    app, _ = app_with_mock_db
-    
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
-    ) as client:
-        response = await client.get("/health")
-    
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "healthy"
+    assert response.access_token
+    assert response.refresh_token
+    assert response.token_type == "bearer"

@@ -16,7 +16,13 @@ from app.core.contracts import build_contract
 from app.db.repository import add_observation
 from app.db.session import session_scope
 from app.dependencies.auth import require_admin
+from app.ml import ADVANCED_ML_AVAILABLE
 from app.ml.forecasting_system import forecasting_system
+
+try:
+    from app.ml.advanced_forecasting import advanced_forecasting
+except Exception:  # pragma: no cover - optional subsystem
+    advanced_forecasting = None
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +143,89 @@ async def get_status():
         "missing_models": missing_models,
         "timestamp": time.time(),
         **contract,
+    }
+
+
+@router.get("/model-summary")
+async def get_model_summary():
+    """Public model-readiness summary safe for farmer-facing panels.
+
+    This intentionally exposes model metadata and readiness only. Training and
+    admin prediction endpoints stay on the protected v1/v2 routes.
+    """
+    observed_at = time.time()
+    contract = build_contract(
+        source="forecasting_service",
+        observed_at=observed_at,
+        data_available=True,
+        raw_status="ok",
+    )
+    data_summary = forecasting_system.data_summary
+
+    advanced_available = bool(ADVANCED_ML_AVAILABLE and advanced_forecasting is not None)
+    advanced_payload: Dict[str, Any] = {
+        "available": advanced_available,
+        "trained": False,
+        "models": [],
+        "best_model": None,
+        "metrics": {},
+        "features_engineered": 0,
+        "data_points": 0,
+        "uncertainty_supported": False,
+        "message": None if advanced_available else "Advanced ML dependencies unavailable",
+    }
+
+    if advanced_available:
+        metrics = getattr(advanced_forecasting, "metrics", None) or {}
+        best_model = None
+        if metrics:
+            try:
+                best_model = min(metrics.items(), key=lambda item: item[1].get("rmse", float("inf")))[0]
+            except Exception:
+                best_model = next(iter(metrics.keys()), None)
+
+        df = getattr(advanced_forecasting, "df", None)
+        advanced_payload.update(
+            {
+                "trained": bool(getattr(advanced_forecasting, "is_trained", False)),
+                "models": list(metrics.keys()),
+                "best_model": best_model,
+                "metrics": metrics,
+                "features_engineered": len(getattr(advanced_forecasting, "feature_cols", []) or []),
+                "data_points": len(df) if df is not None else 0,
+                "uncertainty_supported": bool(getattr(advanced_forecasting, "quantile_models", {}) or {}),
+                "message": None
+                if getattr(advanced_forecasting, "is_trained", False)
+                else "Advanced models are available but not trained yet",
+            }
+        )
+
+    return {
+        "status": contract["status"],
+        "source": contract["source"],
+        "is_live": contract["is_live"],
+        "observed_at": contract["observed_at"],
+        "staleness_sec": contract["staleness_sec"],
+        "quality": contract["quality"],
+        "data_available": contract["data_available"],
+        "message": contract["message"],
+        "basic_model": {
+            "name": forecasting_system.MODEL_NAME,
+            "version": forecasting_system.MODEL_VERSION,
+            "input_contract_version": forecasting_system.INPUT_CONTRACT_VERSION,
+            "ready": forecasting_system.is_ready,
+            "features_used_count": 24,
+            "data_window": data_summary.get("model_data_window"),
+            "data_points": data_summary,
+            "last_ingest_at": data_summary.get("last_ingest_at"),
+        },
+        "advanced_models": advanced_payload,
+        "scope": {
+            "weather": "field_coordinates",
+            "water_level_model": "service_observations",
+            "field_specific_ml": False,
+            "message": "Weather uses the field coordinates. Water-level ML uses forecasting-service observations until field_id is stored in F3 observations.",
+        },
     }
 
 

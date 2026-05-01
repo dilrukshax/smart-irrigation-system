@@ -10,7 +10,7 @@ import {
   Chip,
   Frame,
 } from '@/components/asi/ui';
-import { officerNav } from '@/components/asi/nav';
+import { buildOfficerNav } from '@/components/asi/nav';
 import { ApiState } from '@/components/asi/api-state';
 import { apiGet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -27,12 +27,12 @@ const Operations = () => {
     setError(null);
     try {
       const [ovRes, reqRes] = await Promise.allSettled([
-        apiGet<any>('/irrigation/officer-overview'),
+        apiGet<any>('/irrigation/officer/overview'),
         apiGet<any>('/irrigation/manual-requests'),
       ]);
       if (ovRes.status === 'fulfilled') setOverview(ovRes.value);
       if (reqRes.status === 'fulfilled') {
-        const list = Array.isArray(reqRes.value) ? reqRes.value : reqRes.value?.requests || reqRes.value?.data || [];
+        const list = Array.isArray(reqRes.value) ? reqRes.value : reqRes.value?.items || reqRes.value?.requests || reqRes.value?.data || [];
         setPendingRequests(list.filter((r: any) => r.status === 'PENDING' || r.status === 'pending'));
       }
 
@@ -51,14 +51,26 @@ const Operations = () => {
   }, [loadData]);
 
   const displayName = user?.username || 'Officer';
-  const fieldsCount = overview?.total_fields ?? overview?.fields?.length ?? 0;
-  const onlineCount = overview?.online_fields ?? 0;
-  const offlineCount = overview?.offline_fields ?? 0;
-  const activeValves = (overview?.fields || []).filter((f: any) => String(f.valve_state?.state || '').toLowerCase() === 'open').length;
-  const anomalies = overview?.anomalies || [];
+  const schemeItems = Array.isArray(overview?.items) ? overview.items : [];
+  const fieldsCount = overview?.total_fields ?? schemeItems.reduce((sum: number, item: any) => sum + Number(item.telemetry?.total_fields || 0), 0);
+  const onlineCount = overview?.online_fields ?? schemeItems.reduce((sum: number, item: any) => sum + Number(item.telemetry?.fresh_fields || item.telemetry?.live_fields || 0), 0);
+  const offlineCount = overview?.offline_fields ?? schemeItems.reduce((sum: number, item: any) => sum + Number(item.telemetry?.stale_fields || 0) + Number(item.telemetry?.no_telemetry_fields || 0), 0);
+  const activeValves = overview?.active_valves ?? 0;
+  const anomalies = overview?.anomalies || schemeItems
+    .filter((item: any) => item.message || item.queue?.pending_requests > 0 || item.telemetry?.stale_fields > 0)
+    .map((item: any) => ({
+      type: item.queue?.pending_requests > 0 ? 'Requests' : 'Telemetry',
+      severity: item.queue?.pending_requests > 0 ? 'warning' : 'info',
+      field_name: item.scheme_id,
+      description: item.message || item.queue?.message || item.telemetry?.message,
+    }));
+  const sidebar = buildOfficerNav('Overview', {
+    'Manual Requests': pendingRequests.length || undefined,
+    'Alert Queue': anomalies.length || undefined,
+  });
 
   return (
-    <Frame sidebar={officerNav} breadcrumb={['Operations', 'Overview']} user={displayName} role={`Officer · ${user?.scheme_ids?.[0] || 'H-04'}`}>
+    <Frame sidebar={sidebar} breadcrumb={['Operations', 'Overview']} user={displayName} role={`Officer · ${user?.scheme_ids?.[0] || 'H-04'}`}>
       <div className="page-head">
         <div>
           <div className="page-title">Operations overview</div>
@@ -145,8 +157,14 @@ const Operations = () => {
               <Link href="/operations/requests" className="btn btn-ghost btn-sm" style={{ width: '100%', marginBottom: 6, justifyContent: 'flex-start' }}>
                 <Icon name="bell" size={13}/> Manual requests
               </Link>
+              <Link href="/operations/farmers" className="btn btn-ghost btn-sm" style={{ width: '100%', marginBottom: 6, justifyContent: 'flex-start' }}>
+                <Icon name="users" size={13}/> Farmers
+              </Link>
               <Link href="/operations/hydraulics" className="btn btn-ghost btn-sm" style={{ width: '100%', marginBottom: 6, justifyContent: 'flex-start' }}>
                 <Icon name="valve" size={13}/> Hydraulics
+              </Link>
+              <Link href="/operations/alerts" className="btn btn-ghost btn-sm" style={{ width: '100%', marginBottom: 6, justifyContent: 'flex-start' }}>
+                <Icon name="bell" size={13}/> Alert queue
               </Link>
               <Link href="/irrigation" className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'flex-start' }}>
                 <Icon name="droplet" size={13}/> Irrigation module

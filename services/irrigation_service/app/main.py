@@ -24,6 +24,7 @@ from app.api.health import router as health_router
 from app.api.sensors import router as sensors_router
 from app.api.water_management import router as water_management_router
 from app.api.farm_ops import ensure_default_field_seed, router as farm_ops_router
+from app.api.farmer_irrigation import router as farmer_irrigation_router
 from app.db.session import close_db, init_db
 from app.ml.irrigation_model import irrigation_model
 from app.ml.water_management_model import water_management_model
@@ -46,7 +47,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"Environment: {settings.environment}")
     await init_db()
     await ensure_default_field_seed()
-    logger.info("Irrigation DB initialized and default field ensured")
+    logger.info("Irrigation DB initialized; legacy default fields cleaned and topology seed ensured")
 
     # Initialize and train ML model
     irrigation_model.train_model()
@@ -90,6 +91,7 @@ app.include_router(health_router)
 app.include_router(sensors_router)
 app.include_router(water_management_router)
 app.include_router(farm_ops_router)
+app.include_router(farmer_irrigation_router)
 
 
 @app.get("/", tags=["Root"])

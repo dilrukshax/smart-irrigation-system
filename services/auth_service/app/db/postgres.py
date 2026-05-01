@@ -209,6 +209,20 @@ async def _seed_default_users() -> None:
         await session.commit()
 
 
+async def _ensure_bootstrap_authority() -> None:
+    """Ensure the configured authority login exists outside debug-only seeds."""
+    from app.core.bootstrap_authority import (
+        ensure_bootstrap_authority,
+        get_bootstrap_authority_config,
+    )
+
+    config = get_bootstrap_authority_config(settings)
+    async with AsyncSessionLocal() as session:
+        await ensure_bootstrap_authority(session, config)
+        await session.commit()
+        logger.info("Ensured bootstrap authority user '%s'", config.username)
+
+
 async def connect_to_db():
     """Create all tables and verify connection on startup."""
     global is_connected
@@ -236,6 +250,9 @@ async def connect_to_db():
 
         if settings.ENSURE_CORE_AUTH_SCHEMA:
             await _normalize_roles()
+
+        if settings.ENSURE_BOOTSTRAP_AUTHORITY:
+            await _ensure_bootstrap_authority()
 
         if settings.DEBUG and settings.SEED_DEFAULT_USERS_ON_STARTUP:
             await _seed_default_users()

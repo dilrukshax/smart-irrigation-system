@@ -5,111 +5,213 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import {
-  Icon,
-  Chip,
-  Frame,
-  BarChart,
-} from '@/components/asi/ui';
-import { optNav } from '@/components/asi/nav';
 import { ApiState } from '@/components/asi/api-state';
-import { apiGet } from '@/lib/api';
-import { useAuth } from '@/lib/auth';
+import { Chip, Icon } from '@/components/asi/ui';
+import { apiGet, apiPost } from '@/lib/api';
+import {
+  AllocationTable,
+  DEFAULT_SEASON,
+  EmptyState,
+  MetricCard,
+  OptimizationFrame,
+  buildQuery,
+  formatCompact,
+  formatDate,
+  formatNumber,
+  gridAuto,
+  statusKind,
+  unwrapData,
+} from '../_components/optimization-shared';
 
-const OptScenarios = () => {
-  const { user } = useAuth();
-  const [scenarios, setScenarios] = React.useState<any[]>([]);
+function ScenariosPage() {
+  const [season, setSeason] = React.useState(DEFAULT_SEASON);
+  const [payload, setPayload] = React.useState<any>(null);
+  const [scenarioName, setScenarioName] = React.useState('');
+  const [waterQuota, setWaterQuota] = React.useState('');
+  const [priceFactor, setPriceFactor] = React.useState('');
+  const [maxRiskLevel, setMaxRiskLevel] = React.useState('high');
+  const [result, setResult] = React.useState<any>(null);
   const [loading, setLoading] = React.useState(true);
+  const [running, setRunning] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const loadData = React.useCallback(async () => {
+  const loadScenarios = React.useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiGet<any>('/planning/recommendations');
-      const list = Array.isArray(res) ? res : res?.recommendations || res?.data || [];
-      setScenarios(list);
+      const response = await apiGet<any>(`/planning/operator/scenarios${buildQuery({ season, limit: 20 })}`);
+      setPayload(response);
     } catch (err: any) {
-      setError(err?.message || 'Failed to load scenarios');
+      setError(err?.message || 'Failed to load saved scenarios');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [season]);
 
   React.useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadScenarios();
+  }, [loadScenarios]);
 
-  const displayName = user?.username || 'Authority';
+  const runScenario = async () => {
+    setRunning(true);
+    setError(null);
+    try {
+      const body: any = {
+        scenario_name: scenarioName || 'custom',
+        season,
+        max_risk_level: maxRiskLevel,
+      };
+      if (waterQuota) body.water_quota_mm = Number(waterQuota);
+      if (priceFactor) body.price_factor = Number(priceFactor);
+      const response = await apiPost<any>('/planning/operator/scenario-evaluate', body);
+      setResult(response);
+      await loadScenarios();
+    } catch (err: any) {
+      setError(err?.message || 'Scenario evaluation failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const scenarios = unwrapData(payload).scenarios || [];
+  const resultData = unwrapData(result);
+  const totalProfit = scenarios.reduce((sum: number, row: any) => sum + (Number(row.total_profit) || 0), 0);
 
   return (
-    <Frame sidebar={optNav('sce')} breadcrumb={['F4 · ACA-O', 'Scenarios']} user={displayName} role="Authority">
-      <div className="page-head">
-        <div>
-          <div className="page-title">Scenarios</div>
-          <div className="page-sub">Past optimization runs · {scenarios.length} saved</div>
+    <OptimizationFrame
+      active="Scenarios"
+      title="Scenarios"
+      subtitle="Saved plan artifacts and operator what-if evaluation"
+      onRefresh={loadScenarios}
+      actions={
+        <Link href="/optimization/planner" className="btn btn-ghost btn-sm">
+          <Icon name="target" size={13}/> Planner
+        </Link>
+      }
+    >
+      <ApiState loading={loading && !payload} error={error && !result ? error : null} onRetry={loadScenarios}>
+        <div style={{ ...gridAuto(220), marginBottom: 14 }}>
+          <MetricCard title="Saved scenarios" value={formatNumber(scenarios.length, 0)} sub="Operator and authority optimization artifacts" icon="chart" chip={payload?.status || 'runs'} kind={statusKind(payload?.status)}/>
+          <MetricCard title="Combined profit" value={formatCompact(totalProfit, 'LKR ')} sub="Sum across loaded artifacts" icon="target" chip="total" kind="sim" color="#6D9F2B"/>
+          <MetricCard title="Latest evaluation" value={result ? formatCompact(resultData.total_profit, 'LKR ') : '-'} sub={result ? resultData.message || result.message : 'Run a what-if scenario'} icon="flash" chip={result?.status || 'scenario'} kind={result ? statusKind(result.status) : 'sim'} color="var(--primary)"/>
         </div>
-        <Link href="/optimization/planner" className="btn btn-primary btn-sm"><Icon name="plus" size={13}/> New scenario</Link>
-      </div>
 
-      <ApiState loading={loading && scenarios.length === 0} error={error} onRetry={loadData}>
-        {scenarios.length === 0 ? (
-          <div className="card" style={{ padding: 40, textAlign: 'center' }}>
-            <Icon name="play" size={40} color="var(--muted)"/>
-            <div style={{ fontSize: 14, fontWeight: 600, marginTop: 12 }}>No scenarios yet</div>
-            <div className="tiny muted" style={{ marginTop: 4 }}>
-              Run an optimization from the <Link href="/optimization/planner" style={{ color: 'var(--primary-600)' }}>Planner</Link> to save scenarios
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 14, alignItems: 'start', marginBottom: 14 }}>
+          <div className="card">
+            <div className="card-head">
+              <div>
+                <div className="card-title">Evaluate scenario</div>
+                <div className="tiny muted">POST /planning/operator/scenario-evaluate</div>
+              </div>
+              <Chip kind="live">backend</Chip>
             </div>
+            <div style={{ ...gridAuto(160), marginTop: 12 }}>
+              <div className="field">
+                <label>Name</label>
+                <input className="input" value={scenarioName} onChange={(event) => setScenarioName(event.target.value)} disabled={running}/>
+              </div>
+              <div className="field">
+                <label>Season</label>
+                <select className="select" value={season} onChange={(event) => setSeason(event.target.value)} disabled={running}>
+                  <option value="Maha-2025">Maha 2025</option>
+                  <option value="Yala-2026">Yala 2026</option>
+                  <option value="Maha-2026">Maha 2026</option>
+                  <option value="Yala-2027">Yala 2027</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>Water quota</label>
+                <input className="input" type="number" min="1" step="10" value={waterQuota} onChange={(event) => setWaterQuota(event.target.value)} disabled={running}/>
+              </div>
+              <div className="field">
+                <label>Price factor</label>
+                <input className="input" type="number" min="0.5" max="2" step="0.05" value={priceFactor} onChange={(event) => setPriceFactor(event.target.value)} disabled={running}/>
+              </div>
+              <div className="field">
+                <label>Maximum risk</label>
+                <select className="select" value={maxRiskLevel} onChange={(event) => setMaxRiskLevel(event.target.value)} disabled={running}>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
+            </div>
+            {error && result && (
+              <div style={{ marginTop: 12, padding: 10, borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#B91C1C', fontSize: 12 }}>
+                {error}
+              </div>
+            )}
+            <button className="btn btn-primary" style={{ width: '100%', height: 40, marginTop: 14 }} onClick={runScenario} disabled={running}>
+              <Icon name="flash" size={14}/> {running ? 'Evaluating...' : 'Evaluate scenario'}
+            </button>
           </div>
+
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div className="card-head" style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
+              <div>
+                <div className="card-title">Latest scenario result</div>
+                <div className="tiny muted">{resultData.scenario_name || 'No scenario run in this session'}</div>
+              </div>
+              {result && <Chip kind={statusKind(result.status)}>{result.status}</Chip>}
+            </div>
+            {result ? <AllocationTable allocation={resultData.allocation}/> : <div className="tiny muted" style={{ padding: 18 }}>Scenario allocations will appear after evaluation.</div>}
+          </div>
+        </div>
+
+        {!scenarios.length ? (
+          <EmptyState
+            icon="chart"
+            title="No saved scenarios yet"
+            actionHref="/optimization/planner"
+            actionLabel="Run planner"
+          >
+            New planner and scenario runs are saved by the optimization service.
+          </EmptyState>
         ) : (
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
-              <div className="card-title">Saved scenarios</div>
+            <div className="card-head" style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
+              <div>
+                <div className="card-title">Saved artifacts</div>
+                <div className="tiny muted">Recent operator and authority F4 runs</div>
+              </div>
             </div>
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>Field/Scheme</th>
+                  <th>Name</th>
+                  <th>Type</th>
                   <th>Season</th>
+                  <th>Status</th>
+                  <th>Area</th>
+                  <th>Profit</th>
                   <th>Generated</th>
-                  <th>Source</th>
-                  <th>Crops</th>
-                  <th></th>
                 </tr>
               </thead>
               <tbody>
-                {scenarios.map((s: any, i: number) => {
-                  const cropCount = (s.recommendations || s.response_data?.recommendations || []).length;
-                  return (
-                    <tr key={s.id || i}>
-                      <td style={{ fontWeight: 600 }}>
-                        {s.field_name || s.scheme_id || s.field_id || '—'}
-                      </td>
-                      <td className="muted">{s.season || '—'}</td>
-                      <td className="muted">
-                        {s.generated_at || s.created_at ? new Date(s.generated_at || s.created_at).toLocaleString() : '—'}
-                      </td>
-                      <td><Chip kind={s.source === 'model' ? 'live' : 'sim'}>{s.source || 'model'}</Chip></td>
-                      <td className="tabular">{cropCount}</td>
-                      <td>
-                        <Link href={`/farmer/field/${s.field_id}`} className="btn btn-ghost btn-sm">View</Link>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {scenarios.map((row: any) => (
+                  <tr key={row.id}>
+                    <td style={{ fontWeight: 650 }}>{row.scenario_name || row.run_type || '-'}</td>
+                    <td>{row.run_type || '-'}</td>
+                    <td>{row.season || '-'}</td>
+                    <td><Chip kind={statusKind(row.status)}>{row.status || 'status'}</Chip></td>
+                    <td className="tabular">{formatNumber(row.total_area, 2)} ha</td>
+                    <td className="tabular" style={{ color: 'var(--primary-600)', fontWeight: 700 }}>{formatCompact(row.total_profit, 'LKR ')}</td>
+                    <td className="muted">{formatDate(row.created_at || row.observed_at)}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         )}
       </ApiState>
-    </Frame>
+    </OptimizationFrame>
   );
-};
+}
 
 export default function Page() {
   return (
     <div className="route-shell min-h-screen w-full bg-[var(--bg)]">
-      <OptScenarios />
+      <ScenariosPage />
     </div>
   );
 }

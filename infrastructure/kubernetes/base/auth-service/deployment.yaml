@@ -27,21 +27,54 @@ spec:
           env:
             - name: ENVIRONMENT
               value: "production"
-            - name: MONGODB_URI
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: database-secrets
+                  key: DATABASE_URL
+            - name: AUTO_CREATE_SCHEMA
+              value: "false"
+            - name: ENSURE_CORE_AUTH_SCHEMA
+              value: "false"
+            - name: SEED_DEFAULT_USERS_ON_STARTUP
+              value: "false"
+            - name: ENSURE_BOOTSTRAP_AUTHORITY
+              value: "true"
+            - name: AUTHORITY_BOOTSTRAP_USERNAME
               valueFrom:
                 secretKeyRef:
                   name: auth-secrets
-                  key: mongodb-uri
+                  key: AUTHORITY_BOOTSTRAP_USERNAME
+            - name: AUTHORITY_BOOTSTRAP_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secrets
+                  key: AUTHORITY_BOOTSTRAP_EMAIL
+            - name: AUTHORITY_BOOTSTRAP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secrets
+                  key: AUTHORITY_BOOTSTRAP_PASSWORD
+            - name: AUTHORITY_BOOTSTRAP_FULL_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secrets
+                  key: AUTHORITY_BOOTSTRAP_FULL_NAME
+            - name: AUTHORITY_BOOTSTRAP_SCHEME_IDS
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secrets
+                  key: AUTHORITY_BOOTSTRAP_SCHEME_IDS
             - name: JWT_SECRET_KEY
               valueFrom:
                 secretKeyRef:
                   name: auth-secrets
-                  key: jwt-secret
+                  key: JWT_SECRET_KEY
             - name: REDIS_URL
               valueFrom:
                 secretKeyRef:
-                  name: auth-secrets
-                  key: redis-url
+                  name: redis-secrets
+                  key: REDIS_URL
           resources:
             requests:
               memory: "128Mi"
@@ -51,7 +84,7 @@ spec:
               cpu: "500m"
           livenessProbe:
             httpGet:
-              path: /health/live
+              path: /health
               port: 8001
             initialDelaySeconds: 10
             periodSeconds: 30
@@ -59,7 +92,7 @@ spec:
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /health/ready
+              path: /health
               port: 8001
             initialDelaySeconds: 5
             periodSeconds: 10
@@ -67,7 +100,7 @@ spec:
             failureThreshold: 3
           startupProbe:
             httpGet:
-              path: /health/startup
+              path: /health
               port: 8001
             initialDelaySeconds: 5
             periodSeconds: 5

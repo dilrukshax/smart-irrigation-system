@@ -10,7 +10,7 @@ import {
   Frame,
   Gauge,
 } from '@/components/asi/ui';
-import { officerNav } from '@/components/asi/nav';
+import { buildOfficerNav } from '@/components/asi/nav';
 import { ApiState } from '@/components/asi/api-state';
 import { apiGet, apiPost } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -27,7 +27,7 @@ const Hydraulics = () => {
   const [nodeId, setNodeId] = React.useState('');
   const [startTime, setStartTime] = React.useState('');
   const [endTime, setEndTime] = React.useState('');
-  const [volume, setVolume] = React.useState('24');
+  const [flowRate, setFlowRate] = React.useState('2.0');
   const [submitting, setSubmitting] = React.useState(false);
   const [submitMsg, setSubmitMsg] = React.useState<{ type: string; text: string } | null>(null);
 
@@ -40,9 +40,12 @@ const Hydraulics = () => {
         apiGet<any>('/irrigation/network/schedules'),
         apiGet<any>('/water-management/reservoir/current'),
       ]);
-      if (netRes.status === 'fulfilled') setNetworkState(netRes.value);
+      if (netRes.status === 'fulfilled') {
+        setNetworkState(netRes.value);
+        if (netRes.value?.reservoir) setReservoir(netRes.value.reservoir);
+      }
       if (schedRes.status === 'fulfilled') {
-        const list = Array.isArray(schedRes.value) ? schedRes.value : schedRes.value?.schedules || schedRes.value?.data || [];
+        const list = Array.isArray(schedRes.value) ? schedRes.value : schedRes.value?.items || schedRes.value?.schedules || schedRes.value?.data || [];
         setSchedules(list);
       }
       if (resRes.status === 'fulfilled') setReservoir(resRes.value);
@@ -70,12 +73,25 @@ const Hydraulics = () => {
     setSubmitting(true);
     setSubmitMsg(null);
     try {
+      const selectedNode = nodes.find((node: any) => node.node_id === nodeId);
+      const nodeType = String(selectedNode?.node_type || '').toLowerCase();
+      const schemeId = networkState?.scheme_id || user?.scheme_ids?.[0];
+      if (!schemeId) {
+        throw new Error('No assigned scheme available for scheduling');
+      }
+      const nodePayload: Record<string, string> = {};
+      if (['canal', 'tunnel', 'channel', 'turnout'].includes(nodeType)) {
+        nodePayload[`${nodeType}_id`] = nodeId;
+      }
+
       await apiPost('/irrigation/network/schedules', {
-        node_id: nodeId,
+        scheme_id: schemeId,
+        ...nodePayload,
         action: 'OPEN',
-        start_time: startTime,
-        end_time: endTime,
-        expected_flow_m3s: parseFloat(volume) / 10 || 2.0,
+        start_time: new Date(startTime).toISOString(),
+        end_time: new Date(endTime).toISOString(),
+        expected_flow_m3s: parseFloat(flowRate) || undefined,
+        reason: selectedNode?.display_name ? `Operator scheduled release for ${selectedNode.display_name}` : 'Operator scheduled release',
       });
       setSubmitMsg({ type: 'success', text: 'Release queued successfully' });
       loadData();
@@ -86,16 +102,21 @@ const Hydraulics = () => {
     }
   };
 
-  const capacity = reservoir?.capacity_mcm || reservoir?.total_storage_mcm || 145;
-  const currentVolume = reservoir?.active_storage_mcm || 0;
+  const capacity = Number(reservoir?.capacity_mcm ?? reservoir?.total_storage_mcm ?? 0);
+  const currentVolume = Number(reservoir?.active_storage_mcm ?? 0);
   const percentFull = capacity > 0 ? Math.round((currentVolume / capacity) * 100) : 0;
 
-  const nodes = networkState?.nodes || [];
+  const nodes = networkState?.topology || networkState?.nodes || [];
+  const scheduleNodes = nodes.filter((node: any) => ['canal', 'tunnel', 'channel', 'turnout'].includes(String(node.node_type || '').toLowerCase()));
   const displayName = user?.username || 'Officer';
+  const rejectedSchedules = schedules.filter((schedule: any) => ['REJECTED', 'CANCELLED'].includes(String(schedule.status || '').toUpperCase())).length;
+  const sidebar = buildOfficerNav('Hydraulics', {
+    'Alert Queue': rejectedSchedules || undefined,
+  });
 
   return (
     <Frame
-      sidebar={officerNav.map(g => ({ ...g, items: g.items.map(i => ({ ...i, active: i.name === 'Hydraulics' })) }))}
+      sidebar={sidebar}
       breadcrumb={['Operations', 'Hydraulics']}
       user={displayName}
       role="Officer"
@@ -136,7 +157,7 @@ const Hydraulics = () => {
                 <tbody>
                   {schedules.slice(0, 20).map((s: any, i: number) => (
                     <tr key={s.schedule_id || i}>
-                      <td style={{ fontWeight: 600 }}>{s.node_id || s.display_name || '—'}</td>
+                      <td style={{ fontWeight: 600 }}>{s.turnout_id || s.channel_id || s.tunnel_id || s.canal_id || '—'}</td>
                       <td>{s.action || '—'}</td>
                       <td className="muted small">
                         {s.start_time ? new Date(s.start_time).toLocaleString() : '—'}
@@ -166,7 +187,7 @@ const Hydraulics = () => {
               <div style={{ marginTop: 12, padding: 10, background: '#F6F8F4', borderRadius: 8, fontSize: 12 }}>
                 <div className="between">
                   <span className="muted">Capacity</span>
-                  <span className="tabular" style={{ fontWeight: 700 }}>{capacity} MCM</span>
+                    <span className="tabular" style={{ fontWeight: 700 }}>{capacity > 0 ? `${capacity} MCM` : 'Unavailable'}</span>
                 </div>
                 {reservoir?.inflow_mcm !== undefined && (
                   <div className="between" style={{ marginTop: 4 }}>
@@ -184,9 +205,9 @@ const Hydraulics = () => {
                   <label>Node / canal</label>
                   <select className="select" value={nodeId} onChange={(e) => setNodeId(e.target.value)} disabled={submitting}>
                     <option value="">Select node...</option>
-                    {nodes.map((n: any) => (
+                    {scheduleNodes.map((n: any) => (
                       <option key={n.node_id} value={n.node_id}>
-                        {n.display_name || n.node_id}
+                        {n.display_name || n.node_id} · {n.node_type}
                       </option>
                     ))}
                   </select>
@@ -200,8 +221,8 @@ const Hydraulics = () => {
                   <input className="input" type="datetime-local" value={endTime} onChange={(e) => setEndTime(e.target.value)} disabled={submitting}/>
                 </div>
                 <div className="field" style={{ marginBottom: 12 }}>
-                  <label>Volume (mm)</label>
-                  <input className="input" type="number" value={volume} onChange={(e) => setVolume(e.target.value)} disabled={submitting}/>
+                  <label>Expected flow (m³/s)</label>
+                  <input className="input" type="number" step="0.1" min="0" value={flowRate} onChange={(e) => setFlowRate(e.target.value)} disabled={submitting}/>
                 </div>
                 {submitMsg && (
                   <div style={{

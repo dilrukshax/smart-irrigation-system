@@ -77,6 +77,9 @@ async def create_user(
 
     user = User(
         username=user_data.username,
+        full_name=user_data.full_name,
+        national_id=user_data.national_id,
+        phone_number=user_data.phone_number,
         hashed_password=hash_password(user_data.password),
         email=user_data.email,
         roles=user_data.roles,
@@ -94,6 +97,8 @@ async def create_user(
         err = str(exc.orig).lower() if exc.orig else str(exc).lower()
         if "username" in err:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
+        if "national_id" in err:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ID number already exists")
         if "email" in err:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User already exists")
@@ -123,8 +128,15 @@ async def list_users(
         pattern = f"%{search}%"
         from sqlalchemy import or_
 
-        query = query.where(or_(User.username.ilike(pattern), User.email.ilike(pattern)))
-        count_query = count_query.where(or_(User.username.ilike(pattern), User.email.ilike(pattern)))
+        search_filter = or_(
+            User.username.ilike(pattern),
+            User.full_name.ilike(pattern),
+            User.national_id.ilike(pattern),
+            User.phone_number.ilike(pattern),
+            User.email.ilike(pattern),
+        )
+        query = query.where(search_filter)
+        count_query = count_query.where(search_filter)
 
     if is_active is not None:
         query = query.where(User.is_active == is_active)
@@ -195,6 +207,12 @@ async def update_user(
 
     if user_update.username is not None:
         user.username = user_update.username
+    if user_update.full_name is not None:
+        user.full_name = user_update.full_name
+    if user_update.national_id is not None:
+        user.national_id = user_update.national_id
+    if user_update.phone_number is not None:
+        user.phone_number = user_update.phone_number
     if user_update.email is not None:
         user.email = user_update.email
     if user_update.password is not None:
@@ -220,6 +238,8 @@ async def update_user(
         err = str(exc.orig).lower() if exc.orig else str(exc).lower()
         if "username" in err:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
+        if "national_id" in err:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ID number already exists")
         if "email" in err:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Update failed")
