@@ -31,6 +31,16 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+def _float_or_default(value: Any, default: float) -> float:
+    """Return a usable float when optional DB/service values are missing."""
+    if value in (None, ""):
+        return float(default)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
 class FeatureBuilder:
     """
     Builds feature vectors for crop recommendation.
@@ -530,6 +540,15 @@ class FeatureBuilder:
         
         # === Historical Performance ===
         historical_yield = self._get_historical_yield(field["id"], crop_id)
+        soil_ph = _float_or_default(field.get("soil_ph"), 6.5)
+        soil_ec = _float_or_default(field.get("soil_ec"), 1.0)
+        ph_min = _float_or_default(crop.get("ph_min"), 5.5)
+        ph_max = _float_or_default(crop.get("ph_max"), 7.5)
+        ec_max = _float_or_default(crop.get("ec_max"), 4.0)
+        growth_duration_days = _float_or_default(crop.get("growth_duration_days"), 120.0)
+        season_avg_temp = _float_or_default(climate.get("avg_temp_c"), 28.0)
+        season_rainfall_mm = _float_or_default(climate.get("total_rainfall_mm"), 250.0)
+        base_yield_t_ha = _float_or_default(crop.get("base_yield_t_per_ha"), 3.0)
         
         # Build feature dictionary
         features = {
@@ -540,16 +559,16 @@ class FeatureBuilder:
             "field_id": field["id"],
             
             # Soil features
-            "soil_type": field.get("soil_type", "loam"),
-            "soil_ph": field.get("soil_ph", 6.5),
-            "soil_ec": field.get("soil_ec", 1.0),
+            "soil_type": field.get("soil_type") or "loam",
+            "soil_ph": soil_ph,
+            "soil_ec": soil_ec,
             "soil_suitability": adjusted_soil_suitability,
             
             # Crop requirements
-            "ph_min": crop.get("ph_min", 5.5),
-            "ph_max": crop.get("ph_max", 7.5),
-            "ec_max": crop.get("ec_max", 4.0),
-            "growth_duration_days": crop.get("growth_duration_days", 120),
+            "ph_min": ph_min,
+            "ph_max": ph_max,
+            "ec_max": ec_max,
+            "growth_duration_days": growth_duration_days,
             
             # Water features
             "water_requirement_mm": water_req,
@@ -559,13 +578,13 @@ class FeatureBuilder:
             "water_sensitivity": crop.get("water_sensitivity", "medium"),
             
             # Climate features
-            "season_avg_temp": climate.get("avg_temp_c", 28.0),
-            "season_rainfall_mm": climate.get("total_rainfall_mm", 250.0),
+            "season_avg_temp": season_avg_temp,
+            "season_rainfall_mm": season_rainfall_mm,
             "forecast_adjustment_pct": forecast_adjustment_pct,
 
             # Historical features
             "historical_yield_t_ha": historical_yield,
-            "base_yield_t_ha": crop.get("base_yield_t_per_ha", 3.0),
+            "base_yield_t_ha": base_yield_t_ha,
 
             # Live upstream integration context
             "field_water_level_pct": irrigation_context.get("water_level_pct", 0.0),
@@ -652,9 +671,9 @@ class FeatureBuilder:
         score = 1.0
         
         # pH suitability
-        ph = field.get("soil_ph", 6.5)
-        ph_min = crop.get("ph_min", 5.5)
-        ph_max = crop.get("ph_max", 7.5)
+        ph = _float_or_default(field.get("soil_ph"), 6.5)
+        ph_min = _float_or_default(crop.get("ph_min"), 5.5)
+        ph_max = _float_or_default(crop.get("ph_max"), 7.5)
         
         if ph < ph_min:
             score *= max(0, 1 - (ph_min - ph) / 2)  # Penalty for too acidic
@@ -662,8 +681,8 @@ class FeatureBuilder:
             score *= max(0, 1 - (ph - ph_max) / 2)  # Penalty for too alkaline
         
         # EC suitability (salinity)
-        ec = field.get("soil_ec", 1.0)
-        ec_max = crop.get("ec_max", 4.0)
+        ec = _float_or_default(field.get("soil_ec"), 1.0)
+        ec_max = _float_or_default(crop.get("ec_max"), 4.0)
         
         if ec > ec_max:
             score *= max(0, 1 - (ec - ec_max) / ec_max)

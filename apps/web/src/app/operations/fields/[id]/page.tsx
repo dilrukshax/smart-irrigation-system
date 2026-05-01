@@ -7,7 +7,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Icon, Chip, Frame, Progress } from '@/components/asi/ui';
-import { officerNav } from '@/components/asi/nav';
+import { buildOfficerNav } from '@/components/asi/nav';
 import { ApiState } from '@/components/asi/api-state';
 import { apiGet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -40,11 +40,6 @@ const statusKind = (value: any): 'live' | 'warn' | 'crit' | 'info' | 'off' => {
   if (['data_unavailable', 'unknown', 'no_sensor'].includes(text)) return 'off';
   return 'info';
 };
-
-const nav = officerNav.map((group: any) => ({
-  ...group,
-  items: group.items.map((item: any) => ({ ...item, active: item.name === 'Farmers' })),
-}));
 
 function SectionShell({ title, icon, status, children, href }: any) {
   return (
@@ -109,6 +104,7 @@ export default function Page() {
   const fieldName = field.field_name || `Field ${fieldId}`;
   const valveOpen = String(field.valve_status || '').toUpperCase() === 'OPEN';
   const displayName = user?.username || 'Officer';
+  const nav = buildOfficerNav('Farmers');
 
   return (
     <div className="route-shell min-h-screen w-full bg-[var(--bg)]">

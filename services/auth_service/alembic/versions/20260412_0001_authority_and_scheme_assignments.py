@@ -24,6 +24,41 @@ def upgrade() -> None:
     inspector = sa.inspect(bind)
     tables = set(inspector.get_table_names(schema="public"))
 
+    if "users" not in tables:
+        op.create_table(
+            "users",
+            sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+            sa.Column("username", sa.String(length=50), nullable=False),
+            sa.Column("full_name", sa.String(length=120), nullable=True),
+            sa.Column("national_id", sa.String(length=32), nullable=True),
+            sa.Column("phone_number", sa.String(length=32), nullable=True),
+            sa.Column("email", sa.String(length=255), nullable=True),
+            sa.Column("hashed_password", sa.String(length=255), nullable=False),
+            sa.Column(
+                "roles",
+                postgresql.ARRAY(sa.String()),
+                server_default=sa.text("ARRAY['farmer']::varchar[]"),
+                nullable=False,
+            ),
+            sa.Column("is_active", sa.Boolean(), server_default=sa.text("true"), nullable=False),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.text("now()"),
+                nullable=False,
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.text("now()"),
+                nullable=False,
+            ),
+            sa.PrimaryKeyConstraint("id"),
+        )
+        op.create_index(op.f("ix_users_username"), "users", ["username"], unique=True)
+        op.create_index(op.f("ix_users_email"), "users", ["email"], unique=True)
+        tables.add("users")
+
     if "scheme_assignments" not in tables:
         op.create_table(
             "scheme_assignments",

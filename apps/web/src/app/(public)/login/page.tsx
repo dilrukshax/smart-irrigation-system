@@ -41,12 +41,12 @@ const Login = () => {
     try {
       const user = await login(email, password);
       // Redirect based on role
-      const redirectUrl =
-        user.roles[0]?.toLowerCase() === 'farmer'
-          ? '/farmer'
-          : user.roles[0]?.toLowerCase() === 'officer'
-            ? '/operations'
-            : '/authority/users';
+      const roles = (user.roles || []).map((role: string) => role.toLowerCase());
+      const redirectUrl = roles.includes('authority')
+        ? '/authority/users'
+        : roles.includes('officer')
+          ? '/operations'
+          : '/farmer';
       window.location.replace(redirectUrl);
     } catch (err) {
       if (err instanceof ApiError) {

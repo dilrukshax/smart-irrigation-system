@@ -7,7 +7,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Icon, Chip, Frame } from '@/components/asi/ui';
-import { officerNav } from '@/components/asi/nav';
+import { buildOfficerNav } from '@/components/asi/nav';
 import { ApiState } from '@/components/asi/api-state';
 import { apiGet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -26,11 +26,6 @@ const statusKind = (value: any) => {
   if (['OK', 'OPTIMAL'].includes(text)) return 'live';
   return 'off';
 };
-
-const nav = officerNav.map((group: any) => ({
-  ...group,
-  items: group.items.map((item: any) => ({ ...item, active: item.name === 'Farmers' })),
-}));
 
 export default function Page() {
   const params = useParams();
@@ -65,6 +60,16 @@ export default function Page() {
   const pendingRequests = asNumber(farmer.irrigation?.pending_manual_requests);
   const criticalFields = asNumber(farmer.telemetry?.critical_fields);
   const noTelemetry = asNumber(farmer.telemetry?.no_telemetry_fields);
+  const staleFields = asNumber(farmer.telemetry?.stale_fields);
+  const fieldsNeedingAttention = fields.filter((field: any) => {
+    const status = String(field.overall_status || '').toUpperCase();
+    const latest = field.latest_telemetry || {};
+    return status === 'CRITICAL' || status === 'WARNING' || !latest.timestamp || (field.pending_manual_request_count || 0) > 0;
+  });
+  const nav = buildOfficerNav('Farmers', {
+    'Manual Requests': pendingRequests || undefined,
+    'Alert Queue': fieldsNeedingAttention.length || undefined,
+  });
 
   return (
     <div className="route-shell min-h-screen w-full bg-[var(--bg)]">
@@ -104,6 +109,42 @@ export default function Page() {
                 <div className="tiny muted" style={{ lineHeight: 1.5 }}>{copy}</div>
               </Link>
             ))}
+          </div>
+
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div className="card-head">
+              <div className="card-title">Farmer analysis</div>
+              <Chip kind={fieldsNeedingAttention.length > 0 ? 'warn' : 'live'} dot={false}>
+                {fieldsNeedingAttention.length} attention fields
+              </Chip>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 10 }}>
+              <div>
+                <div className="tiny muted">Request workload</div>
+                <div style={{ fontWeight: 700, fontSize: 18 }}>{pendingRequests}</div>
+                <div className="tiny muted" style={{ marginTop: 4 }}>Pending manual irrigation reviews for this farmer</div>
+              </div>
+              <div>
+                <div className="tiny muted">Telemetry risk</div>
+                <div style={{ fontWeight: 700, fontSize: 18 }}>{criticalFields + staleFields + noTelemetry}</div>
+                <div className="tiny muted" style={{ marginTop: 4 }}>
+                  {criticalFields} critical · {staleFields} stale · {noTelemetry} missing
+                </div>
+              </div>
+              <div>
+                <div className="tiny muted">Irrigation state</div>
+                <div style={{ fontWeight: 700, fontSize: 18 }}>{openValves} open valves</div>
+                <div className="tiny muted" style={{ marginTop: 4 }}>Use the field workspace to inspect current valve and moisture readings</div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
+              <Link href={`/operations/requests?farmer=${encodeURIComponent(farmerId)}`} className="btn btn-primary btn-sm">
+                Review requests
+              </Link>
+              <Link href="/operations/alerts" className="btn btn-ghost btn-sm">
+                Open alert queue
+              </Link>
+            </div>
           </div>
 
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>

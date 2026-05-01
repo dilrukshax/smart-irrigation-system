@@ -22,9 +22,9 @@ const officerNav = [
   { label: 'Operations', items: [
     { name: 'Overview', icon: 'home', href: '/operations', active: true },
     { name: 'Farmers', icon: 'users', href: '/operations/farmers' },
-    { name: 'Manual Requests', icon: 'handshake', href: '/operations/requests', badge: 12 },
+    { name: 'Manual Requests', icon: 'handshake', href: '/operations/requests' },
     { name: 'Hydraulics', icon: 'valve', href: '/operations/hydraulics' },
-    { name: 'Alert Queue', icon: 'bell', href: '/operations' },
+    { name: 'Alert Queue', icon: 'bell', href: '/operations/alerts' },
   ]},
   { label: 'Modules', items: [
     { name: 'Irrigation', icon: 'droplet', children: [
@@ -72,18 +72,40 @@ const officerModuleNav = (moduleName, activeChild) =>
     }),
   }));
 
+const buildOfficerNav = (activeName, badges = {}) =>
+  officerNav.map((group) => ({
+    ...group,
+    items: group.items.map((item) => {
+      const hasExplicitBadge = Object.prototype.hasOwnProperty.call(badges, item.name);
+      return {
+        ...item,
+        active: item.name === activeName,
+        badge: hasExplicitBadge ? badges[item.name] : item.badge,
+      };
+    }),
+  }));
+
 const authorityNav = [
   { label: 'Governance', items: [
-    { name: 'User Management', icon: 'users', active: true },
-    { name: 'Policies & Quotas', icon: 'shield' },
-    { name: 'Scheme Zones', icon: 'map' },
-    { name: 'Audit Log', icon: 'list' },
+    { name: 'User Management', icon: 'users', href: '/authority/users', active: true },
+    { name: 'Policies & Quotas', icon: 'shield', href: '/authority/policies' },
+    { name: 'Scheme Zones', icon: 'map', href: '/authority/schemes' },
+    { name: 'Audit Log', icon: 'list', href: '/authority/audit' },
   ]},
   { label: 'Reports', items: [
-    { name: 'System Health', icon: 'wifi' },
-    { name: 'Seasonal Summary', icon: 'chart' },
+    { name: 'System Health', icon: 'wifi', href: '/authority/health' },
+    { name: 'Seasonal Summary', icon: 'chart', href: '/authority/seasonal-summary' },
   ]},
 ];
+
+const buildAuthorityNav = (activeName) =>
+  authorityNav.map((group) => ({
+    ...group,
+    items: group.items.map((item) => ({
+      ...item,
+      active: item.name === activeName,
+    })),
+  }));
 
 const irrigationNav = (active) => [
   { label: 'F1 · Irrigation', items: [
@@ -117,4 +139,4 @@ const optNav = (active) => [
 
 /* Public pages: Landing, Farmer Landing, Login, Register */
 
-export { farmerNav, officerNav, officerModuleNav, authorityNav, irrigationNav, optNav };
+export { farmerNav, officerNav, officerModuleNav, buildOfficerNav, authorityNav, buildAuthorityNav, irrigationNav, optNav };

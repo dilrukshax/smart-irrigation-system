@@ -10,7 +10,7 @@ import {
   Frame,
   Gauge,
 } from '@/components/asi/ui';
-import { officerNav } from '@/components/asi/nav';
+import { buildOfficerNav } from '@/components/asi/nav';
 import { ApiState } from '@/components/asi/api-state';
 import { apiGet, apiPost } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -109,10 +109,14 @@ const Hydraulics = () => {
   const nodes = networkState?.topology || networkState?.nodes || [];
   const scheduleNodes = nodes.filter((node: any) => ['canal', 'tunnel', 'channel', 'turnout'].includes(String(node.node_type || '').toLowerCase()));
   const displayName = user?.username || 'Officer';
+  const rejectedSchedules = schedules.filter((schedule: any) => ['REJECTED', 'CANCELLED'].includes(String(schedule.status || '').toUpperCase())).length;
+  const sidebar = buildOfficerNav('Hydraulics', {
+    'Alert Queue': rejectedSchedules || undefined,
+  });
 
   return (
     <Frame
-      sidebar={officerNav.map(g => ({ ...g, items: g.items.map(i => ({ ...i, active: i.name === 'Hydraulics' })) }))}
+      sidebar={sidebar}
       breadcrumb={['Operations', 'Hydraulics']}
       user={displayName}
       role="Officer"

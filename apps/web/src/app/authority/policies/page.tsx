@@ -9,10 +9,11 @@ import {
   Chip,
   Frame,
 } from '@/components/asi/ui';
-import { authorityNav } from '@/components/asi/nav';
+import { buildAuthorityNav } from '@/components/asi/nav';
 import { ApiState } from '@/components/asi/api-state';
-import { apiGet, apiPost } from '@/lib/api';
+import { apiPost } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { fetchAuthorityPolicies } from '../_lib/authority-dashboard';
 
 const PolicySettings = () => {
   const { user } = useAuth();
@@ -37,9 +38,7 @@ const PolicySettings = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiGet<any>('/authority/policies');
-      const list = Array.isArray(res) ? res : res?.policies || res?.data || [];
-      setPolicies(list);
+      setPolicies(await fetchAuthorityPolicies(100));
     } catch (err: any) {
       setError(err?.message || 'Failed to load policies');
     } finally {
@@ -92,7 +91,7 @@ const PolicySettings = () => {
 
   return (
     <Frame
-      sidebar={authorityNav.map(g => ({ ...g, items: g.items.map(i => ({ ...i, active: i.name === 'Policies & Quotas' })) }))}
+      sidebar={buildAuthorityNav('Policies & Quotas')}
       breadcrumb={['Authority', 'Policies & Quotas']}
       user={displayName}
       role="Authority"

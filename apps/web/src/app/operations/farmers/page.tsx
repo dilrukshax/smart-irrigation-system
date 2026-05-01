@@ -6,7 +6,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { Icon, Chip, Frame } from '@/components/asi/ui';
-import { officerNav } from '@/components/asi/nav';
+import { buildOfficerNav } from '@/components/asi/nav';
 import { ApiState } from '@/components/asi/api-state';
 import { apiGet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -31,11 +31,6 @@ const formatRelative = (value: any) => {
   if (diffMs < day) return `${Math.max(1, Math.round(diffMs / hour))}h ago`;
   return `${Math.max(1, Math.round(diffMs / day))}d ago`;
 };
-
-const nav = officerNav.map((group: any) => ({
-  ...group,
-  items: group.items.map((item: any) => ({ ...item, active: item.name === 'Farmers' })),
-}));
 
 export default function Page() {
   const { user } = useAuth();
@@ -77,6 +72,10 @@ export default function Page() {
   const pendingRequests = farmers.reduce((sum, farmer) => sum + asNumber(farmer.irrigation?.pending_manual_requests), 0);
   const criticalFields = farmers.reduce((sum, farmer) => sum + asNumber(farmer.telemetry?.critical_fields), 0);
   const displayName = user?.username || 'Officer';
+  const nav = buildOfficerNav('Farmers', {
+    'Manual Requests': pendingRequests || undefined,
+    'Alert Queue': criticalFields || undefined,
+  });
 
   return (
     <div className="route-shell min-h-screen w-full bg-[var(--bg)]">
@@ -159,9 +158,16 @@ export default function Page() {
                           </td>
                           <td><Chip kind={pending > 0 ? 'warn' : 'live'}>{pending} pending</Chip></td>
                           <td>
-                            <Link href={`/operations/farmers/${encodeURIComponent(farmerId)}`} className="btn btn-primary btn-sm">
-                              Open
-                            </Link>
+                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                              {pending > 0 && (
+                                <Link href={`/operations/requests?farmer=${encodeURIComponent(farmerId)}`} className="btn btn-ghost btn-sm">
+                                  Requests
+                                </Link>
+                              )}
+                              <Link href={`/operations/farmers/${encodeURIComponent(farmerId)}`} className="btn btn-primary btn-sm">
+                                Open
+                              </Link>
+                            </div>
                           </td>
                         </tr>
                       );

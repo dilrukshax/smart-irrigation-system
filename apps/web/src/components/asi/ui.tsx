@@ -140,6 +140,7 @@ const NAV_ROUTE_MAP: Record<string, string> = {
   Farmers: '/operations/farmers',
   'Manual Requests': '/operations/requests',
   Hydraulics: '/operations/hydraulics',
+  'Alert Queue': '/operations/alerts',
   'Water Management': '/irrigation/water',
   'Sensor Telemetry': '/irrigation/telemetry',
   Recommendations: '/optimization/recommendations',
@@ -147,6 +148,10 @@ const NAV_ROUTE_MAP: Record<string, string> = {
   'Adaptive Tuning': '/optimization/adaptive',
   'User Management': '/authority/users',
   'Policies & Quotas': '/authority/policies',
+  'Scheme Zones': '/authority/schemes',
+  'Audit Log': '/authority/audit',
+  'System Health': '/authority/health',
+  'Seasonal Summary': '/authority/seasonal-summary',
 };
 
 const Sidebar: any = ({ items, footer }) => {

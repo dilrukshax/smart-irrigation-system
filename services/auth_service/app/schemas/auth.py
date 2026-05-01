@@ -31,7 +31,11 @@ class UserInfo(BaseModel):
     id: str = Field(..., description="User ID")
     username: str = Field(..., description="Username")
     full_name: Optional[str] = Field(None, description="Farmer full name")
+    national_id: Optional[str] = Field(None, description="Farmer NIC or national ID")
+    phone_number: Optional[str] = Field(None, description="User phone number")
+    email: Optional[str] = Field(None, description="User email")
     roles: List[str] = Field(default_factory=lambda: ["farmer"], description="User roles")
+    scheme_ids: List[str] = Field(default_factory=list, description="Assigned scheme IDs")
 
 
 class TokenResponse(BaseModel):

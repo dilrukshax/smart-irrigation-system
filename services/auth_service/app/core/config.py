@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     ENSURE_CORE_AUTH_SCHEMA: bool = True
     SEED_DEFAULT_USERS_ON_STARTUP: bool = True
     DEFAULT_SCHEME_ID: str = "scheme-default"
+    ENSURE_BOOTSTRAP_AUTHORITY: bool = True
+    AUTHORITY_BOOTSTRAP_USERNAME: str = "authority"
+    AUTHORITY_BOOTSTRAP_EMAIL: str = "authority@smartirrigation.com"
+    AUTHORITY_BOOTSTRAP_PASSWORD: str = "authority123"
+    AUTHORITY_BOOTSTRAP_FULL_NAME: str = "System Authority"
+    AUTHORITY_BOOTSTRAP_SCHEME_IDS: str = "scheme-default"
+    AUTHORITY_BOOTSTRAP_RESET_PASSWORD: bool = False
 
     # JWT Settings
     JWT_SECRET_KEY: str = "your-super-secret-key-change-in-production"

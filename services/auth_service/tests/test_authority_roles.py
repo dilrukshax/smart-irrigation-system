@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+from app.core.bootstrap_authority import parse_scheme_ids
 from app.schemas.user import AdminUserCreate, UserCreate, UserRoleUpdate
 
 
@@ -40,3 +41,8 @@ def test_authority_role_update_rejects_legacy_roles():
 
     with pytest.raises(ValidationError):
         UserRoleUpdate(roles=["user"])  # type: ignore[arg-type]
+
+
+def test_bootstrap_authority_scheme_ids_accept_csv_and_json():
+    assert parse_scheme_ids("scheme-default, H-04") == ["H-04", "scheme-default"]
+    assert parse_scheme_ids('["scheme-b", "scheme-a", "scheme-b"]') == ["scheme-a", "scheme-b"]

@@ -10,7 +10,7 @@ import {
   Chip,
   Frame,
 } from '@/components/asi/ui';
-import { officerNav } from '@/components/asi/nav';
+import { buildOfficerNav } from '@/components/asi/nav';
 import { ApiState } from '@/components/asi/api-state';
 import { apiGet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -64,9 +64,13 @@ const Operations = () => {
       field_name: item.scheme_id,
       description: item.message || item.queue?.message || item.telemetry?.message,
     }));
+  const sidebar = buildOfficerNav('Overview', {
+    'Manual Requests': pendingRequests.length || undefined,
+    'Alert Queue': anomalies.length || undefined,
+  });
 
   return (
-    <Frame sidebar={officerNav} breadcrumb={['Operations', 'Overview']} user={displayName} role={`Officer · ${user?.scheme_ids?.[0] || 'H-04'}`}>
+    <Frame sidebar={sidebar} breadcrumb={['Operations', 'Overview']} user={displayName} role={`Officer · ${user?.scheme_ids?.[0] || 'H-04'}`}>
       <div className="page-head">
         <div>
           <div className="page-title">Operations overview</div>
@@ -158,6 +162,9 @@ const Operations = () => {
               </Link>
               <Link href="/operations/hydraulics" className="btn btn-ghost btn-sm" style={{ width: '100%', marginBottom: 6, justifyContent: 'flex-start' }}>
                 <Icon name="valve" size={13}/> Hydraulics
+              </Link>
+              <Link href="/operations/alerts" className="btn btn-ghost btn-sm" style={{ width: '100%', marginBottom: 6, justifyContent: 'flex-start' }}>
+                <Icon name="bell" size={13}/> Alert queue
               </Link>
               <Link href="/irrigation" className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'flex-start' }}>
                 <Icon name="droplet" size={13}/> Irrigation module

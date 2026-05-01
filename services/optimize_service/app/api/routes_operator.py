@@ -688,14 +688,28 @@ async def evaluate_operator_scenario(
     service = RecommendationService()
     for field in fields:
         field_id = str(field.get("id"))
-        response = service.get_recommendations(
-            request=RecommendationRequest(
-                field_id=field_id,
-                season=request.season,
-                scenario=scenario_payload or None,
-            ),
-            db_session=db,
-        )
+        try:
+            response = service.get_recommendations(
+                request=RecommendationRequest(
+                    field_id=field_id,
+                    season=request.season,
+                    scenario=scenario_payload or None,
+                ),
+                db_session=db,
+            )
+        except Exception as exc:
+            logger.exception(
+                "Operator scenario recommendation generation failed for field=%s",
+                field_id,
+            )
+            failures.append(
+                {
+                    "field_id": field_id,
+                    "status": "data_unavailable",
+                    "message": f"Recommendation generation failed: {exc}",
+                }
+            )
+            continue
         if response.data_available and response.recommendations:
             rows.append(
                 {
