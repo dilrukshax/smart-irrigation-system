@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-label="Illustrated integrated irrigation research system">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d9ead8"/>
+      <stop offset="0.45" stop-color="#e9f1dd"/>
+      <stop offset="1" stop-color="#c9e1e7"/>
+    </linearGradient>
+    <linearGradient id="reservoir" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9ad4dd"/>
+      <stop offset="1" stop-color="#166b8f"/>
+    </linearGradient>
+    <filter id="panelShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="26" flood-color="#142b25" flood-opacity="0.2"/>
+    </filter>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" fill="none" stroke="#1c7c54" stroke-opacity="0.12" stroke-width="2"/>
+    </pattern>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <rect width="1600" height="900" fill="url(#grid)"/>
+  <path d="M0 710C210 642 316 676 505 707C734 745 856 650 1044 604C1230 558 1382 584 1600 538V900H0Z" fill="#6fa95f" opacity="0.72"/>
+  <path d="M83 698C223 624 371 606 529 636C675 664 812 673 972 604C1135 534 1328 502 1520 520" fill="none" stroke="#f0e5ac" stroke-width="26" stroke-linecap="round"/>
+  <path d="M82 698C222 624 370 606 528 636C674 664 812 673 972 604C1135 534 1328 502 1520 520" fill="none" stroke="#6eb5ce" stroke-width="12" stroke-linecap="round"/>
+  <ellipse cx="331" cy="374" rx="230" ry="132" fill="url(#reservoir)" opacity="0.92"/>
+  <path d="M162 376C228 337 310 322 384 341C443 356 485 387 512 423" fill="none" stroke="#dff6f4" stroke-width="14" stroke-linecap="round" opacity="0.58"/>
+  <g filter="url(#panelShadow)">
+    <rect x="680" y="132" width="210" height="146" rx="18" fill="#fffaf0"/>
+    <rect x="990" y="152" width="210" height="146" rx="18" fill="#f6fbf6"/>
+    <rect x="795" y="428" width="210" height="146" rx="18" fill="#f6fbf6"/>
+    <rect x="1190" y="402" width="210" height="146" rx="18" fill="#fffaf0"/>
+  </g>
+  <g fill="none" stroke="#17362f" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M753 224V182H818V224"/>
+    <path d="M744 224H828"/>
+    <path d="M774 182V164"/>
+    <path d="M1052 224C1080 188 1122 188 1150 224"/>
+    <path d="M1066 238H1136"/>
+    <path d="M1066 255H1136"/>
+    <path d="M860 532L886 482L914 532"/>
+    <path d="M871 511H904"/>
+    <path d="M1254 496L1287 458L1330 496"/>
+    <path d="M1287 458V520"/>
+  </g>
+  <g fill="#1c7c54">
+    <circle cx="785" cy="232" r="9"/>
+    <circle cx="1101" cy="222" r="9"/>
+    <circle cx="887" cy="532" r="9"/>
+    <circle cx="1287" cy="520" r="9"/>
+  </g>
+  <g fill="none" stroke="#17362f" stroke-opacity="0.42" stroke-width="5" stroke-dasharray="10 14">
+    <path d="M555 360C614 286 646 246 680 214"/>
+    <path d="M892 214C924 210 956 209 990 216"/>
+    <path d="M1095 300C1040 362 980 400 945 428"/>
+    <path d="M1005 504C1060 496 1120 484 1190 474"/>
+    <path d="M795 500C668 466 566 428 482 394"/>
+  </g>
+  <g transform="translate(1260 126)" fill="none" stroke="#17362f" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M0 56L58 0L116 56L58 112Z" fill="#f8fbf5"/>
+    <path d="M58 0V112"/>
+    <path d="M0 56H116"/>
+    <path d="M88 28L136 -20"/>
+    <path d="M102 42L150 -6"/>
+  </g>
+  <g fill="#2f7f58" opacity="0.88">
+    <path d="M238 704L396 658L514 900H204Z"/>
+    <path d="M544 690L738 642L866 900H530Z"/>
+    <path d="M930 628L1194 552L1410 900H902Z"/>
+  </g>
+  <g fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="5">
+    <path d="M270 728L428 681"/>
+    <path d="M314 784L466 734"/>
+    <path d="M596 716L783 666"/>
+    <path d="M642 784L813 730"/>
+    <path d="M1002 662L1252 590"/>
+    <path d="M1058 746L1320 662"/>
+  </g>
+</svg>

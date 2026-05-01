@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #182722;
+  --green: #1c7c54;
+  --water: #166b8f;
+  --harvest: #a96f11;
+  --clay: #b54d3a;
+  --paper: #f6faf4;
+  --surface: #ffffff;
+  --soft: #edf4ea;
+  --line: #d9e4d6;
+  --muted: #5f7167;
+  --focus: #1f8a70;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 84px;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: var(--green);
+  color: white;
+}
+
+.hero-cover {
+  background-image:
+    linear-gradient(90deg, rgba(24, 39, 34, 0.9), rgba(24, 39, 34, 0.62)),
+    url("/assets/illustrations/hero-irrigation-landscape.png");
+  background-position: center;
+  background-size: cover;
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.accent-water {
+  color: var(--water);
+}
+
+.accent-leaf {
+  color: var(--green);
+}
+
+.accent-sky {
+  color: #5167a8;
+}
+
+.accent-harvest {
+  color: var(--harvest);
+}
+
+.band-grid {
+  background-image:
+    linear-gradient(rgba(28, 124, 84, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(22, 107, 143, 0.08) 1px, transparent 1px);
+  background-size: 36px 36px;
+}
