@@ -436,10 +436,12 @@ async def get_current_reservoir_data():
     iot_data = await _fetch_iot_reservoir_data()
     if iot_data:
         iot_data["timestamp"] = datetime.now().isoformat()
+        iot_data["reservoir_name"] = settings.reservoir_name
         return iot_data
 
     data = get_simulated_reservoir_data()
     data["timestamp"] = datetime.now().isoformat()
+    data["reservoir_name"] = settings.reservoir_name
     return data
 
 

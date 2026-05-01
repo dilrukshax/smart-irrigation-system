@@ -137,6 +137,7 @@ const NAV_ROUTE_MAP: Record<string, string> = {
   Scenarios: '/optimization/scenarios',
   Onboarding: '/farmer/onboarding',
   Overview: '/operations',
+  Farmers: '/operations/farmers',
   'Manual Requests': '/operations/requests',
   Hydraulics: '/operations/hydraulics',
   'Water Management': '/irrigation/water',
@@ -148,27 +149,98 @@ const NAV_ROUTE_MAP: Record<string, string> = {
   'Policies & Quotas': '/authority/policies',
 };
 
-const Sidebar: any = ({ items, footer }) => (
-  <div className="sidebar">
-    {items.map((g, gi) => (
-      <React.Fragment key={gi}>
-        {g.label && <div className="nav-section">{g.label}</div>}
-        {g.items.map((it, i) => (
-          <Link
-            key={i}
-            href={it.href || NAV_ROUTE_MAP[it.name] || '#'}
-            className={'nav-item' + (it.active ? ' active' : '')}
-          >
-            <span className="ico"><Icon name={it.icon} size={16}/></span>
-            {it.name}
-            {it.badge && <span style={{ marginLeft: 'auto', fontSize: 10, background: 'var(--accent)', color: '#3A2900', padding: '1px 6px', borderRadius: 99, fontWeight: 700 }}>{it.badge}</span>}
-          </Link>
-        ))}
-      </React.Fragment>
-    ))}
-    {footer && <div style={{ marginTop: 'auto', padding: 10, borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)' }}>{footer}</div>}
-  </div>
-);
+const Sidebar: any = ({ items, footer }) => {
+  const initialOpen = React.useMemo(() => {
+    const opened: Record<string, boolean> = {};
+    items.forEach((g, gi) => {
+      g.items?.forEach((it, i) => {
+        if (it.children?.length && (it.defaultOpen || it.active || it.children.some((child) => child.active))) {
+          opened[`${gi}-${i}-${it.name}`] = true;
+        }
+      });
+    });
+    return opened;
+  }, [items]);
+  const [openItems, setOpenItems] = React.useState<Record<string, boolean>>(initialOpen);
+
+  React.useEffect(() => {
+    setOpenItems((current) => ({ ...initialOpen, ...current }));
+  }, [initialOpen]);
+
+  return (
+    <div className="sidebar">
+      {items.map((g, gi) => (
+        <React.Fragment key={gi}>
+          {g.label && <div className="nav-section">{g.label}</div>}
+          {g.items.map((it, i) => {
+            const key = `${gi}-${i}-${it.name}`;
+            const hasChildren = Boolean(it.children?.length);
+            const isOpen = Boolean(openItems[key]);
+
+            if (hasChildren) {
+              return (
+                <div key={key} className={'nav-group' + (isOpen ? ' open' : '')}>
+                  <button
+                    type="button"
+                    className={'nav-item nav-disclosure' + (it.active ? ' active' : '')}
+                    aria-expanded={isOpen}
+                    onClick={() => setOpenItems((current) => ({ ...current, [key]: !current[key] }))}
+                  >
+                    <span className="ico"><Icon name={it.icon} size={16}/></span>
+                    <span className="nav-label">{it.name}</span>
+                    {it.badge && <span className="nav-badge">{it.badge}</span>}
+                    <span className="nav-chevron"><Icon name={isOpen ? 'up' : 'down'} size={13}/></span>
+                  </button>
+                  {isOpen && (
+                    <div className="nav-collapse">
+                      {it.children.map((child, ci) => {
+                        const content = (
+                          <>
+                            {child.icon && <span className="ico"><Icon name={child.icon} size={14}/></span>}
+                            <span className="nav-child-title">{child.name}</span>
+                          </>
+                        );
+                        if (child.href) {
+                          return (
+                            <Link
+                              key={ci}
+                              href={child.href}
+                              className={'nav-child' + (child.active ? ' active' : '')}
+                            >
+                              {content}
+                            </Link>
+                          );
+                        }
+                        return (
+                          <div key={ci} className={'nav-child' + (child.active ? ' active' : '')}>
+                            {content}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            return (
+              <Link
+                key={key}
+                href={it.href || NAV_ROUTE_MAP[it.name] || '#'}
+                className={'nav-item' + (it.active ? ' active' : '')}
+              >
+                <span className="ico"><Icon name={it.icon} size={16}/></span>
+                <span className="nav-label">{it.name}</span>
+                {it.badge && <span className="nav-badge">{it.badge}</span>}
+              </Link>
+            );
+          })}
+        </React.Fragment>
+      ))}
+      {footer && <div style={{ marginTop: 'auto', padding: 10, borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)' }}>{footer}</div>}
+    </div>
+  );
+};
 
 // ——— Status chip shortcut ———
 const Chip: any = ({ kind = 'live', children, dot = true }) => (

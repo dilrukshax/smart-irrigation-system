@@ -40,6 +40,9 @@ type Props = {
   onMapLayerChange?: (layer: "terrain" | "satellite") => void;
   height?: number;
   focusedObservationId?: string | null;
+  showLegend?: boolean;
+  showCenterMarker?: boolean;
+  hint?: React.ReactNode;
 };
 
 const KIND_COLORS: Record<ObservationKind, string> = {
@@ -133,9 +136,13 @@ export function FieldHealthMap({
   onMapLayerChange,
   height = 380,
   focusedObservationId = null,
+  showLegend = true,
+  showCenterMarker = true,
+  hint,
 }: Props) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const mapRef = React.useRef<any>(null);
+  const centerMarkerRef = React.useRef<any>(null);
   const terrainLayerRef = React.useRef<any>(null);
   const satelliteLayerRef = React.useRef<any>(null);
   const zonesLayerRef = React.useRef<any>(null);
@@ -172,9 +179,10 @@ export function FieldHealthMap({
       const L = await import("leaflet");
       if (disposed || !containerRef.current || mapRef.current) return;
 
-      const startLat = isValid(center.lat, center.lon) ? center.lat : FALLBACK_CENTER[0];
-      const startLon = isValid(center.lat, center.lon) ? center.lon : FALLBACK_CENTER[1];
-      const startZoom = isValid(center.lat, center.lon) ? DETAIL_ZOOM : FALLBACK_ZOOM;
+      const hasStartCoordinates = isValid(center.lat, center.lon);
+      const startLat = hasStartCoordinates ? center.lat : FALLBACK_CENTER[0];
+      const startLon = hasStartCoordinates ? center.lon : FALLBACK_CENTER[1];
+      const startZoom = hasStartCoordinates ? DETAIL_ZOOM : FALLBACK_ZOOM;
 
       const map = L.map(containerRef.current, { zoomControl: true });
       mapRef.current = map;
@@ -199,13 +207,15 @@ export function FieldHealthMap({
       devicesLayerRef.current = L.layerGroup().addTo(map);
 
       // field centre marker (small green circle so the user always sees the field anchor)
-      L.circleMarker([startLat, startLon], {
-        radius: 6,
-        color: "#2E7D32",
-        weight: 2,
-        fillColor: "#2E7D32",
-        fillOpacity: 0.85,
-      }).addTo(map);
+      if (showCenterMarker && hasStartCoordinates) {
+        centerMarkerRef.current = L.circleMarker([startLat, startLon], {
+          radius: 6,
+          color: "#2E7D32",
+          weight: 2,
+          fillColor: "#2E7D32",
+          fillOpacity: 0.85,
+        }).addTo(map);
+      }
 
       map.on("click", (event: any) => {
         if (!addModeRef.current || !onAddRef.current) return;
@@ -222,6 +232,7 @@ export function FieldHealthMap({
         mapRef.current.remove();
         mapRef.current = null;
       }
+      centerMarkerRef.current = null;
       terrainLayerRef.current = null;
       satelliteLayerRef.current = null;
       zonesLayerRef.current = null;
@@ -252,13 +263,39 @@ export function FieldHealthMap({
   React.useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    if (!showCenterMarker) {
+      centerMarkerRef.current?.remove();
+      centerMarkerRef.current = null;
+      return;
+    }
     if (!isValid(center.lat, center.lon)) return;
     if (map.getZoom() < DETAIL_ZOOM) {
       map.setView([center.lat, center.lon], DETAIL_ZOOM);
     } else {
       map.panTo([center.lat, center.lon]);
     }
-  }, [center.lat, center.lon]);
+
+    let cancelled = false;
+    const syncMarker = async () => {
+      const L = await import("leaflet");
+      if (cancelled || !mapRef.current) return;
+      if (centerMarkerRef.current) {
+        centerMarkerRef.current.setLatLng([center.lat, center.lon]);
+        return;
+      }
+      centerMarkerRef.current = L.circleMarker([center.lat, center.lon], {
+        radius: 6,
+        color: "#2E7D32",
+        weight: 2,
+        fillColor: "#2E7D32",
+        fillOpacity: 0.85,
+      }).addTo(mapRef.current);
+    };
+    void syncMarker();
+    return () => {
+      cancelled = true;
+    };
+  }, [center.lat, center.lon, showCenterMarker]);
 
   // ---- Render zones overlay ----
   React.useEffect(() => {
@@ -455,7 +492,7 @@ export function FieldHealthMap({
           </button>
         </div>
         <div className="tiny muted">
-          {addMode ? "Click anywhere on the map to drop a pin" : "Tap a pin to inspect"}
+          {hint ?? (addMode ? "Click anywhere on the map to drop a pin" : "Tap a pin to inspect")}
         </div>
       </div>
 
@@ -472,44 +509,46 @@ export function FieldHealthMap({
         }}
       />
 
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 12,
-          fontSize: 11.5,
-          color: "var(--muted)",
-          alignItems: "center",
-        }}
-      >
-        {(Object.keys(KIND_COLORS) as ObservationKind[]).map((k) => (
-          <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      {showLegend && (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 12,
+            fontSize: 11.5,
+            color: "var(--muted)",
+            alignItems: "center",
+          }}
+        >
+          {(Object.keys(KIND_COLORS) as ObservationKind[]).map((k) => (
+            <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <i
+                style={{
+                  display: "inline-block",
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50% 50% 50% 0",
+                  transform: "rotate(-45deg)",
+                  background: KIND_COLORS[k],
+                }}
+              />
+              {KIND_LABELS[k]}
+            </span>
+          ))}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
             <i
               style={{
                 display: "inline-block",
                 width: 10,
                 height: 10,
-                borderRadius: "50% 50% 50% 0",
-                transform: "rotate(-45deg)",
-                background: KIND_COLORS[k],
+                borderRadius: "50%",
+                background: "#2E7D32",
               }}
             />
-            {KIND_LABELS[k]}
+            Device online
           </span>
-        ))}
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-          <i
-            style={{
-              display: "inline-block",
-              width: 10,
-              height: 10,
-              borderRadius: "50%",
-              background: "#2E7D32",
-            }}
-          />
-          Device online
-        </span>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

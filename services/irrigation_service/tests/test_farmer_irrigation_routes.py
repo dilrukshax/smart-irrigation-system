@@ -168,6 +168,196 @@ def _patch_forecast_summary_upstreams(
     monkeypatch.setattr(farmer_irrigation, "_fetch_forecast_model_summary", _model)
 
 
+class _FakeIrrigationModel:
+    MODEL_NAME = "RandomForestClassifier"
+    MODEL_VERSION = "test"
+    REQUIRED_FEATURES = ("soil_moisture", "temperature", "humidity", "hour_of_day")
+
+    def __init__(self, ready: bool = True):
+        self.is_ready = ready
+
+    def predict_irrigation_need(
+        self,
+        *,
+        soil_moisture: float,
+        temperature: float,
+        humidity: float,
+        hour_of_day: int,
+    ) -> Dict[str, Any]:
+        _ = temperature, humidity, hour_of_day
+        needed = soil_moisture < 65
+        return {
+            "irrigation_needed": needed,
+            "confidence": 0.91 if needed else 0.82,
+            "recommendation": "WATER_ON" if needed else "WATER_OFF",
+        }
+
+
+def _area_forecast_payload() -> Dict[str, Any]:
+    payload = {
+        "generated_at": datetime.utcnow().isoformat(),
+        "current_conditions": {
+            "temperature_c": 31.0,
+            "humidity_percent": 72.0,
+            "current_rain_mm": 0.0,
+        },
+        "overall_recommendation": "NORMAL",
+        "weekly_outlook": {
+            "total_expected_rain_mm": 12.0,
+            "total_expected_evapotranspiration_mm": 35.0,
+            "net_water_balance_mm": -23.0,
+            "rainy_days_expected": 1,
+            "average_irrigation_adjustment_percent": 100.0,
+        },
+        "daily_schedule": [
+            {
+                "date": (datetime.utcnow() + timedelta(days=i)).date().isoformat(),
+                "expected_rain_mm": 0.5,
+                "expected_evapotranspiration_mm": 5.0,
+                "water_balance_mm": -4.5,
+                "recommendation": "NORMAL",
+                "irrigation_percent": 100,
+            }
+            for i in range(7)
+        ],
+        "source": "forecasting_service",
+    }
+    return payload
+
+
+def _patch_area_sources(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    fields: List[Dict[str, Any]],
+    latest_by_id: Optional[Dict[str, Optional[Dict[str, Any]]]] = None,
+    valves_by_id: Optional[Dict[str, Dict[str, Any]]] = None,
+    pairings_by_id: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    manual_by_id: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    decisions_by_id: Optional[Dict[str, Optional[Dict[str, Any]]]] = None,
+    forecast_payload: Optional[Dict[str, Any]] = None,
+    iot_devices: Optional[List[Dict[str, Any]]] = None,
+    model_ready: bool = True,
+) -> None:
+    latest_by_id = latest_by_id or {}
+    valves_by_id = valves_by_id or {}
+    pairings_by_id = pairings_by_id or {}
+    manual_by_id = manual_by_id or {}
+    decisions_by_id = decisions_by_id or {}
+
+    async def _list_fields(_session: object):
+        return fields
+
+    async def _latest(_session: object, field_id: str):
+        return latest_by_id.get(field_id)
+
+    async def _valve(_session: object, field_id: str):
+        return valves_by_id.get(
+            field_id,
+            {"status": "CLOSED", "position_pct": 0, "last_action_time": None},
+        )
+
+    async def _pairings(_session: object, *, field_id: str, **_kwargs: Any):
+        return pairings_by_id.get(field_id, [])
+
+    async def _manual(_session: object, *, field_id: str, **_kwargs: Any):
+        return manual_by_id.get(field_id, [])
+
+    async def _policy(_session: object, **_kwargs: Any):
+        return None
+
+    async def _quota(_session: object, _policy: Optional[Dict[str, Any]]):
+        return None
+
+    async def _forecast(*_args: Any, **_kwargs: Any):
+        return forecast_payload
+
+    async def _iot(_paired_ids: List[str]):
+        return iot_devices if iot_devices is not None else []
+
+    async def _decision(field: Dict[str, Any], *_args: Any, **_kwargs: Any):
+        return decisions_by_id.get(str(field.get("field_id")))
+
+    monkeypatch.setattr(farmer_irrigation, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(farmer_irrigation, "list_crop_fields", _list_fields)
+    monkeypatch.setattr(farmer_irrigation, "get_latest_sensor_reading", _latest)
+    monkeypatch.setattr(farmer_irrigation, "get_valve_state", _valve)
+    monkeypatch.setattr(farmer_irrigation, "list_pairing_sessions_for_field", _pairings)
+    monkeypatch.setattr(farmer_irrigation, "list_manual_requests", _manual)
+    monkeypatch.setattr(farmer_irrigation, "get_active_authority_policy", _policy)
+    monkeypatch.setattr(farmer_irrigation, "_policy_quota_remaining_mcm", _quota)
+    monkeypatch.setattr(farmer_irrigation, "_fetch_weekly_outlook", _forecast)
+    monkeypatch.setattr(farmer_irrigation, "_fetch_iot_devices_for_field", _iot)
+    monkeypatch.setattr(farmer_irrigation, "_compute_auto_decision", _decision)
+    monkeypatch.setattr(farmer_irrigation, "irrigation_model", _FakeIrrigationModel(model_ready))
+
+
+def _patch_forecast_area_sources(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    fields: List[Dict[str, Any]],
+    latest_by_id: Optional[Dict[str, Optional[Dict[str, Any]]]] = None,
+    valves_by_id: Optional[Dict[str, Dict[str, Any]]] = None,
+    weather_payload: Optional[Dict[str, Any]] = None,
+    forecast_payload: Optional[Dict[str, Any]] = None,
+    model_payload: Optional[Dict[str, Any]] = None,
+) -> None:
+    latest_by_id = latest_by_id or {}
+    valves_by_id = valves_by_id or {}
+
+    async def _list_fields(_session: object):
+        return fields
+
+    async def _latest(_session: object, field_id: str):
+        return latest_by_id.get(field_id)
+
+    async def _valve(_session: object, field_id: str):
+        return valves_by_id.get(
+            field_id,
+            {"status": "CLOSED", "position_pct": 0, "last_action_time": None},
+        )
+
+    async def _weather(*_args: Any, **_kwargs: Any):
+        return weather_payload
+
+    async def _forecast(*_args: Any, **_kwargs: Any):
+        return forecast_payload
+
+    async def _model(*_args: Any, **_kwargs: Any):
+        return model_payload
+
+    monkeypatch.setattr(farmer_irrigation, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(farmer_irrigation, "list_crop_fields", _list_fields)
+    monkeypatch.setattr(farmer_irrigation, "get_latest_sensor_reading", _latest)
+    monkeypatch.setattr(farmer_irrigation, "get_valve_state", _valve)
+    monkeypatch.setattr(farmer_irrigation, "_fetch_weather_forecast", _weather)
+    monkeypatch.setattr(farmer_irrigation, "_fetch_weekly_outlook", _forecast)
+    monkeypatch.setattr(farmer_irrigation, "_fetch_forecast_model_summary", _model)
+
+
+def _patch_crop_health_area_sources(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    fields: List[Dict[str, Any]],
+    stress_by_id: Optional[Dict[str, Optional[Dict[str, Any]]]] = None,
+    zones_payload: Optional[Dict[str, Any]] = None,
+) -> None:
+    stress_by_id = stress_by_id or {}
+
+    async def _list_fields(_session: object):
+        return fields
+
+    async def _stress(field_id: str, *_args: Any, **_kwargs: Any):
+        return stress_by_id.get(field_id)
+
+    async def _zones(*_args: Any, **_kwargs: Any):
+        return zones_payload
+
+    monkeypatch.setattr(farmer_irrigation, "session_scope", _fake_session_scope)
+    monkeypatch.setattr(farmer_irrigation, "list_crop_fields", _list_fields)
+    monkeypatch.setattr(farmer_irrigation, "_fetch_crop_health_stress_summary", _stress)
+    monkeypatch.setattr(farmer_irrigation, "_fetch_crop_health_zones", _zones)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures: payload shapes
 # ---------------------------------------------------------------------------
@@ -310,6 +500,129 @@ def iot_devices_payload() -> List[Dict[str, Any]]:
             "is_online": False,
         },
     ]
+
+
+def _forecast_week_payload(
+    *,
+    rain: float,
+    et: float,
+    net: float,
+    rainy_days: int,
+    adjustment: float,
+    daily_rain: float,
+    daily_et: float,
+    recommendation: str = "NORMAL",
+) -> Dict[str, Any]:
+    return {
+        "generated_at": datetime.utcnow().isoformat(),
+        "overall_recommendation": recommendation,
+        "weekly_outlook": {
+            "total_expected_rain_mm": rain,
+            "total_expected_evapotranspiration_mm": et,
+            "net_water_balance_mm": net,
+            "rainy_days_expected": rainy_days,
+            "average_irrigation_adjustment_percent": adjustment,
+        },
+        "daily_schedule": [
+            {
+                "date": (datetime.utcnow() + timedelta(days=i)).date().isoformat(),
+                "expected_rain_mm": daily_rain,
+                "expected_evapotranspiration_mm": daily_et,
+                "water_balance_mm": daily_rain - daily_et,
+                "recommendation": recommendation,
+                "irrigation_percent": int(adjustment),
+            }
+            for i in range(7)
+        ],
+        "source": "forecasting_service",
+    }
+
+
+def _weather_area_payload(
+    *,
+    daily_rain: float,
+    daily_et: float,
+    temp_max: float = 31.0,
+    probability: float = 25.0,
+) -> Dict[str, Any]:
+    return {
+        "status": "ok",
+        "source": "open-meteo",
+        "generated_at": datetime.utcnow().isoformat(),
+        "location": {"latitude": 7.21, "longitude": 80.65},
+        "summary": {
+            "total_precipitation_7d_mm": daily_rain * 7,
+            "average_temp_c": temp_max - 3.0,
+            "rainy_days_count": 7 if daily_rain >= 1 else 0,
+            "irrigation_recommendation": "MAINTAIN",
+        },
+        "daily": [
+            {
+                "date": (datetime.utcnow() + timedelta(days=i)).date().isoformat(),
+                "temp_max_c": temp_max,
+                "temp_min_c": temp_max - 6,
+                "rain_mm": daily_rain,
+                "precipitation_probability": probability,
+                "evapotranspiration_mm": daily_et,
+                "weather_description": "Partly cloudy",
+            }
+            for i in range(14)
+        ],
+    }
+
+
+def _stress_payload(
+    *,
+    field_id: str = "field-1",
+    stress_index: float = 0.2,
+    priority: str = "low",
+    healthy_ratio: float = 0.75,
+    mild_ratio: float = 0.2,
+    severe_ratio: float = 0.05,
+    data_available: bool = True,
+    status: str = "ok",
+) -> Dict[str, Any]:
+    return {
+        "field_id": field_id,
+        "generated_at": datetime.utcnow().isoformat(),
+        "stress_index": stress_index,
+        "priority": priority,
+        "stress_penalty_factor": round(min(0.6, stress_index * 0.5), 3),
+        "healthy_ratio": healthy_ratio,
+        "mild_stress_ratio": mild_ratio,
+        "severe_stress_ratio": severe_ratio,
+        "recommended_action": "Tune irrigation" if priority != "low" else "Maintain plan",
+        "source": "analysis-artifact",
+        "status": status,
+        "is_live": data_available,
+        "observed_at": datetime.utcnow().isoformat() if data_available else None,
+        "staleness_sec": 0.0 if data_available else None,
+        "quality": "good" if data_available else "unknown",
+        "data_available": data_available,
+        "message": "Stress summary available" if data_available else "Live stress summary is not yet available",
+    }
+
+
+def _zones_geojson_payload() -> Dict[str, Any]:
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {
+                    "zone_id": "z-1",
+                    "health_status": "healthy",
+                    "ndvi": 0.78,
+                    "ndwi": 0.42,
+                    "color": "#16A34A",
+                },
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[80.65, 7.21], [80.66, 7.21], [80.66, 7.22], [80.65, 7.22], [80.65, 7.21]]],
+                },
+            }
+        ],
+    }
 
 
 @pytest.fixture
@@ -737,3 +1050,580 @@ def test_summary_officer_with_scheme_can_read(
     client = TestClient(app)
     resp = client.get("/api/v1/irrigation/farmer/fields/field-1/summary")
     assert resp.status_code == 200
+
+
+def test_area_summary_selected_fields_happy_path(
+    monkeypatch: pytest.MonkeyPatch,
+    fresh_reading: Dict[str, Any],
+    pairing_row: Dict[str, Any],
+    iot_devices_payload: List[Dict[str, Any]],
+    auto_decision: Dict[str, Any],
+):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    _patch_area_sources(
+        monkeypatch,
+        fields=[
+            _farmer_field(),
+            _farmer_field(
+                field_id="field-2",
+                field_name="South paddy",
+                area_hectares=2.0,
+                latitude=7.22,
+                longitude=80.66,
+                device_id="esp-02",
+            ),
+        ],
+        latest_by_id={"field-1": fresh_reading},
+        pairings_by_id={"field-1": [pairing_row]},
+        decisions_by_id={"field-1": auto_decision},
+        forecast_payload=_area_forecast_payload(),
+        iot_devices=iot_devices_payload,
+    )
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/v1/irrigation/farmer/area-summary",
+        json={"mode": "fields", "field_ids": ["field-1"]},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["selection"]["field_count"] == 1
+    assert body["selection"]["total_hectares"] == 1.5
+    assert body["kpis"]["average_soil_moisture_pct"] == 62.0
+    assert body["kpis"]["live_fields"] == 1
+    assert body["model_evidence"]["available"] is True
+    assert body["model_evidence"]["recommendation_counts"]["WATER_ON"] == 1
+    assert body["area_decision"]["action"] == "IRRIGATE_NOW"
+    assert "field-1" in body["area_decision"]["recommended_field_ids"]
+    assert {item["scenario_id"] for item in body["scenarios"]} >= {
+        "irrigate-now",
+        "delay-24h",
+        "reduce-25",
+    }
+
+
+def test_area_summary_rejects_foreign_selected_field(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    _patch_area_sources(
+        monkeypatch,
+        fields=[_farmer_field(owner_id="u-other-farmer")],
+        forecast_payload=_area_forecast_payload(),
+    )
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/v1/irrigation/farmer/area-summary",
+        json={"mode": "fields", "field_ids": ["field-1"]},
+    )
+
+    assert resp.status_code == 403
+
+
+def test_area_summary_empty_boundary_returns_no_field_state(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    _patch_area_sources(
+        monkeypatch,
+        fields=[_farmer_field(latitude=7.21, longitude=80.65)],
+        forecast_payload=_area_forecast_payload(),
+    )
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/v1/irrigation/farmer/area-summary",
+        json={
+            "mode": "boundary",
+            "boundary": {
+                "type": "Polygon",
+                "coordinates": [[[0, 0], [0.1, 0], [0.1, 0.1], [0, 0.1], [0, 0]]],
+            },
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["selection"]["field_count"] == 0
+    assert body["fields"] == []
+    assert body["area_decision"]["action"] == "WATCH"
+    assert body["status"] == "data_unavailable"
+
+
+def test_area_summary_stale_and_missing_telemetry_degrades(
+    monkeypatch: pytest.MonkeyPatch,
+    stale_reading: Dict[str, Any],
+):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    stale_ok_reading = {**stale_reading, "soil_moisture_pct": 85.0, "water_level_pct": 65.0}
+    _patch_area_sources(
+        monkeypatch,
+        fields=[
+            _farmer_field(),
+            _farmer_field(field_id="field-2", field_name="South", area_hectares=1.0),
+        ],
+        latest_by_id={"field-1": stale_ok_reading, "field-2": None},
+        decisions_by_id={
+            "field-1": {
+                "field_id": "field-1",
+                "timestamp": datetime.utcnow().isoformat(),
+                "action": "HOLD",
+                "valve_position_pct": 0,
+                "reason": "Within acceptable thresholds",
+                "priority": "low",
+                "ml_prediction": {"forecast_adjustment_pct": 100.0, "stress_penalty_factor": 0.0},
+                "blocked": False,
+            }
+        },
+        forecast_payload=_area_forecast_payload(),
+    )
+
+    client = TestClient(app)
+    resp = client.post("/api/v1/irrigation/farmer/area-summary", json={"mode": "all"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["selection"]["field_count"] == 2
+    assert body["kpis"]["stale_fields"] == 1
+    assert body["kpis"]["no_telemetry_fields"] == 1
+    assert body["area_decision"]["action"] == "WATCH"
+    assert body["model_evidence"]["unavailable_count"] == 1
+    assert body["status"] in {"stale", "data_unavailable"}
+
+
+def test_area_summary_ml_unavailable_keeps_adaptive_decision(
+    monkeypatch: pytest.MonkeyPatch,
+    fresh_reading: Dict[str, Any],
+    auto_decision: Dict[str, Any],
+):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    _patch_area_sources(
+        monkeypatch,
+        fields=[_farmer_field()],
+        latest_by_id={"field-1": fresh_reading},
+        decisions_by_id={"field-1": auto_decision},
+        forecast_payload=_area_forecast_payload(),
+        model_ready=False,
+    )
+
+    client = TestClient(app)
+    resp = client.post("/api/v1/irrigation/farmer/area-summary", json={"mode": "all"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["model_evidence"]["available"] is False
+    assert body["model_evidence"]["model_ready"] is False
+    assert body["area_decision"]["action"] == "IRRIGATE_NOW"
+
+
+def test_area_summary_healthy_fields_skip_scenario_is_deterministic(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    latest = {
+        "device_id": "esp-01",
+        "timestamp": datetime.utcnow().isoformat(),
+        "soil_moisture_pct": 85.0,
+        "water_level_pct": 65.0,
+    }
+    _patch_area_sources(
+        monkeypatch,
+        fields=[_farmer_field()],
+        latest_by_id={"field-1": latest},
+        decisions_by_id={
+            "field-1": {
+                "field_id": "field-1",
+                "timestamp": datetime.utcnow().isoformat(),
+                "action": "HOLD",
+                "valve_position_pct": 0,
+                "reason": "Within acceptable thresholds",
+                "priority": "low",
+                "ml_prediction": {"forecast_adjustment_pct": 100.0, "stress_penalty_factor": 0.0},
+                "blocked": False,
+            }
+        },
+        forecast_payload=_area_forecast_payload(),
+    )
+
+    client = TestClient(app)
+    resp = client.post("/api/v1/irrigation/farmer/area-summary", json={"mode": "all"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["area_decision"]["action"] == "SKIP"
+    assert [item["scenario_id"] for item in body["scenarios"]] == [
+        "irrigate-now",
+        "delay-24h",
+        "reduce-25",
+    ]
+
+
+def test_forecast_area_summary_happy_path(
+    monkeypatch: pytest.MonkeyPatch,
+    fresh_reading: Dict[str, Any],
+    model_summary_payload: Dict[str, Any],
+):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    _patch_forecast_area_sources(
+        monkeypatch,
+        fields=[
+            _farmer_field(),
+            _farmer_field(
+                field_id="field-2",
+                field_name="South paddy",
+                area_hectares=2.0,
+                latitude=7.22,
+                longitude=80.66,
+                device_id="esp-02",
+            ),
+        ],
+        latest_by_id={"field-1": fresh_reading},
+        weather_payload=_weather_area_payload(daily_rain=1.0, daily_et=4.5),
+        forecast_payload=_forecast_week_payload(
+            rain=12.0,
+            et=31.5,
+            net=-19.5,
+            rainy_days=2,
+            adjustment=100.0,
+            daily_rain=1.0,
+            daily_et=4.5,
+        ),
+        model_payload=model_summary_payload,
+    )
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/v1/irrigation/farmer/forecast-area-summary",
+        json={"mode": "fields", "field_ids": ["field-1"]},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["selection"]["field_count"] == 1
+    assert body["weather"]["available"] is True
+    assert body["week_plan"]["available"] is True
+    assert body["model_summary"]["available"] is True
+    assert len(body["daily"]) == 14
+    assert body["kpis"]["total_expected_rain_mm"] == 12.0
+    assert body["forecast_decision"]["action"] == "WATCH_WEATHER"
+    assert {item["scenario_id"] for item in body["scenarios"]} >= {
+        "rain-delay",
+        "dry-spell",
+        "normal-plan",
+    }
+
+
+def test_forecast_area_summary_rejects_foreign_selected_field(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    _patch_forecast_area_sources(
+        monkeypatch,
+        fields=[_farmer_field(owner_id="u-other-farmer")],
+        weather_payload=_weather_area_payload(daily_rain=0.0, daily_et=5.0),
+        forecast_payload=_forecast_week_payload(
+            rain=0.0,
+            et=35.0,
+            net=-35.0,
+            rainy_days=0,
+            adjustment=140.0,
+            daily_rain=0.0,
+            daily_et=5.0,
+        ),
+        model_payload={},
+    )
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/v1/irrigation/farmer/forecast-area-summary",
+        json={"mode": "fields", "field_ids": ["field-1"]},
+    )
+
+    assert resp.status_code == 403
+
+
+def test_forecast_area_empty_boundary_returns_no_field_state(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    _patch_forecast_area_sources(
+        monkeypatch,
+        fields=[_farmer_field(latitude=7.21, longitude=80.65)],
+        weather_payload=None,
+        forecast_payload=None,
+        model_payload=None,
+    )
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/v1/irrigation/farmer/forecast-area-summary",
+        json={
+            "mode": "boundary",
+            "boundary": {
+                "type": "Polygon",
+                "coordinates": [[[0, 0], [0.1, 0], [0.1, 0.1], [0, 0.1], [0, 0]]],
+            },
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["selection"]["field_count"] == 0
+    assert body["fields"] == []
+    assert body["forecast_decision"]["action"] == "WATCH_WEATHER"
+    assert body["status"] == "data_unavailable"
+
+
+def test_forecast_area_dry_spell_prepares_irrigation(
+    monkeypatch: pytest.MonkeyPatch,
+    fresh_reading: Dict[str, Any],
+    model_summary_payload: Dict[str, Any],
+):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    _patch_forecast_area_sources(
+        monkeypatch,
+        fields=[_farmer_field()],
+        latest_by_id={"field-1": fresh_reading},
+        weather_payload=_weather_area_payload(daily_rain=0.0, daily_et=6.0, temp_max=35.0),
+        forecast_payload=_forecast_week_payload(
+            rain=0.0,
+            et=42.0,
+            net=-42.0,
+            rainy_days=0,
+            adjustment=140.0,
+            daily_rain=0.0,
+            daily_et=6.0,
+        ),
+        model_payload=model_summary_payload,
+    )
+
+    client = TestClient(app)
+    resp = client.post("/api/v1/irrigation/farmer/forecast-area-summary", json={"mode": "all"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["forecast_decision"]["action"] == "PREPARE_IRRIGATION"
+    assert body["forecast_decision"]["priority"] == "high"
+    assert body["kpis"]["high_heat_days"] == 14
+
+
+def test_forecast_area_rainy_window_skips_irrigation(
+    monkeypatch: pytest.MonkeyPatch,
+    fresh_reading: Dict[str, Any],
+    model_summary_payload: Dict[str, Any],
+):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    _patch_forecast_area_sources(
+        monkeypatch,
+        fields=[_farmer_field()],
+        latest_by_id={"field-1": fresh_reading},
+        weather_payload=_weather_area_payload(daily_rain=8.0, daily_et=4.0, probability=80.0),
+        forecast_payload=_forecast_week_payload(
+            rain=56.0,
+            et=28.0,
+            net=28.0,
+            rainy_days=7,
+            adjustment=40.0,
+            daily_rain=8.0,
+            daily_et=4.0,
+            recommendation="SKIP",
+        ),
+        model_payload=model_summary_payload,
+    )
+
+    client = TestClient(app)
+    resp = client.post("/api/v1/irrigation/farmer/forecast-area-summary", json={"mode": "all"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["forecast_decision"]["action"] == "SKIP_IRRIGATION"
+    assert body["kpis"]["high_rain_days"] == 14
+
+
+def test_forecast_area_stale_or_missing_telemetry_adds_sensor_scenario(
+    monkeypatch: pytest.MonkeyPatch,
+    stale_reading: Dict[str, Any],
+    model_summary_payload: Dict[str, Any],
+):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    _patch_forecast_area_sources(
+        monkeypatch,
+        fields=[
+            _farmer_field(),
+            _farmer_field(field_id="field-2", field_name="South", area_hectares=1.0),
+        ],
+        latest_by_id={"field-1": stale_reading, "field-2": None},
+        weather_payload=_weather_area_payload(daily_rain=1.0, daily_et=4.0),
+        forecast_payload=_forecast_week_payload(
+            rain=7.0,
+            et=28.0,
+            net=-21.0,
+            rainy_days=2,
+            adjustment=100.0,
+            daily_rain=1.0,
+            daily_et=4.0,
+        ),
+        model_payload=model_summary_payload,
+    )
+
+    client = TestClient(app)
+    resp = client.post("/api/v1/irrigation/farmer/forecast-area-summary", json={"mode": "all"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["kpis"]["stale_fields"] == 1
+    assert body["kpis"]["no_telemetry_fields"] == 1
+    assert body["forecast_decision"]["action"] == "WATCH_WEATHER"
+    assert "sensor-check" in {item["scenario_id"] for item in body["scenarios"]}
+
+
+def test_crop_health_area_summary_happy_path(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    _patch_crop_health_area_sources(
+        monkeypatch,
+        fields=[
+            _farmer_field(),
+            _farmer_field(
+                field_id="field-2",
+                field_name="South paddy",
+                area_hectares=2.0,
+                latitude=7.22,
+                longitude=80.66,
+            ),
+        ],
+        stress_by_id={
+            "field-1": _stress_payload(field_id="field-1", stress_index=0.18, priority="low"),
+            "field-2": _stress_payload(field_id="field-2", stress_index=0.44, priority="medium", healthy_ratio=0.45, mild_ratio=0.45, severe_ratio=0.1),
+        },
+        zones_payload=_zones_geojson_payload(),
+    )
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/v1/irrigation/farmer/crop-health-area-summary",
+        json={"mode": "all"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["selection"]["field_count"] == 2
+    assert body["kpis"]["medium_stress_fields"] == 1
+    assert body["kpis"]["health_score_pct"] == 69.0
+    assert body["area_decision"]["action"] == "MONITOR"
+    assert body["zones_geojson"]["type"] == "FeatureCollection"
+    assert {item["scenario_id"] for item in body["scenarios"]} >= {
+        "inspect-stress",
+        "irrigation-check",
+        "observe-and-log",
+    }
+
+
+def test_crop_health_area_rejects_foreign_selected_field(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    _patch_crop_health_area_sources(
+        monkeypatch,
+        fields=[_farmer_field(owner_id="u-other-farmer")],
+        stress_by_id={"field-1": _stress_payload()},
+    )
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/v1/irrigation/farmer/crop-health-area-summary",
+        json={"mode": "fields", "field_ids": ["field-1"]},
+    )
+
+    assert resp.status_code == 403
+
+
+def test_crop_health_area_empty_boundary_returns_no_field_state(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    _patch_crop_health_area_sources(
+        monkeypatch,
+        fields=[_farmer_field(latitude=7.21, longitude=80.65)],
+        stress_by_id={"field-1": _stress_payload()},
+    )
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/v1/irrigation/farmer/crop-health-area-summary",
+        json={
+            "mode": "boundary",
+            "boundary": {
+                "type": "Polygon",
+                "coordinates": [[[0, 0], [0.1, 0], [0.1, 0.1], [0, 0.1], [0, 0]]],
+            },
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["selection"]["field_count"] == 0
+    assert body["area_decision"]["action"] == "RUN_ANALYSIS"
+    assert body["status"] == "data_unavailable"
+
+
+def test_crop_health_area_high_stress_requires_inspection(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    _patch_crop_health_area_sources(
+        monkeypatch,
+        fields=[_farmer_field()],
+        stress_by_id={
+            "field-1": _stress_payload(
+                stress_index=0.82,
+                priority="critical",
+                healthy_ratio=0.1,
+                mild_ratio=0.35,
+                severe_ratio=0.55,
+            )
+        },
+        zones_payload=_zones_geojson_payload(),
+    )
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/v1/irrigation/farmer/crop-health-area-summary",
+        json={"mode": "all"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["area_decision"]["action"] == "INSPECT_NOW"
+    assert body["area_decision"]["priority"] == "critical"
+    assert body["kpis"]["critical_stress_fields"] == 1
+
+
+def test_crop_health_area_unavailable_requests_analysis(monkeypatch: pytest.MonkeyPatch):
+    app = _test_app()
+    app.dependency_overrides[get_current_user_context] = _farmer_context
+    _patch_crop_health_area_sources(
+        monkeypatch,
+        fields=[_farmer_field()],
+        stress_by_id={"field-1": None},
+        zones_payload=None,
+    )
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/v1/irrigation/farmer/crop-health-area-summary",
+        json={"mode": "all"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["area_decision"]["action"] == "RUN_ANALYSIS"
+    assert body["kpis"]["data_unavailable_fields"] == 1
+    assert body["status"] == "data_unavailable"

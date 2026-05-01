@@ -22,7 +22,7 @@ import {
   SchemeMap,
   Frame,
 } from '@/components/asi/ui';
-import { farmerNav, officerNav, authorityNav, irrigationNav, optNav } from '@/components/asi/nav';
+import { farmerNav, officerNav, officerModuleNav, authorityNav, irrigationNav, optNav } from '@/components/asi/nav';
 import { PublicTop } from '@/components/asi/public-top';
 import { ApiState } from '@/components/asi/api-state';
 import { apiGet } from '@/lib/api';
@@ -40,7 +40,7 @@ const IrrigationDashboard = () => {
     setError(null);
     try {
       const [ovRes, netRes] = await Promise.allSettled([
-        apiGet<any>('/irrigation/officer-overview'),
+        apiGet<any>('/irrigation/officer/overview'),
         apiGet<any>('/irrigation/network/state'),
       ]);
       if (ovRes.status === 'fulfilled') setOverview(ovRes.value);
@@ -59,16 +59,21 @@ const IrrigationDashboard = () => {
     loadData();
   }, [loadData]);
 
+  const schemes = Array.isArray(overview?.items) ? overview.items : [];
   const fields = overview?.fields || [];
-  const totalFields = overview?.total_fields ?? fields.length;
-  const onlineFields = overview?.online_fields ?? 0;
-  const offlineFields = overview?.offline_fields ?? 0;
-  const anomalies = overview?.anomalies || [];
+  const totalFields = overview?.total_fields ?? schemes.reduce((sum: number, item: any) => sum + Number(item.telemetry?.total_fields || 0), 0);
+  const onlineFields = overview?.online_fields ?? schemes.reduce((sum: number, item: any) => sum + Number(item.telemetry?.fresh_fields || item.telemetry?.live_fields || 0), 0);
+  const offlineFields = overview?.offline_fields ?? schemes.reduce((sum: number, item: any) => sum + Number(item.telemetry?.stale_fields || 0) + Number(item.telemetry?.no_telemetry_fields || 0), 0);
+  const anomalies = overview?.anomalies || schemes
+    .filter((item: any) => item.message || item.queue?.pending_requests > 0 || item.telemetry?.stale_fields > 0)
+    .map((item: any) => ({
+      description: item.message || item.queue?.message || item.telemetry?.message || `${item.scheme_id} needs review`,
+    }));
   const displayName = user?.username || 'Officer';
 
   return (
     <Frame
-      sidebar={irrigationNav('over')}
+      sidebar={officerModuleNav('Irrigation', 'Overview')}
       breadcrumb={['Modules', 'F1 · Irrigation', 'Overview']}
       user={displayName}
       role="Officer"
@@ -107,11 +112,11 @@ const IrrigationDashboard = () => {
                 {offlineFields > 0 && <Chip kind="off">{offlineFields} offline</Chip>}
               </div>
             </div>
-            {fields.length === 0 ? (
+            {fields.length === 0 && schemes.length === 0 ? (
               <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
                 No fields in your scheme
               </div>
-            ) : (
+            ) : fields.length > 0 ? (
               <table className="tbl">
                 <thead><tr><th>Field</th><th>Device</th><th>Auto decision</th><th>Valve</th><th>Updated</th></tr></thead>
                 <tbody>
@@ -140,6 +145,25 @@ const IrrigationDashboard = () => {
                       </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            ) : (
+              <table className="tbl">
+                <thead><tr><th>Scheme</th><th>Fields</th><th>Telemetry</th><th>Requests</th><th>Hydraulic schedules</th></tr></thead>
+                <tbody>
+                  {schemes.map((scheme: any) => (
+                    <tr key={scheme.scheme_id}>
+                      <td style={{ fontWeight: 600 }}>{scheme.scheme_id}</td>
+                      <td className="tabular">{scheme.telemetry?.total_fields || 0}</td>
+                      <td>
+                        <Chip kind={(scheme.telemetry?.stale_fields || scheme.telemetry?.no_telemetry_fields) ? 'warn' : 'live'}>
+                          {scheme.telemetry?.fresh_fields || 0} fresh · {scheme.telemetry?.no_telemetry_fields || 0} missing
+                        </Chip>
+                      </td>
+                      <td><Chip kind={scheme.queue?.pending_requests ? 'warn' : 'live'}>{scheme.queue?.pending_requests || 0} pending</Chip></td>
+                      <td className="tabular">{scheme.hydraulic?.accepted_schedules || 0} accepted</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             )}

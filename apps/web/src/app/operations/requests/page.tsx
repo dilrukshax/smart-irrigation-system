@@ -28,7 +28,7 @@ const ManualRequests = () => {
     setError(null);
     try {
       const res = await apiGet<any>('/irrigation/manual-requests');
-      const list = Array.isArray(res) ? res : res?.requests || res?.data || [];
+      const list = Array.isArray(res) ? res : res?.items || res?.requests || res?.data || [];
       setRequests(list);
     } catch (err: any) {
       setError(err?.message || 'Failed to load requests');

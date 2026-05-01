@@ -419,6 +419,11 @@ async def irrigation_proxy(path: str, request: Request):
     return await proxy_request(SERVICES["irrigation"], f"/api/v1/irrigation/{path}", request)
 
 
+@app.api_route("/api/v1/water-management/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def water_management_proxy(path: str, request: Request):
+    return await proxy_request(SERVICES["irrigation"], f"/api/v1/water-management/{path}", request)
+
+
 # ---------- Crop Health ----------
 
 

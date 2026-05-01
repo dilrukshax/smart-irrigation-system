@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
@@ -165,6 +165,115 @@ class FarmerSelectResponse(BaseModel):
     season: str
     recommendation_id: Optional[int] = None
     persisted: bool
+    # Contract fields
+    status: str = "ok"
+    source: str = "optimization_service"
+    is_live: bool = True
+    observed_at: Optional[str] = None
+    staleness_sec: Optional[float] = None
+    quality: str = "good"
+    data_available: bool = True
+    message: Optional[str] = None
+
+
+class FarmerAreaOptimizationScenarioInput(BaseModel):
+    scenario_id: str = Field(..., description="Stable scenario id")
+    title: Optional[str] = Field(default=None, description="Farmer-facing scenario label")
+    soil_type: Optional[str] = Field(default=None, description="Override soil type")
+    season_rainfall_mm: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=2000,
+        description="Override seasonal rainfall in mm",
+    )
+    season_avg_temp: Optional[float] = Field(
+        default=None,
+        ge=10,
+        le=45,
+        description="Override seasonal average temperature",
+    )
+    water_availability_mm: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=20000,
+        description="Override seasonal water availability",
+    )
+    price_factor: Optional[float] = Field(
+        default=None,
+        ge=0.5,
+        le=2.0,
+        description="Override market price multiplier",
+    )
+
+
+class FarmerAreaOptimizeRequest(BaseModel):
+    mode: Literal["all", "fields", "boundary"] = "fields"
+    field_ids: List[str] = Field(default_factory=list)
+    boundary: Optional[Dict[str, Any]] = None
+    season: Optional[str] = None
+    top_n: int = Field(default=5, ge=1, le=10)
+    scenarios: List[FarmerAreaOptimizationScenarioInput] = Field(default_factory=list)
+
+
+class FarmerAreaOptimizeSelection(BaseModel):
+    mode: Literal["all", "fields", "boundary"]
+    field_count: int
+    requested_field_count: int
+    missing_field_ids: List[str] = Field(default_factory=list)
+    field_ids: List[str] = Field(default_factory=list)
+    total_hectares: float
+    boundary: Optional[Dict[str, Any]] = None
+
+
+class FarmerAreaCropRanking(BaseModel):
+    crop_id: str
+    crop_name: str
+    average_combined_score: float
+    average_suitability_score: float
+    average_profit_per_ha: float
+    average_roi_percentage: float
+    average_water_requirement_mm: float
+    appearances: int
+    first_place_count: int
+    risk_level: str
+    water_sensitivity: str
+    confidence: float
+    field_ids: List[str] = Field(default_factory=list)
+    scenario_ids: List[str] = Field(default_factory=list)
+
+
+class FarmerAreaOptimizationFieldResult(BaseModel):
+    field_id: str
+    field_name: Optional[str] = None
+    area_ha: float
+    soil_type: str
+    water_band: str
+    season_rainfall_mm: float
+    season_avg_temp: float
+    water_availability_mm: float
+    best_crop: Optional[AdaptiveCropRecommendation] = None
+    recommendations: List[AdaptiveCropRecommendation] = Field(default_factory=list)
+
+
+class FarmerAreaOptimizationScenarioResult(BaseModel):
+    scenario_id: str
+    title: str
+    inputs: FarmerAreaOptimizationScenarioInput
+    field_results: List[FarmerAreaOptimizationFieldResult] = Field(default_factory=list)
+    crop_rankings: List[FarmerAreaCropRanking] = Field(default_factory=list)
+    best_crop: Optional[FarmerAreaCropRanking] = None
+    models_used: List[str] = Field(default_factory=list)
+    message: Optional[str] = None
+
+
+class FarmerAreaOptimizeResponse(BaseModel):
+    selection: FarmerAreaOptimizeSelection
+    season: str
+    base_inputs: Dict[str, Any] = Field(default_factory=dict)
+    crop_rankings: List[FarmerAreaCropRanking] = Field(default_factory=list)
+    best_crop: Optional[FarmerAreaCropRanking] = None
+    scenarios: List[FarmerAreaOptimizationScenarioResult] = Field(default_factory=list)
+    models_used: List[str] = Field(default_factory=list)
     # Contract fields
     status: str = "ok"
     source: str = "optimization_service"
@@ -458,6 +567,7 @@ def _build_adaptive_request(
     weather_defaults: Dict[str, float],
     water_band: Dict[str, Any],
     top_n: int,
+    price_factor: Optional[float] = None,
 ) -> AdaptiveRecommendationRequest:
     field_params = FieldParameters(
         field_id=str(field.get("id") or ""),
@@ -492,7 +602,7 @@ def _build_adaptive_request(
         field_params=field_params,
         weather_params=weather_params,
         water_params=water_params,
-        market_params=MarketParameters(),
+        market_params=MarketParameters(price_factor=price_factor or 1.0),
         crop_filters=CropFilterParameters(),
         suitability_weight=0.5,
         profitability_weight=0.5,
@@ -532,9 +642,361 @@ def _persist_farmer_recommendation(
     return rec_id
 
 
+def _scenario_title(scenario: FarmerAreaOptimizationScenarioInput, index: int) -> str:
+    if scenario.title:
+        return scenario.title
+    label = scenario.scenario_id.replace("-", " ").replace("_", " ").strip()
+    return label.title() if label else f"Scenario {index + 1}"
+
+
+def _default_area_scenarios(
+    *,
+    soil_type: str,
+    weather_defaults: Dict[str, float],
+    water_availability_mm: float,
+) -> List[FarmerAreaOptimizationScenarioInput]:
+    rainfall = float(weather_defaults.get("season_rainfall_mm") or 250.0)
+    temp = float(weather_defaults.get("season_avg_temp") or 28.0)
+    water = float(water_availability_mm or 500.0)
+    return [
+        FarmerAreaOptimizationScenarioInput(
+            scenario_id="current-plan",
+            title="Current field conditions",
+            soil_type=soil_type,
+            season_rainfall_mm=rainfall,
+            season_avg_temp=temp,
+            water_availability_mm=water,
+            price_factor=1.0,
+        ),
+        FarmerAreaOptimizationScenarioInput(
+            scenario_id="drier-season",
+            title="Drier season",
+            soil_type=soil_type,
+            season_rainfall_mm=max(0.0, rainfall - 120.0),
+            season_avg_temp=min(45.0, temp + 1.5),
+            water_availability_mm=max(0.0, water * 0.75),
+            price_factor=1.0,
+        ),
+        FarmerAreaOptimizationScenarioInput(
+            scenario_id="wetter-season",
+            title="Wetter season",
+            soil_type=soil_type,
+            season_rainfall_mm=min(2000.0, rainfall + 160.0),
+            season_avg_temp=max(10.0, temp - 0.8),
+            water_availability_mm=min(20000.0, water * 1.25),
+            price_factor=1.0,
+        ),
+    ]
+
+
+def _rank_area_crops(
+    field_results: List[FarmerAreaOptimizationFieldResult],
+    *,
+    scenario_id: Optional[str] = None,
+) -> List[FarmerAreaCropRanking]:
+    buckets: Dict[str, Dict[str, Any]] = {}
+    for field_result in field_results:
+        for rec in field_result.recommendations:
+            bucket = buckets.setdefault(
+                rec.crop_id,
+                {
+                    "crop_id": rec.crop_id,
+                    "crop_name": rec.crop_name,
+                    "combined": [],
+                    "suitability": [],
+                    "profit": [],
+                    "roi": [],
+                    "water": [],
+                    "risk_levels": [],
+                    "water_sensitivity": rec.water_sensitivity,
+                    "confidence": [],
+                    "field_ids": set(),
+                    "scenario_ids": set(),
+                    "first_place_count": 0,
+                },
+            )
+            bucket["combined"].append(float(rec.combined_score))
+            bucket["suitability"].append(float(rec.suitability_score))
+            bucket["profit"].append(float(rec.profit_per_ha))
+            bucket["roi"].append(float(rec.roi_percentage))
+            bucket["water"].append(float(rec.water_requirement_mm))
+            bucket["risk_levels"].append(str(rec.risk_level or "medium"))
+            bucket["confidence"].append(float(rec.confidence or 0.0))
+            bucket["field_ids"].add(field_result.field_id)
+            if scenario_id:
+                bucket["scenario_ids"].add(scenario_id)
+            if field_result.best_crop and field_result.best_crop.crop_id == rec.crop_id:
+                bucket["first_place_count"] += 1
+
+    def avg(values: List[float]) -> float:
+        return round(sum(values) / len(values), 4) if values else 0.0
+
+    risk_rank = {"low": 0, "medium": 1, "high": 2}
+    rankings: List[FarmerAreaCropRanking] = []
+    for bucket in buckets.values():
+        risks = bucket["risk_levels"]
+        risk_level = max(risks, key=lambda item: risk_rank.get(str(item), 1)) if risks else "medium"
+        rankings.append(
+            FarmerAreaCropRanking(
+                crop_id=bucket["crop_id"],
+                crop_name=bucket["crop_name"],
+                average_combined_score=avg(bucket["combined"]),
+                average_suitability_score=avg(bucket["suitability"]),
+                average_profit_per_ha=round(avg(bucket["profit"]), 2),
+                average_roi_percentage=round(avg(bucket["roi"]), 2),
+                average_water_requirement_mm=round(avg(bucket["water"]), 2),
+                appearances=len(bucket["combined"]),
+                first_place_count=int(bucket["first_place_count"]),
+                risk_level=risk_level,
+                water_sensitivity=str(bucket["water_sensitivity"] or "medium"),
+                confidence=avg(bucket["confidence"]),
+                field_ids=sorted(bucket["field_ids"]),
+                scenario_ids=sorted(bucket["scenario_ids"]),
+            )
+        )
+
+    rankings.sort(
+        key=lambda item: (
+            item.first_place_count,
+            item.average_combined_score,
+            item.average_profit_per_ha,
+        ),
+        reverse=True,
+    )
+    return rankings
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+
+@router.post("/area-optimize", response_model=FarmerAreaOptimizeResponse)
+async def farmer_area_optimize(
+    payload: FarmerAreaOptimizeRequest,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+) -> FarmerAreaOptimizeResponse:
+    """Area-level crop optimization with farmer-editable scenarios.
+
+    The frontend owns temporary map selection and sends selected field ids.
+    This endpoint resolves those fields, runs the adaptive crop engine for
+    each scenario, then ranks crops by repeated field/scenario strength.
+    """
+    observed_at_dt = datetime.utcnow()
+    observed_at = observed_at_dt.isoformat()
+    season = _resolve_season(payload.season)
+    auth_header = request.headers.get("authorization")
+
+    requested_ids = [str(item) for item in payload.field_ids if str(item).strip()]
+    resolved_fields: List[Dict[str, Any]] = []
+    missing_field_ids: List[str] = []
+    seen: set[str] = set()
+    for field_id in requested_ids:
+        if field_id in seen:
+            continue
+        seen.add(field_id)
+        field = await _resolve_field(db, field_id, auth_header=auth_header)
+        if not field:
+            missing_field_ids.append(field_id)
+            continue
+        resolved_fields.append(field)
+
+    selection = FarmerAreaOptimizeSelection(
+        mode=payload.mode,
+        requested_field_count=len(requested_ids),
+        field_count=len(resolved_fields),
+        missing_field_ids=missing_field_ids,
+        field_ids=[str(field.get("id") or "") for field in resolved_fields],
+        total_hectares=round(
+            sum(float(field.get("area_ha") or 0.0) for field in resolved_fields),
+            3,
+        ),
+        boundary=payload.boundary,
+    )
+
+    if not resolved_fields:
+        contract = build_contract(
+            source="optimization_service",
+            observed_at=observed_at,
+            data_available=False,
+            raw_status="data_unavailable",
+            message="No fields selected for crop optimization.",
+        )
+        return FarmerAreaOptimizeResponse(
+            selection=selection,
+            season=season,
+            base_inputs={"requested_field_ids": requested_ids},
+            crop_rankings=[],
+            best_crop=None,
+            scenarios=[],
+            models_used=[],
+            **contract,
+        )
+
+    reservoir = await farmer_service.fetch_reservoir_snapshot(
+        settings.irrigation_service_url, auth_header=auth_header
+    )
+    weather = await farmer_service.fetch_weather_summary(
+        settings.forecasting_service_url, auth_header=auth_header
+    )
+
+    reservoir_pct: Optional[float] = None
+    if isinstance(reservoir, dict):
+        for key in ("water_level_pct", "active_storage_pct", "current_level_pct"):
+            value = reservoir.get(key)
+            if value is not None:
+                try:
+                    reservoir_pct = float(value)
+                    break
+                except (TypeError, ValueError):
+                    continue
+
+    weather_defaults = farmer_service.derive_weather_defaults(weather, season=season)
+    first_field = resolved_fields[0]
+    first_soil = _normalize_soil_type(
+        str(first_field.get("soil_type") or "Loam")
+    )
+    first_water = float(first_field.get("water_availability_mm") or 500.0)
+    scenarios = payload.scenarios or _default_area_scenarios(
+        soil_type=first_soil,
+        weather_defaults=weather_defaults,
+        water_availability_mm=first_water,
+    )
+    scenarios = scenarios[:6]
+
+    scenario_results: List[FarmerAreaOptimizationScenarioResult] = []
+    all_field_results: List[FarmerAreaOptimizationFieldResult] = []
+    models_used: set[str] = set()
+
+    for scenario_index, scenario in enumerate(scenarios):
+        scenario_field_results: List[FarmerAreaOptimizationFieldResult] = []
+        scenario_models: set[str] = set()
+
+        for field in resolved_fields:
+            field_id = str(field.get("id") or "")
+            soil_type = _normalize_soil_type(
+                scenario.soil_type or str(field.get("soil_type") or first_soil or "Loam")
+            )
+            scenario_weather = dict(weather_defaults)
+            if scenario.season_rainfall_mm is not None:
+                scenario_weather["season_rainfall_mm"] = float(scenario.season_rainfall_mm)
+            if scenario.season_avg_temp is not None:
+                scenario_weather["season_avg_temp"] = float(scenario.season_avg_temp)
+
+            water_availability = (
+                float(scenario.water_availability_mm)
+                if scenario.water_availability_mm is not None
+                else float(field.get("water_availability_mm") or first_water or 500.0)
+            )
+            water_band = farmer_service.classify_water_band(
+                water_availability,
+                reservoir_level_pct=reservoir_pct,
+            )
+            adaptive_request = _build_adaptive_request(
+                field={**field, "water_availability_mm": water_availability},
+                soil_type=soil_type,
+                season=season,
+                weather_defaults=scenario_weather,
+                water_band=water_band,
+                top_n=payload.top_n,
+                price_factor=scenario.price_factor,
+            )
+
+            adaptive_response: AdaptiveRecommendationResponse = await get_adaptive_recommendations(
+                request=adaptive_request,
+                db=db,
+                user_context=user_context,
+            )
+            for model_name in adaptive_response.models_used:
+                scenario_models.add(model_name)
+                models_used.add(model_name)
+
+            recs = adaptive_response.recommendations or []
+            field_result = FarmerAreaOptimizationFieldResult(
+                field_id=field_id,
+                field_name=field.get("name"),
+                area_ha=float(field.get("area_ha") or 1.0),
+                soil_type=soil_type,
+                water_band=str(water_band["band"]),
+                season_rainfall_mm=float(scenario_weather["season_rainfall_mm"]),
+                season_avg_temp=float(scenario_weather["season_avg_temp"]),
+                water_availability_mm=float(water_band["water_availability_mm"]),
+                best_crop=recs[0] if recs else None,
+                recommendations=recs,
+            )
+            scenario_field_results.append(field_result)
+            all_field_results.append(field_result)
+
+        scenario_rankings = _rank_area_crops(
+            scenario_field_results,
+            scenario_id=scenario.scenario_id,
+        )
+        scenario_results.append(
+            FarmerAreaOptimizationScenarioResult(
+                scenario_id=scenario.scenario_id,
+                title=_scenario_title(scenario, scenario_index),
+                inputs=scenario,
+                field_results=scenario_field_results,
+                crop_rankings=scenario_rankings,
+                best_crop=scenario_rankings[0] if scenario_rankings else None,
+                models_used=sorted(scenario_models),
+                message=(
+                    "Scenario produced crop rankings."
+                    if scenario_rankings
+                    else "No crops met this scenario's constraints."
+                ),
+            )
+        )
+
+    crop_rankings = _rank_area_crops(all_field_results)
+    has_rankings = bool(crop_rankings)
+    contract = build_contract(
+        source="optimization_service",
+        observed_at=observed_at,
+        data_available=has_rankings,
+        raw_status="ok" if has_rankings else "data_unavailable",
+        message=(
+            "Area crop optimization completed."
+            if has_rankings
+            else "No crop recommendation could be generated for the selected area."
+        ),
+    )
+
+    response = FarmerAreaOptimizeResponse(
+        selection=selection,
+        season=season,
+        base_inputs={
+            "weather": weather_defaults,
+            "reservoir_level_pct": reservoir_pct,
+            "scenario_count": len(scenario_results),
+            "top_n": payload.top_n,
+        },
+        crop_rankings=crop_rankings,
+        best_crop=crop_rankings[0] if crop_rankings else None,
+        scenarios=scenario_results,
+        models_used=sorted(models_used),
+        **contract,
+    )
+
+    try:
+        RunArtifactRepository.save_artifact(
+            db,
+            run_type="farmer_area_optimize",
+            field_id=",".join(selection.field_ids[:10]) or None,
+            season=season,
+            request_payload=payload.model_dump(),
+            response_payload=response.model_dump(),
+            status=str(contract.get("status") or "ok"),
+            source=str(contract.get("source") or "optimization_service"),
+            data_available=bool(contract.get("data_available")),
+            observed_at=observed_at_dt,
+        )
+    except Exception as exc:
+        logger.info("Area optimization artifact save failed: %s", exc)
+
+    return response
 
 
 @router.get("/current", response_model=FarmerCurrentPlanResponse)

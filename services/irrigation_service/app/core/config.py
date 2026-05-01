@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     crop_fields_state_path: str = "/tmp/irrigation_crop_fields_state.json"
     water_management_state_path: str = "/tmp/irrigation_water_management_state.json"
     reservoir_snapshot_path: str = "/tmp/irrigation_reservoir_snapshot.json"
+    reservoir_name: str = "Udawalawe Reservoir"
     
     model_config = SettingsConfigDict(
         env_file=".env",

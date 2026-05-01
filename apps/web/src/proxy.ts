@@ -79,12 +79,13 @@ export function proxy(request: NextRequest) {
     pathname.startsWith('/operations') ||
     pathname.startsWith('/irrigation') ||
     pathname.startsWith('/crop-health') ||
-    pathname.startsWith('/forecasting')
+    pathname.startsWith('/forecasting') ||
+    pathname.startsWith('/optimization')
   ) {
     if (!roles.some((r) => ['officer', 'authority'].includes(r.toLowerCase()))) {
       return NextResponse.redirect(new URL('/login', request.url));
     }
-  } else if (pathname.startsWith('/authority') || pathname.startsWith('/optimization')) {
+  } else if (pathname.startsWith('/authority')) {
     if (!roles.some((r) => r.toLowerCase() === 'authority')) {
       return NextResponse.redirect(new URL('/login', request.url));
     }

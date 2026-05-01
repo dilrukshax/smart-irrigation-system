@@ -10,7 +10,7 @@ Scientific workflow:
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
-from typing import Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 import json
 import logging
@@ -34,6 +34,144 @@ except Exception:  # pragma: no cover - optional dependency at runtime
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/crop-health", tags=["Crop Health Analysis"])
+
+
+MILD_STRESS_ALERT_RATIO = 0.25
+SEVERE_STRESS_ALERT_RATIO = 0.15
+LOW_NDVI_ALERT_THRESHOLD = 0.45
+LOW_NDWI_ALERT_THRESHOLD = 0.05
+
+
+def _priority_rank(priority: str) -> int:
+    return {"critical": 4, "high": 3, "medium": 2, "low": 1}.get(str(priority or "").lower(), 0)
+
+
+def _make_crop_alert(
+    *,
+    alert_type: str,
+    priority: str,
+    title: str,
+    message: str,
+    recommendation: str,
+    source: str,
+    field_id: Optional[str] = None,
+    metric: Optional[str] = None,
+    value: Optional[float] = None,
+    generated_at: Optional[str] = None,
+) -> Dict[str, Any]:
+    observed = generated_at or datetime.utcnow().isoformat()
+    scope = field_id or "scheme"
+    return {
+        "id": f"{alert_type.lower()}-{scope}-{observed[:10]}",
+        "type": alert_type,
+        "priority": priority,
+        "severity": priority.upper(),
+        "title": title,
+        "message": message,
+        "recommendation": recommendation,
+        "field_id": field_id,
+        "metric": metric,
+        "value": round(value, 3) if isinstance(value, (int, float)) else value,
+        "generated_at": observed,
+        "source": source,
+    }
+
+
+def _alerts_from_zone_summary(summary: ZoneSummary) -> List[Dict[str, Any]]:
+    total = max(summary.total_zones, 1)
+    mild_ratio = summary.mild_stress_count / total
+    severe_ratio = summary.severe_stress_count / total
+    alerts: List[Dict[str, Any]] = []
+
+    if summary.severe_stress_count > 0 and severe_ratio >= SEVERE_STRESS_ALERT_RATIO:
+        priority = "critical" if severe_ratio >= 0.35 else "high"
+        alerts.append(
+            _make_crop_alert(
+                alert_type="SEVERE_STRESS_ZONES",
+                priority=priority,
+                title="Severe crop stress zones detected",
+                message=f"{summary.severe_stress_count} of {summary.total_zones} zones are classified as severe stress.",
+                recommendation="Prioritize field inspection, irrigation checks, and pest or disease scouting for severe zones.",
+                source="zone-summary",
+                metric="severe_stress_ratio",
+                value=severe_ratio,
+                generated_at=summary.last_updated.isoformat(),
+            )
+        )
+
+    if summary.mild_stress_count > 0 and mild_ratio >= MILD_STRESS_ALERT_RATIO:
+        alerts.append(
+            _make_crop_alert(
+                alert_type="MILD_STRESS_SPREAD",
+                priority="medium",
+                title="Mild crop stress spreading",
+                message=f"{summary.mild_stress_count} zones are showing mild stress signatures.",
+                recommendation="Increase monitoring frequency and compare against recent irrigation telemetry.",
+                source="zone-summary",
+                metric="mild_stress_ratio",
+                value=mild_ratio,
+                generated_at=summary.last_updated.isoformat(),
+            )
+        )
+
+    if summary.average_ndvi < LOW_NDVI_ALERT_THRESHOLD:
+        alerts.append(
+            _make_crop_alert(
+                alert_type="LOW_NDVI",
+                priority="high",
+                title="Low average NDVI",
+                message="Scheme-level average NDVI is below the crop-health threshold.",
+                recommendation="Review affected zones and confirm whether this is water stress, disease, or crop-stage related.",
+                source="zone-summary",
+                metric="average_ndvi",
+                value=summary.average_ndvi,
+                generated_at=summary.last_updated.isoformat(),
+            )
+        )
+
+    if summary.average_ndwi < LOW_NDWI_ALERT_THRESHOLD:
+        alerts.append(
+            _make_crop_alert(
+                alert_type="LOW_NDWI",
+                priority="medium",
+                title="Low canopy water index",
+                message="Average NDWI suggests elevated water stress risk.",
+                recommendation="Cross-check soil-moisture telemetry and schedule irrigation for high-priority zones.",
+                source="zone-summary",
+                metric="average_ndwi",
+                value=summary.average_ndwi,
+                generated_at=summary.last_updated.isoformat(),
+            )
+        )
+
+    return alerts
+
+
+def _alerts_from_stress_artifacts(artifacts: Dict[str, dict]) -> List[Dict[str, Any]]:
+    alerts: List[Dict[str, Any]] = []
+    for field_id, artifact in artifacts.items():
+        priority = str(artifact.get("priority") or "low").lower()
+        stress_index = float(artifact.get("stress_index") or 0)
+        severe_ratio = float(artifact.get("severe_stress_ratio") or 0)
+        if priority not in {"medium", "high", "critical"} and stress_index < 0.3 and severe_ratio < 0.15:
+            continue
+
+        alert_priority = priority if priority in {"medium", "high", "critical"} else "medium"
+        alerts.append(
+            _make_crop_alert(
+                alert_type="FIELD_STRESS",
+                priority=alert_priority,
+                title=f"{alert_priority.title()} field stress",
+                message=f"Field {field_id} has stress index {stress_index:.2f}.",
+                recommendation=artifact.get("recommended_action") or "Inspect the field and compare against irrigation telemetry.",
+                source=str(artifact.get("source") or "analysis-artifact"),
+                field_id=field_id,
+                metric="stress_index",
+                value=stress_index,
+                generated_at=artifact.get("observed_at") or artifact.get("generated_at"),
+            )
+        )
+    return alerts
 
 
 class FieldStressSummary(BaseModel):
@@ -472,6 +610,109 @@ async def get_zone_summary(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate summary: {str(e)}"
+        )
+
+
+@router.get(
+    "/alerts",
+    summary="Get crop-health alerts",
+    description="Operator-safe aggregate alerts from persisted field stress artifacts and zone summary analysis.",
+)
+async def get_crop_health_alerts(
+    lat: Optional[float] = Query(default=None, ge=-90, le=90),
+    lon: Optional[float] = Query(default=None, ge=-180, le=180),
+    area_km2: Optional[float] = Query(default=10.0, gt=0, le=100),
+    num_zones: Optional[int] = Query(default=6, ge=1, le=20),
+):
+    center_lat = lat if lat is not None else settings.DEFAULT_LAT
+    center_lon = lon if lon is not None else settings.DEFAULT_LON
+    generated_at = datetime.utcnow().isoformat()
+
+    try:
+        artifacts = stress_repo.load_all()
+        if not artifacts:
+            artifacts = dict(_analysis_artifacts)
+        alerts = _alerts_from_stress_artifacts(artifacts)
+        zone_summary: Optional[ZoneSummary] = None
+        source = "analysis-artifact" if artifacts else "zone-summary"
+
+        if not settings.is_strict_live_data:
+            zone_generator = get_zone_generator()
+            _, zone_summary = zone_generator.generate_zones(
+                center_lat=center_lat,
+                center_lon=center_lon,
+                area_km2=area_km2,
+                num_zones=num_zones,
+            )
+            alerts.extend(_alerts_from_zone_summary(zone_summary))
+        elif not artifacts:
+            return {
+                "status": "analysis_pending",
+                "source": "analysis-artifact",
+                "is_live": False,
+                "observed_at": None,
+                "staleness_sec": None,
+                "quality": "unknown",
+                "data_available": False,
+                "message": "Live crop stress alerts are not yet available",
+                "generated_at": generated_at,
+                "alerts": [],
+                "summary": {
+                    "total_alerts": 0,
+                    "highest_priority": "low",
+                    "artifact_count": 0,
+                    "critical_fields": 0,
+                    "high_fields": 0,
+                    "medium_fields": 0,
+                    "zone_summary": None,
+                },
+            }
+
+        alerts.sort(key=lambda item: (-_priority_rank(item.get("priority", "")), item.get("generated_at") or ""))
+        highest = alerts[0]["priority"] if alerts else "low"
+        critical_fields = sum(
+            1
+            for artifact in artifacts.values()
+            if str(artifact.get("priority") or "").lower() == "critical"
+        )
+        high_fields = sum(
+            1
+            for artifact in artifacts.values()
+            if str(artifact.get("priority") or "").lower() == "high"
+        )
+        medium_fields = sum(
+            1
+            for artifact in artifacts.values()
+            if str(artifact.get("priority") or "").lower() == "medium"
+        )
+
+        return {
+            "status": "ok",
+            "source": source,
+            "is_live": bool(artifacts),
+            "observed_at": generated_at,
+            "staleness_sec": 0.0,
+            "quality": "good" if artifacts else "stale",
+            "data_available": True,
+            "message": "Crop-health alerts generated",
+            "generated_at": generated_at,
+            "location": {"lat": center_lat, "lon": center_lon},
+            "alerts": alerts,
+            "summary": {
+                "total_alerts": len(alerts),
+                "highest_priority": highest,
+                "artifact_count": len(artifacts),
+                "critical_fields": critical_fields,
+                "high_fields": high_fields,
+                "medium_fields": medium_fields,
+                "zone_summary": zone_summary.model_dump(mode="json") if zone_summary else None,
+            },
+        }
+    except Exception as e:
+        logger.error("Crop-health alerts generation error: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate crop-health alerts: {str(e)}",
         )
 
 

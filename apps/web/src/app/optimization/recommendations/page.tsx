@@ -4,178 +4,176 @@
 /* eslint-disable */
 
 import * as React from 'react';
-import {
-  Icon,
-  Chip,
-  Frame,
-} from '@/components/asi/ui';
-import { optNav } from '@/components/asi/nav';
 import { ApiState } from '@/components/asi/api-state';
+import { Icon } from '@/components/asi/ui';
 import { apiGet } from '@/lib/api';
-import { useAuth } from '@/lib/auth';
+import {
+  DEFAULT_SEASON,
+  EmptyState,
+  MetricCard,
+  OptimizationFrame,
+  RecommendationCard,
+  buildQuery,
+  formatCompact,
+  formatNumber,
+  gridAuto,
+  num,
+  overviewRecommendations,
+  statusKind,
+  unwrapData,
+} from '../_components/optimization-shared';
 
-const OptRecommendations = () => {
-  const { user } = useAuth();
-  const [recommendations, setRecommendations] = React.useState<any[]>([]);
+function RecommendationsPage() {
+  const [season, setSeason] = React.useState(DEFAULT_SEASON);
+  const [overview, setOverview] = React.useState<any>(null);
+  const [cropFilter, setCropFilter] = React.useState('');
+  const [riskFilter, setRiskFilter] = React.useState('all');
+  const [threshold, setThreshold] = React.useState(0.65);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-
-  // Filter state
-  const [cropFilter, setCropFilter] = React.useState('');
-  const [suitabilityThreshold, setSuitabilityThreshold] = React.useState(0.65);
 
   const loadData = React.useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiGet<any>('/planning/recommendations');
-      const recList = Array.isArray(res) ? res : res?.recommendations || res?.data || [];
-      setRecommendations(recList);
+      const response = await apiGet<any>(`/planning/operator/overview${buildQuery({ season })}`);
+      setOverview(response);
     } catch (err: any) {
-      setError(err?.message || 'Failed to load recommendations');
+      setError(err?.message || 'Failed to load crop recommendations');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [season]);
 
   React.useEffect(() => {
     loadData();
   }, [loadData]);
 
-  // Flatten all crop recommendations from all recommendation records
-  const allCropRecs: any[] = [];
-  recommendations.forEach((r: any) => {
-    const recs = r.recommendations || r.crop_recommendations || (r.response_data?.recommendations) || [];
-    recs.forEach((cr: any) => {
-      allCropRecs.push({
-        ...cr,
-        field_id: r.field_id,
-        field_name: r.field_name,
-        season: r.season,
-      });
-    });
-  });
-
-  const filteredRecs = allCropRecs.filter((c: any) => {
-    const suitability = c.suitability_score ?? c.suitability ?? 0;
-    if (suitability < suitabilityThreshold) return false;
-    if (cropFilter && !(c.crop_name || c.name || '').toLowerCase().includes(cropFilter.toLowerCase())) return false;
+  const rows = overviewRecommendations(overview);
+  const filtered = rows.filter((row: any) => {
+    const score = num(row.suitability_score ?? row.combined_score, 0);
+    const risk = String(row.risk_band || row.risk_level || row.risk || '').toLowerCase();
+    const name = String(row.crop_name || row.crop_id || '').toLowerCase();
+    if (score < threshold) return false;
+    if (cropFilter && !name.includes(cropFilter.toLowerCase())) return false;
+    if (riskFilter !== 'all' && risk !== riskFilter) return false;
     return true;
   });
-
-  const displayName = user?.username || 'Authority';
+  const data = unwrapData(overview);
+  const topProfit = filtered.reduce((best: number, row: any) => Math.max(best, num(row.expected_profit_per_ha ?? row.profit_per_ha, 0)), 0);
 
   return (
-    <Frame sidebar={optNav('rec')} breadcrumb={['F4 · ACA-O', 'Recommendations']} user={displayName} role="Authority">
-      <div className="page-head">
-        <div>
-          <div className="page-title">Crop recommendations</div>
-          <div className="page-sub">{filteredRecs.length} of {allCropRecs.length} crop recommendations</div>
+    <OptimizationFrame
+      active="Recommendations"
+      title="Crop recommendations"
+      subtitle="Officer view of latest backend-ranked crop options"
+      onRefresh={loadData}
+      actions={
+        <select className="select" value={season} onChange={(event) => setSeason(event.target.value)} style={{ minWidth: 150 }}>
+          <option value="Maha-2025">Maha 2025</option>
+          <option value="Yala-2026">Yala 2026</option>
+          <option value="Maha-2026">Maha 2026</option>
+          <option value="Yala-2027">Yala 2027</option>
+        </select>
+      }
+    >
+      <ApiState loading={loading && !overview} error={error} onRetry={loadData}>
+        <div style={{ ...gridAuto(220), marginBottom: 14 }}>
+          <MetricCard
+            title="Recommendation rows"
+            value={formatNumber(rows.length, 0)}
+            sub={`${formatNumber(data.fields_with_recommendations, 0)} fields with current F4 context`}
+            icon="leaf"
+            chip={overview?.status || 'backend'}
+            kind={statusKind(overview?.status)}
+          />
+          <MetricCard
+            title="Filtered rows"
+            value={formatNumber(filtered.length, 0)}
+            sub={`Threshold ${threshold.toFixed(2)} suitability`}
+            icon="filter"
+            chip="view"
+            kind="sim"
+            color="#6D9F2B"
+          />
+          <MetricCard
+            title="Top profit / ha"
+            value={formatCompact(topProfit, 'LKR ')}
+            sub="Among currently visible options"
+            icon="chart"
+            chip="profit"
+            kind="live"
+            color="var(--primary)"
+          />
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={loadData}><Icon name="download" size={13}/> Refresh</button>
-      </div>
 
-      {/* Filter bar */}
-      <div className="card" style={{ padding: 14, marginBottom: 14 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 120px', gap: 12, alignItems: 'end' }}>
-          <div className="field">
-            <label>Crop filter</label>
-            <input
-              className="input"
-              placeholder="Filter by crop name..."
-              value={cropFilter}
-              onChange={(e) => setCropFilter(e.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label>Suitability threshold <span className="tabular" style={{ color: 'var(--text)', fontWeight: 700 }}>≥ {suitabilityThreshold.toFixed(2)}</span></label>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              value={suitabilityThreshold}
-              onChange={(e) => setSuitabilityThreshold(parseFloat(e.target.value))}
-              style={{ width: '100%', accentColor: 'var(--primary)' }}
-            />
-          </div>
-          <button className="btn btn-ghost" onClick={() => { setCropFilter(''); setSuitabilityThreshold(0); }}>
-            <Icon name="x" size={13}/> Clear
-          </button>
-        </div>
-      </div>
-
-      <ApiState loading={loading && recommendations.length === 0} error={error} onRetry={loadData}>
-        {allCropRecs.length === 0 ? (
-          <div className="card" style={{ padding: 40, textAlign: 'center' }}>
-            <Icon name="target" size={40} color="var(--muted)"/>
-            <div style={{ fontSize: 14, fontWeight: 600, marginTop: 12 }}>No recommendations yet</div>
-            <div className="tiny muted" style={{ marginTop: 4 }}>
-              Generate recommendations from the <a href="/optimization/planner" style={{ color: 'var(--primary-600)' }}>Planner page</a>
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div style={{ ...gridAuto(190), alignItems: 'end' }}>
+            <div className="field">
+              <label>Crop</label>
+              <input
+                className="input"
+                value={cropFilter}
+                onChange={(event) => setCropFilter(event.target.value)}
+                placeholder="Name or crop id"
+              />
             </div>
+            <div className="field">
+              <label>Risk</label>
+              <select className="select" value={riskFilter} onChange={(event) => setRiskFilter(event.target.value)}>
+                <option value="all">All risk bands</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+            <div className="field">
+              <label>Minimum suitability {threshold.toFixed(2)}</label>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={threshold}
+                onChange={(event) => setThreshold(Number(event.target.value))}
+                style={{ width: '100%', accentColor: 'var(--primary)' }}
+              />
+            </div>
+            <button className="btn btn-ghost" onClick={() => { setCropFilter(''); setRiskFilter('all'); setThreshold(0); }}>
+              <Icon name="x" size={13}/> Clear
+            </button>
           </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-            {filteredRecs.slice(0, 24).map((c: any, i: number) => {
-              const name = c.crop_name || c.name || 'Unknown';
-              const suitability = c.suitability_score ?? c.suitability ?? 0;
-              const yieldTha = c.expected_yield_t_ha ?? c.yield_t_ha ?? null;
-              const priceLkr = c.price_per_kg ?? c.price ?? null;
-              const profit = c.projected_profit_lkr ?? c.profit_lkr ?? null;
-              const waterMm = c.water_requirement_mm ?? c.water_mm ?? null;
-              const color = suitability >= 0.8 ? 'var(--primary)' : suitability >= 0.65 ? '#8BC34A' : 'var(--accent)';
+        </div>
 
-              return (
-                <div key={i} className="card" style={{ padding: 14 }}>
-                  <div className="between">
-                    <div style={{ fontWeight: 600, fontSize: 13.5 }}>{name}</div>
-                    {suitability >= 0.8 && <Chip kind="live">Top pick</Chip>}
-                    {suitability < 0.5 && <Chip kind="crit">Low fit</Chip>}
-                  </div>
-                  {c.field_name && <div className="tiny muted" style={{ marginTop: 4 }}>{c.field_name}</div>}
-                  <div style={{ marginTop: 10 }}>
-                    <div className="between small muted">
-                      <span>Suitability</span>
-                      <span className="tabular" style={{ color: 'var(--text)', fontWeight: 700 }}>{suitability.toFixed(2)}</span>
-                    </div>
-                    <div className="prog">
-                      <div className="prog-fill" style={{ width: (suitability * 100) + '%', background: color }}/>
-                    </div>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10, fontSize: 11.5 }}>
-                    <div>
-                      <div className="muted tiny">Yield</div>
-                      <div className="tabular" style={{ fontWeight: 600 }}>{yieldTha ? `${yieldTha.toFixed(1)} t/ha` : '—'}</div>
-                    </div>
-                    <div>
-                      <div className="muted tiny">Price</div>
-                      <div className="tabular" style={{ fontWeight: 600 }}>{priceLkr ? `LKR ${priceLkr}/kg` : '—'}</div>
-                    </div>
-                    <div>
-                      <div className="muted tiny">Profit</div>
-                      <div className="tabular" style={{ fontWeight: 700, color: 'var(--primary-600)' }}>
-                        {profit ? `LKR ${Math.round(profit / 1000)}k` : '—'}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="muted tiny">Water</div>
-                      <div className="tabular" style={{ fontWeight: 600 }}>{waterMm ? `${waterMm} mm` : '—'}</div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+        {!rows.length ? (
+          <EmptyState
+            icon="leaf"
+            title="No backend recommendations yet"
+            actionHref="/optimization/adaptive"
+            actionLabel="Run adaptive tuning"
+          >
+            The operator endpoint returned no recommendation rows for this season.
+          </EmptyState>
+        ) : !filtered.length ? (
+          <EmptyState icon="filter" title="No rows match the filters">
+            Lower the suitability threshold or clear the crop/risk filters.
+          </EmptyState>
+        ) : (
+          <div style={gridAuto(280)}>
+            {filtered.slice(0, 30).map((row: any, index: number) => (
+              <RecommendationCard key={`${row.field_id || 'field'}-${row.crop_id || index}-${row.rank || index}`} row={row}/>
+            ))}
           </div>
         )}
       </ApiState>
-    </Frame>
+    </OptimizationFrame>
   );
-};
+}
 
 export default function Page() {
   return (
     <div className="route-shell min-h-screen w-full bg-[var(--bg)]">
-      <OptRecommendations />
+      <RecommendationsPage />
     </div>
   );
 }

@@ -358,6 +358,174 @@ class TestFarmerRecommend:
 
 
 # ---------------------------------------------------------------------------
+# /area-optimize
+# ---------------------------------------------------------------------------
+
+
+class TestFarmerAreaOptimize:
+    def test_area_optimize_ranks_best_crop_across_scenarios(self):
+        captured_requests: List[Any] = []
+
+        async def _adaptive_for_scenario(request, *_args, **_kwargs):
+            captured_requests.append(request)
+            if request.field_params.soil_type == "Clay":
+                return _adaptive_response(
+                    [
+                        _adaptive_recommendation(
+                            crop_id="CROP-PADDY",
+                            crop_name="Paddy",
+                            combined_score=0.86,
+                            suitability_score=0.88,
+                            profit_per_ha=140000,
+                            roi_percentage=160,
+                            water_requirement_mm=900,
+                            water_sensitivity="high",
+                        )
+                    ]
+                )
+            return _adaptive_response(
+                [
+                    _adaptive_recommendation(
+                        crop_id="CROP-GG",
+                        crop_name="Green Gram",
+                        combined_score=0.82,
+                        suitability_score=0.8,
+                        profit_per_ha=175000,
+                        roi_percentage=218,
+                        water_requirement_mm=450,
+                        water_sensitivity="low",
+                    )
+                ]
+            )
+
+        with patch.object(
+            routes_farmer.FieldRepository,
+            "get_field_by_id",
+            return_value=_field_row(),
+        ), patch.object(
+            farmer_service, "fetch_reservoir_snapshot", side_effect=_async_none
+        ), patch.object(
+            farmer_service, "fetch_weather_summary", side_effect=_async_none
+        ), patch.object(
+            routes_farmer,
+            "get_adaptive_recommendations",
+            side_effect=_adaptive_for_scenario,
+        ), patch.object(
+            routes_farmer.RunArtifactRepository, "save_artifact", return_value=1
+        ):
+            resp = client.post(
+                "/f4/farmer/area-optimize",
+                json={
+                    "mode": "fields",
+                    "field_ids": ["FIELD-001"],
+                    "season": "Yala-2026",
+                    "scenarios": [
+                        {
+                            "scenario_id": "dry-sandy",
+                            "title": "Dry sandy loam",
+                            "soil_type": "Sandy Loam",
+                            "season_rainfall_mm": 120,
+                            "water_availability_mm": 220,
+                        },
+                        {
+                            "scenario_id": "wet-clay",
+                            "title": "Wet clay",
+                            "soil_type": "Clay",
+                            "season_rainfall_mm": 560,
+                            "water_availability_mm": 900,
+                        },
+                    ],
+                },
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["selection"]["field_count"] == 1
+        assert len(body["scenarios"]) == 2
+        assert body["scenarios"][0]["best_crop"]["crop_id"] == "CROP-GG"
+        assert body["scenarios"][1]["best_crop"]["crop_id"] == "CROP-PADDY"
+        assert body["best_crop"]["appearances"] == 1
+        assert {item["crop_id"] for item in body["crop_rankings"]} == {
+            "CROP-GG",
+            "CROP-PADDY",
+        }
+        assert captured_requests[0].field_params.soil_type == "Sandy Loam"
+        assert captured_requests[0].weather_params.season_rainfall_mm == 120
+        assert captured_requests[0].water_params.water_availability_mm == 220
+        assert captured_requests[1].field_params.soil_type == "Clay"
+
+    def test_area_optimize_empty_selection_degrades(self):
+        with patch.object(
+            routes_farmer.RunArtifactRepository, "save_artifact", return_value=1
+        ):
+            resp = client.post(
+                "/f4/farmer/area-optimize",
+                json={"mode": "fields", "field_ids": []},
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "data_unavailable"
+        assert body["data_available"] is False
+        assert body["selection"]["field_count"] == 0
+        assert body["crop_rankings"] == []
+
+    def test_area_optimize_reports_missing_field_ids(self):
+        async def _missing(*_args, **_kwargs):
+            return None
+
+        with patch.object(
+            routes_farmer.FieldRepository, "get_field_by_id", return_value=None
+        ), patch.object(
+            farmer_service, "fetch_field_from_irrigation", side_effect=_missing
+        ):
+            resp = client.post(
+                "/f4/farmer/area-optimize",
+                json={"mode": "fields", "field_ids": ["MISSING"]},
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "data_unavailable"
+        assert body["selection"]["missing_field_ids"] == ["MISSING"]
+
+    def test_area_optimize_default_scenarios_when_none_provided(self):
+        async def _adaptive_default(request, *_args, **_kwargs):
+            return _adaptive_response([_adaptive_recommendation()])
+
+        with patch.object(
+            routes_farmer.FieldRepository,
+            "get_field_by_id",
+            return_value=_field_row(soil_type="Loam", water_availability_mm=500),
+        ), patch.object(
+            farmer_service, "fetch_reservoir_snapshot", side_effect=_async_none
+        ), patch.object(
+            farmer_service,
+            "fetch_weather_summary",
+            side_effect=_async_none,
+        ), patch.object(
+            routes_farmer,
+            "get_adaptive_recommendations",
+            side_effect=_adaptive_default,
+        ), patch.object(
+            routes_farmer.RunArtifactRepository, "save_artifact", return_value=1
+        ):
+            resp = client.post(
+                "/f4/farmer/area-optimize",
+                json={"mode": "all", "field_ids": ["FIELD-001"]},
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert [item["scenario_id"] for item in body["scenarios"]] == [
+            "current-plan",
+            "drier-season",
+            "wetter-season",
+        ]
+        assert body["best_crop"]["crop_id"] == "CROP-002"
+
+
+# ---------------------------------------------------------------------------
 # /crop-detail
 # ---------------------------------------------------------------------------
 

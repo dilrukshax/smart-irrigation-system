@@ -4,12 +4,12 @@ const farmerNav = [
   { label: 'Farm', items: [
     { name: 'Dashboard', icon: 'home', active: true },
     { name: 'My Fields', icon: 'leaf' },
-    { name: 'Irrigation', icon: 'droplet' },
-    { name: 'Crop Health', icon: 'shield_check' },
+    { name: 'Irrigation', icon: 'droplet', href: '/farmer/irrigation' },
+    { name: 'Crop Health', icon: 'shield_check', href: '/farmer/crop-health' },
   ]},
   { label: 'Plan', items: [
-    { name: 'Forecast', icon: 'cloud' },
-    { name: 'Optimization', icon: 'target' },
+    { name: 'Forecast', icon: 'cloud', href: '/farmer/forecasting' },
+    { name: 'Optimization', icon: 'target', href: '/farmer/optimization' },
     { name: 'Scenarios', icon: 'chart' },
   ]},
   { label: 'Account', items: [
@@ -20,18 +20,57 @@ const farmerNav = [
 
 const officerNav = [
   { label: 'Operations', items: [
-    { name: 'Overview', icon: 'home', active: true },
-    { name: 'Manual Requests', icon: 'handshake', badge: 12 },
-    { name: 'Hydraulics', icon: 'valve' },
-    { name: 'Alert Queue', icon: 'bell' },
+    { name: 'Overview', icon: 'home', href: '/operations', active: true },
+    { name: 'Farmers', icon: 'users', href: '/operations/farmers' },
+    { name: 'Manual Requests', icon: 'handshake', href: '/operations/requests', badge: 12 },
+    { name: 'Hydraulics', icon: 'valve', href: '/operations/hydraulics' },
+    { name: 'Alert Queue', icon: 'bell', href: '/operations' },
   ]},
   { label: 'Modules', items: [
-    { name: 'Irrigation', icon: 'droplet' },
-    { name: 'Crop Health', icon: 'shield_check' },
-    { name: 'Forecasting', icon: 'cloud' },
-    { name: 'Optimization', icon: 'target' },
+    { name: 'Irrigation', icon: 'droplet', children: [
+      { name: 'Overview', icon: 'home', href: '/irrigation' },
+      { name: 'Water Management', icon: 'wave', href: '/irrigation/water' },
+      { name: 'Sensor Telemetry', icon: 'chart', href: '/irrigation/telemetry' },
+      { name: 'Valve Control', icon: 'valve', href: '/irrigation/water-management' },
+    ]},
+    { name: 'Crop Health', icon: 'shield_check', children: [
+      { name: 'Overview', icon: 'home', href: '/crop-health' },
+      { name: 'Zone Map', icon: 'map', href: '/crop-health/zones' },
+      { name: 'Disease Scans', icon: 'shield_check', href: '/crop-health/scans' },
+      { name: 'Stress Alerts', icon: 'bell', href: '/crop-health/alerts' },
+    ]},
+    { name: 'Forecasting', icon: 'cloud', children: [
+      { name: 'Overview', icon: 'home', href: '/forecasting' },
+      { name: 'Reservoir', icon: 'wave', href: '/forecasting/reservoir' },
+      { name: 'Rainfall', icon: 'cloud', href: '/forecasting/rainfall' },
+      { name: 'Alerts', icon: 'bell', href: '/forecasting/alerts' },
+    ]},
+    { name: 'Optimization', icon: 'target', children: [
+      { name: 'Overview', icon: 'home', href: '/optimization' },
+      { name: 'Recommendations', icon: 'leaf', href: '/optimization/recommendations' },
+      { name: 'Planner', icon: 'target', href: '/optimization/planner' },
+      { name: 'Scenarios', icon: 'chart', href: '/optimization/scenarios' },
+      { name: 'Adaptive Tuning', icon: 'flash', href: '/optimization/adaptive' },
+    ]},
   ]},
 ];
+
+const officerModuleNav = (moduleName, activeChild) =>
+  officerNav.map((group) => ({
+    ...group,
+    items: group.items.map((item) => {
+      const moduleActive = item.name === moduleName;
+      return {
+        ...item,
+        active: moduleActive,
+        defaultOpen: moduleActive,
+        children: item.children?.map((child) => ({
+          ...child,
+          active: moduleActive && child.name === activeChild,
+        })),
+      };
+    }),
+  }));
 
 const authorityNav = [
   { label: 'Governance', items: [
@@ -78,4 +117,4 @@ const optNav = (active) => [
 
 /* Public pages: Landing, Farmer Landing, Login, Register */
 
-export { farmerNav, officerNav, authorityNav, irrigationNav, optNav };
+export { farmerNav, officerNav, officerModuleNav, authorityNav, irrigationNav, optNav };

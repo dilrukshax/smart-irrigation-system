@@ -311,6 +311,10 @@ app.include_router(demo_router)
 from app.api.routes_adaptive import router as adaptive_router
 app.include_router(adaptive_router)
 
+# Import and include operator-facing optimization router
+from app.api.routes_operator import router as operator_router
+app.include_router(operator_router)
+
 # Import and include farmer-facing recommendation router
 from app.api.routes_farmer import router as farmer_router
 app.include_router(farmer_router)

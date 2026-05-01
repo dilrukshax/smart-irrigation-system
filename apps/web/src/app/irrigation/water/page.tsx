@@ -4,6 +4,7 @@
 /* eslint-disable */
 
 import * as React from 'react';
+import { usePathname } from 'next/navigation';
 import {
   Icon,
   LogoMark,
@@ -21,7 +22,7 @@ import {
   SchemeMap,
   Frame,
 } from '@/components/asi/ui';
-import { farmerNav, officerNav, authorityNav, irrigationNav, optNav } from '@/components/asi/nav';
+import { farmerNav, officerNav, officerModuleNav, authorityNav, irrigationNav, optNav } from '@/components/asi/nav';
 import { PublicTop } from '@/components/asi/public-top';
 import { ApiState } from '@/components/asi/api-state';
 import { apiGet, apiPost } from '@/lib/api';
@@ -29,12 +30,14 @@ import { useAuth } from '@/lib/auth';
 
 const WaterManagement = () => {
   const { user } = useAuth();
+  const pathname = usePathname();
   const [reservoir, setReservoir] = React.useState<any>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
   // Manual override form
-  const [overrideVolumeMm, setOverrideVolumeMm] = React.useState('24');
+  const [overrideAction, setOverrideAction] = React.useState('OPEN');
+  const [overridePositionPct, setOverridePositionPct] = React.useState('100');
   const [overrideReason, setOverrideReason] = React.useState('');
   const [overrideSubmitting, setOverrideSubmitting] = React.useState(false);
   const [overrideMsg, setOverrideMsg] = React.useState<{type: string, text: string} | null>(null);
@@ -66,32 +69,35 @@ const WaterManagement = () => {
     setOverrideMsg(null);
     try {
       await apiPost('/water-management/manual-override', {
-        action: 'OPEN',
-        target_release_mm: parseFloat(overrideVolumeMm) || 0,
+        action: overrideAction,
+        valve_position: overrideAction === 'CLOSE' ? 0 : Math.max(0, Math.min(100, parseInt(overridePositionPct, 10) || 0)),
         reason: overrideReason,
+        operator_id: user?.id || user?.username,
       });
-      setOverrideMsg({ type: 'success', text: 'Manual override queued successfully' });
+      setOverrideMsg({ type: 'success', text: 'Manual override applied successfully' });
       setOverrideReason('');
       loadData();
     } catch (err: any) {
-      setOverrideMsg({ type: 'error', text: err?.message || 'Failed to queue override' });
+      setOverrideMsg({ type: 'error', text: err?.message || 'Failed to apply override' });
     } finally {
       setOverrideSubmitting(false);
     }
   };
 
-  const capacity = reservoir?.capacity_mcm || reservoir?.total_storage_mcm || 145;
-  const currentVolume = reservoir?.active_storage_mcm || reservoir?.volume_mcm || 0;
+  const capacity = Number(reservoir?.capacity_mcm ?? reservoir?.total_storage_mcm ?? 0);
+  const currentVolume = Number(reservoir?.active_storage_mcm ?? reservoir?.volume_mcm ?? 0);
   const percentFull = capacity > 0 ? Math.round((currentVolume / capacity) * 100) : 0;
   const inflow = reservoir?.inflow_m3s || reservoir?.inflow_mcm || 0;
   const outflow = reservoir?.outflow_m3s || reservoir?.main_canals_mcm || 0;
   const evap = reservoir?.evap_mm_d || reservoir?.evap_mm || 0;
+  const reservoirName = reservoir?.reservoir_name || reservoir?.scheme_id || 'Reservoir';
 
   const displayName = user?.username || 'Officer';
+  const activeSidebarItem = pathname.includes('/water-management') ? 'Valve Control' : 'Water Management';
 
   return (
     <Frame
-      sidebar={irrigationNav('water')}
+      sidebar={officerModuleNav('Irrigation', activeSidebarItem)}
       breadcrumb={['Modules', 'F1 · Irrigation', 'Water Management']}
       user={displayName}
       role="Officer"
@@ -99,7 +105,9 @@ const WaterManagement = () => {
       <div className="page-head">
         <div>
           <div className="page-title">Water management</div>
-          <div className="page-sub">Ulhitiya reservoir · Capacity {capacity} MCM</div>
+          <div className="page-sub">
+            {reservoirName}{capacity > 0 ? ` · Capacity ${capacity} MCM` : ' · Capacity unavailable'}
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-ghost btn-sm" onClick={loadData}>
@@ -135,19 +143,19 @@ const WaterManagement = () => {
               <div className="metric" style={{ padding: 10 }}>
                 <div className="metric-label">Inflow</div>
                 <div className="metric-value" style={{ fontSize: 16 }}>
-                  {typeof inflow === 'number' ? inflow.toFixed(1) : '—'} <span style={{ fontSize: 11, color: 'var(--muted)' }}>MCM</span>
+                  {Number.isFinite(Number(inflow)) ? Number(inflow).toFixed(1) : '—'} <span style={{ fontSize: 11, color: 'var(--muted)' }}>MCM</span>
                 </div>
               </div>
               <div className="metric" style={{ padding: 10 }}>
                 <div className="metric-label">Outflow</div>
                 <div className="metric-value" style={{ fontSize: 16 }}>
-                  {typeof outflow === 'number' ? outflow.toFixed(1) : '—'} <span style={{ fontSize: 11, color: 'var(--muted)' }}>MCM</span>
+                  {Number.isFinite(Number(outflow)) ? Number(outflow).toFixed(1) : '—'} <span style={{ fontSize: 11, color: 'var(--muted)' }}>MCM</span>
                 </div>
               </div>
               <div className="metric" style={{ padding: 10 }}>
                 <div className="metric-label">Evap</div>
                 <div className="metric-value" style={{ fontSize: 16 }}>
-                  {typeof evap === 'number' ? evap.toFixed(1) : '—'} <span style={{ fontSize: 11, color: 'var(--muted)' }}>mm</span>
+                  {Number.isFinite(Number(evap)) ? Number(evap).toFixed(1) : '—'} <span style={{ fontSize: 11, color: 'var(--muted)' }}>mm</span>
                 </div>
               </div>
             </div>
@@ -171,7 +179,7 @@ const WaterManagement = () => {
                 <div className="tiny muted">ML prediction</div>
                 <div style={{ padding: 10, background: 'var(--primary-50)', borderRadius: 8, marginTop: 6 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>
-                    Predicted release: {reservoir.prediction.predicted_release_mcm?.toFixed(2)} MCM
+                    Predicted release: {Number.isFinite(Number(reservoir.prediction.predicted_release_mcm)) ? Number(reservoir.prediction.predicted_release_mcm).toFixed(2) : '—'} MCM
                   </div>
                   <div className="tiny muted" style={{ marginTop: 4 }}>
                     Model: {reservoir.prediction.model_name || 'HistGBM'}
@@ -188,8 +196,17 @@ const WaterManagement = () => {
             <form onSubmit={handleManualOverride}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10 }}>
                 <div className="field">
-                  <label>Target release (mm)</label>
-                  <input className="input" type="number" step="0.1" value={overrideVolumeMm} onChange={(e) => setOverrideVolumeMm(e.target.value)} disabled={overrideSubmitting}/>
+                  <label>Action</label>
+                  <select className="select" value={overrideAction} onChange={(e) => setOverrideAction(e.target.value)} disabled={overrideSubmitting}>
+                    <option value="OPEN">Open</option>
+                    <option value="CLOSE">Close</option>
+                    <option value="HOLD">Hold</option>
+                    <option value="EMERGENCY_RELEASE">Emergency release</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Valve position (%)</label>
+                  <input className="input" type="number" min="0" max="100" step="1" value={overridePositionPct} onChange={(e) => setOverridePositionPct(e.target.value)} disabled={overrideSubmitting || overrideAction === 'CLOSE'}/>
                 </div>
                 <div className="field" style={{ gridColumn: '1 / -1' }}>
                   <label>Reason</label>
@@ -212,7 +229,7 @@ const WaterManagement = () => {
               <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
                 <button type="button" className="btn btn-ghost" onClick={() => setOverrideReason('')} disabled={overrideSubmitting}>Clear</button>
                 <button type="submit" className="btn btn-primary" disabled={overrideSubmitting}>
-                  {overrideSubmitting ? 'Queuing...' : 'Queue release'}
+                  {overrideSubmitting ? 'Applying...' : 'Apply override'}
                 </button>
               </div>
             </form>

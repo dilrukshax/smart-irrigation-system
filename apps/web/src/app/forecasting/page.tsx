@@ -4,35 +4,36 @@
 /* eslint-disable */
 
 import * as React from 'react';
-import {
-  Icon,
-  LogoMark,
-  Logo,
-  AppBar,
-  Sidebar,
-  Chip,
-  Progress,
-  Gauge,
-  Sparkline,
-  LineChart,
-  BarChart,
-  ForecastChart,
-  Donut,
-  SchemeMap,
-  Frame,
-} from '@/components/asi/ui';
-import { farmerNav, officerNav, authorityNav, irrigationNav, optNav } from '@/components/asi/nav';
-import { PublicTop } from '@/components/asi/public-top';
 import { ApiState } from '@/components/asi/api-state';
 import { apiGet } from '@/lib/api';
-import { useAuth } from '@/lib/auth';
+import {
+  AlertsList,
+  FORECAST_HORIZON_DAYS,
+  ForecastingFrame,
+  IrrigationRecommendationCard,
+  MetricCard,
+  RainEvapChart,
+  WeatherNowCard,
+  asArray,
+  forecastDays,
+  formatMm,
+  formatNumber,
+  formatPercent,
+  gridAuto,
+  optionalNum,
+  recommendationPercent,
+  statusKind,
+  topAlerts,
+  totalEvap,
+  totalRain,
+} from './_components/forecasting-shared';
 
-const Forecasting = () => {
-  const { user } = useAuth();
-  const [weather, setWeather] = React.useState<any>(null);
-  const [predictions, setPredictions] = React.useState<any>(null);
-  const [risk, setRisk] = React.useState<any>(null);
+const Overview = () => {
+  const [summary, setSummary] = React.useState<any>(null);
+  const [forecast, setForecast] = React.useState<any>(null);
   const [recommendation, setRecommendation] = React.useState<any>(null);
+  const [alerts, setAlerts] = React.useState<any>(null);
+  const [modelSummary, setModelSummary] = React.useState<any>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -40,22 +41,24 @@ const Forecasting = () => {
     setLoading(true);
     setError(null);
     try {
-      const [weatherRes, predRes, riskRes, recRes] = await Promise.allSettled([
-        apiGet<any>('/forecast/weather'),
-        apiGet<any>('/forecast/predictions'),
-        apiGet<any>('/forecast/risk'),
+      const results = await Promise.allSettled([
+        apiGet<any>('/forecast/weather/summary'),
+        apiGet<any>(`/forecast/weather/forecast?days=${FORECAST_HORIZON_DAYS}`),
         apiGet<any>('/forecast/weather/irrigation-recommendation'),
+        apiGet<any>(`/forecast/weather/alerts?days=${FORECAST_HORIZON_DAYS}`),
+        apiGet<any>('/forecast/model-summary'),
       ]);
-      if (weatherRes.status === 'fulfilled') setWeather(weatherRes.value);
-      if (predRes.status === 'fulfilled') setPredictions(predRes.value);
-      if (riskRes.status === 'fulfilled') setRisk(riskRes.value);
-      if (recRes.status === 'fulfilled') setRecommendation(recRes.value);
-
-      if ([weatherRes, predRes, riskRes, recRes].every(r => r.status === 'rejected')) {
+      const [summaryRes, forecastRes, recommendationRes, alertsRes, modelRes] = results;
+      if (summaryRes.status === 'fulfilled') setSummary(summaryRes.value);
+      if (forecastRes.status === 'fulfilled') setForecast(forecastRes.value);
+      if (recommendationRes.status === 'fulfilled') setRecommendation(recommendationRes.value);
+      if (alertsRes.status === 'fulfilled') setAlerts(alertsRes.value);
+      if (modelRes.status === 'fulfilled') setModelSummary(modelRes.value);
+      if (results.every((result) => result.status === 'rejected')) {
         setError('Unable to load forecasting data');
       }
     } catch (err: any) {
-      setError(err?.message || 'Failed to load');
+      setError(err?.message || 'Failed to load forecasting data');
     } finally {
       setLoading(false);
     }
@@ -65,177 +68,127 @@ const Forecasting = () => {
     loadData();
   }, [loadData]);
 
-  // Extract values
-  const waterLevelPct = weather?.reservoir_level_percent ?? weather?.water_level_percent ?? 0;
-  const riskLevel = risk?.risk_level || risk?.overall_risk || 'UNKNOWN';
-  const recText = recommendation?.recommendation || recommendation?.narrative || 'No recommendation available';
-  const adjustmentPct = recommendation?.adjustment_percent ?? 0;
-
-  // Extract forecast series
-  const forecastDays = predictions?.forecasts || predictions?.predictions || [];
-  const waterLevelSeries = forecastDays.map((d: any) => d.water_level_p50 ?? d.water_level ?? 0);
-  const rainfallSeries = forecastDays.map((d: any) => d.rainfall_p50 ?? d.rainfall ?? 0);
-
-  const displayName = user?.username || 'Officer';
+  const days = forecastDays(forecast);
+  const sevenDay = days.slice(0, 7);
+  const rainTotal = forecast?.summary?.total_precipitation_7d_mm ?? totalRain(sevenDay);
+  const evapTotal = totalEvap(sevenDay);
+  const waterBalance = rainTotal - evapTotal;
+  const alertSummary = alerts?.summary || {};
+  const pct = recommendationPercent(recommendation);
+  const advanced = modelSummary?.advanced_models || {};
 
   return (
-    <Frame
-      sidebar={[
-        { label: 'F3 · Forecasting', items: [
-          { name: 'Overview', icon: 'home', active: true },
-          { name: 'Reservoir', icon: 'wave' },
-          { name: 'Rainfall', icon: 'cloud' },
-          { name: 'Alerts', icon: 'bell' },
-        ]},
-        { label: 'Modules', items: [
-          { name: 'Irrigation', icon: 'droplet' },
-          { name: 'Crop Health', icon: 'shield_check' },
-          { name: 'Optimization', icon: 'target' },
-        ]},
-      ]}
-      breadcrumb={['Modules', 'F3 · Forecasting']}
-      user={displayName}
-      role="Officer"
+    <ForecastingFrame
+      active="Overview"
+      title="Forecasting overview"
+      subtitle="Operator view for live weather, rainfall balance, model readiness, and F3 risk alerts"
+      onRefresh={loadData}
     >
-      <div className="page-head">
-        <div>
-          <div className="page-title">Forecasting · reservoir + rainfall</div>
-          <div className="page-sub">
-            {predictions?.model_name || 'LinearRegression baseline'}
-            {predictions?.horizon_days ? ` · ${predictions.horizon_days}-day horizon` : ' · 14-day horizon'}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-ghost btn-sm" onClick={loadData}>
-            <Icon name="download" size={13}/> Refresh
-          </button>
-        </div>
-      </div>
-
-      <ApiState loading={loading && !weather} error={error} onRetry={loadData}>
-        {/* Hero row */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.1fr', gap: 14, marginBottom: 14 }}>
-          <div className="card" style={{ textAlign: 'center' }}>
-            <div className="card-head" style={{ width: '100%' }}>
-              <div className="card-title">Reservoir · Current</div>
-              <Chip kind={weather?.is_live ? 'live' : 'sim'}>{weather?.is_live ? 'Live' : 'Cached'}</Chip>
-            </div>
-            <Gauge
-              value={Math.round(waterLevelPct)}
-              size={180}
-              stroke={20}
-              color="var(--secondary)"
-              label={`${Math.round(waterLevelPct)}%`}
-              sub={`${weather?.temperature_celsius?.toFixed(1) ?? '—'}°C`}
-            />
-          </div>
-          <div className="card">
-            <div className="card-head">
-              <div className="card-title">14-day risk level</div>
-              <Chip kind={riskLevel === 'HIGH' || riskLevel === 'CRITICAL' ? 'crit' : riskLevel === 'MEDIUM' ? 'warn' : 'live'}>
-                {riskLevel}
-              </Chip>
-            </div>
-            <div style={{ fontSize: 42, fontWeight: 700, letterSpacing: '-0.03em', color: riskLevel === 'HIGH' ? 'var(--danger)' : riskLevel === 'MEDIUM' ? 'var(--accent)' : 'var(--primary)' }}>
-              {riskLevel}
-            </div>
-            <div className="tiny muted">
-              {risk?.narrative || risk?.summary || 'Risk assessment pending'}
-            </div>
-          </div>
-          <div className="card" style={{ background: 'linear-gradient(135deg, #F1F8E9, #E1F5FE)', border: '1px solid var(--primary)' }}>
-            <div className="card-head">
-              <div className="card-title" style={{ color: 'var(--primary-600)' }}>Irrigation recommendation</div>
-              <Chip kind="live">ACA-O</Chip>
-            </div>
-            <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.4 }}>
-              {adjustmentPct !== 0 && (
-                <>
-                  {adjustmentPct > 0 ? 'Increase' : 'Reduce'} irrigation by <span style={{ color: 'var(--primary)', fontSize: 22 }}>{Math.abs(adjustmentPct)}%</span>
-                </>
-              )}
-              {adjustmentPct === 0 && 'Continue normal irrigation schedule'}
-            </div>
-            <div className="tiny muted" style={{ marginTop: 8, lineHeight: 1.5 }}>
-              {recText}
-            </div>
-          </div>
+      <ApiState loading={loading && !summary && !forecast} error={error} onRetry={loadData}>
+        <div style={{ ...gridAuto(230), marginBottom: 14 }}>
+          <MetricCard
+            title="7-day rainfall"
+            value={formatMm(rainTotal)}
+            sub={`${formatNumber(forecast?.summary?.rainy_days_count, 0)} rainy days expected`}
+            icon="cloud"
+            chip={forecast?.source || forecast?.status || 'forecast'}
+            kind={statusKind(forecast?.status)}
+            color="var(--secondary)"
+          />
+          <MetricCard
+            title="Water balance"
+            value={formatMm(waterBalance)}
+            sub={`Rain minus ET0 across the first ${sevenDay.length || 7} forecast days`}
+            icon="wave"
+            chip={waterBalance >= 0 ? 'surplus' : 'deficit'}
+            kind={waterBalance >= 0 ? 'live' : 'warn'}
+            color={waterBalance >= 0 ? 'var(--primary)' : 'var(--accent)'}
+          />
+          <MetricCard
+            title="Irrigation schedule"
+            value={pct === null ? '-' : formatPercent(pct)}
+            sub={recommendation?.overall_recommendation || 'Recommendation pending'}
+            icon="droplet"
+            chip={recommendation?.status || 'weather'}
+            kind={statusKind(recommendation?.status)}
+            color="var(--primary)"
+          />
+          <MetricCard
+            title="Alert severity"
+            value={alertSummary.highest_severity || 'LOW'}
+            sub={`${formatNumber(alertSummary.total_alerts, 0)} weather alerts in the horizon`}
+            icon="bell"
+            chip={alerts?.status || 'alerts'}
+            kind={statusKind(alertSummary.highest_severity)}
+            color={alertSummary.highest_severity === 'LOW' ? 'var(--primary)' : 'var(--danger)'}
+          />
         </div>
 
-        {/* Forecast chart */}
-        <div className="card" style={{ marginBottom: 14 }}>
-          <div className="card-head">
-            <div>
-              <div className="card-title">14-day forecast</div>
-              <div className="tiny muted">
-                {waterLevelSeries.length > 0 ? `${waterLevelSeries.length} forecasted points` : 'Generated from model'}
-              </div>
-            </div>
-            <Chip kind={predictions?.is_live ? 'live' : 'sim'}>
-              Source: {predictions?.source || 'model'}
-            </Chip>
-          </div>
-          {waterLevelSeries.length > 0 ? (
-            <LineChart
-              width={1100}
-              height={240}
-              legend
-              series={[
-                { name: 'Water level %', color: 'var(--primary)', data: waterLevelSeries },
-                { name: 'Rainfall mm', color: 'var(--secondary)', data: rainfallSeries },
-              ]}
-              xLabels={waterLevelSeries.map((_: any, i: number) => i % 2 === 0 ? `d${i+1}` : '')}
-            />
-          ) : (
-            <ForecastChart width={1100} height={240} days={14}/>
-          )}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(320px, 0.55fr)', gap: 14, marginBottom: 14 }}>
+          <RainEvapChart days={days} title={`${FORECAST_HORIZON_DAYS}-day rainfall and evapotranspiration`}/>
+          <WeatherNowCard summary={summary}/>
         </div>
 
-        {/* Risk timeline */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
+        <div style={{ ...gridAuto(320), marginBottom: 14 }}>
+          <IrrigationRecommendationCard recommendation={recommendation}/>
           <div className="card">
             <div className="card-head">
-              <div className="card-title">Current weather</div>
-              {weather?.is_live && <Chip kind="live">Live</Chip>}
-            </div>
-            {weather ? (
-              <div style={{ fontSize: 13, lineHeight: 1.8 }}>
-                <div>Temperature: <b>{weather.temperature_celsius?.toFixed(1) ?? '—'}°C</b></div>
-                <div>Humidity: <b>{weather.humidity_percent?.toFixed(0) ?? '—'}%</b></div>
-                <div>Condition: <b>{weather.condition || weather.description || '—'}</b></div>
-                {weather.rainfall_mm !== undefined && <div>Rainfall: <b>{weather.rainfall_mm} mm</b></div>}
-                {weather.wind_speed_ms !== undefined && <div>Wind: <b>{weather.wind_speed_ms} m/s</b></div>}
-                {weather.source && <div className="tiny muted" style={{ marginTop: 8 }}>Source: {weather.source}</div>}
+              <div>
+                <div className="card-title">Forecast source</div>
+                <div className="tiny muted">F3 model and weather provider status</div>
               </div>
-            ) : (
-              <div className="tiny muted">No weather data</div>
-            )}
+              <span className="chip sim"><span className="chip-dot"/>{modelSummary?.source || 'F3'}</span>
+            </div>
+            <div style={gridAuto(150)}>
+              <div>
+                <div className="tiny muted">Basic model</div>
+                <div style={{ fontSize: 22, fontWeight: 700 }}>{modelSummary?.basic_model?.name || 'Baseline'}</div>
+              </div>
+              <div>
+                <div className="tiny muted">Advanced ML</div>
+                <div style={{ fontSize: 22, fontWeight: 700 }}>{advanced.available ? (advanced.trained ? 'Trained' : 'Available') : 'Unavailable'}</div>
+              </div>
+              <div>
+                <div className="tiny muted">Weather scope</div>
+                <div style={{ fontSize: 22, fontWeight: 700 }}>{modelSummary?.scope?.weather || 'coordinates'}</div>
+              </div>
+            </div>
+            <div className="tiny muted" style={{ marginTop: 10, lineHeight: 1.5 }}>
+              {modelSummary?.scope?.message || 'Weather forecasts are fetched from the forecasting service and passed through the gateway.'}
+            </div>
           </div>
+        </div>
+
+        <div style={gridAuto(360)}>
+          <AlertsList alerts={topAlerts(alerts, 5)} compact/>
           <div className="card">
             <div className="card-head">
-              <div className="card-title">Risk assessment</div>
+              <div className="card-title">Three-day preview</div>
+              <span className="chip sim"><span className="chip-dot"/>Short term</span>
             </div>
-            {risk ? (
-              <div style={{ fontSize: 13, lineHeight: 1.8 }}>
-                <div>Overall risk: <b>{riskLevel}</b></div>
-                {risk.drought_risk_14d !== undefined && <div>Drought risk (14d): <b>{(risk.drought_risk_14d * 100).toFixed(0)}%</b></div>}
-                {risk.flood_risk_14d !== undefined && <div>Flood risk (14d): <b>{(risk.flood_risk_14d * 100).toFixed(0)}%</b></div>}
-                {risk.source && <div className="tiny muted" style={{ marginTop: 8 }}>Source: {risk.source}</div>}
-              </div>
-            ) : (
-              <div className="tiny muted">No risk data</div>
-            )}
+            <div style={{ display: 'grid', gap: 8 }}>
+              {asArray(summary?.forecast_preview).map((day: any) => (
+                <div key={day.date} className="between" style={{ borderBottom: '1px solid var(--border)', padding: '8px 0', gap: 10 }}>
+                  <div>
+                    <div style={{ fontWeight: 650 }}>{day.date}</div>
+                    <div className="tiny muted">{day.weather_description || 'Forecast'}</div>
+                  </div>
+                  <div className="tabular" style={{ textAlign: 'right', fontWeight: 700 }}>{formatMm(day.rain_mm)}</div>
+                </div>
+              ))}
+              {!asArray(summary?.forecast_preview).length && <div className="tiny muted">Short-term preview unavailable.</div>}
+            </div>
           </div>
         </div>
       </ApiState>
-    </Frame>
+    </ForecastingFrame>
   );
 };
 
 export default function Page() {
   return (
     <div className="route-shell min-h-screen w-full bg-[var(--bg)]">
-      <Forecasting />
+      <Overview />
     </div>
   );
 }

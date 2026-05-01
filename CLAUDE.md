@@ -67,6 +67,28 @@ Prometheus + Grafana (observability)
 - **IoT → F1**: Bridges MQTT telemetry to field sensor ingestion endpoint
 - **ESP32 → IoT**: Publishes ADC sensor readings over MQTT topic `devices/{id}/telemetry`
 
+### Officer Functionality Plan
+
+Officer users are scheme-scoped operational users. They should not manage authority policy or user roles, but they should be able to inspect all farmers and fields in assigned schemes and use the four functional streams for operational decisions.
+
+**Backend contracts**
+- `GET /api/v1/farm/farmers`: F1 groups accessible `irrigation_crop_fields` by `owner_id`, returns farmer-level area, scheme, crop, telemetry, valve, and manual-request summaries.
+- `GET /api/v1/farm/farmers/{farmer_id}`: F1 returns one farmer summary plus every accessible field with latest telemetry, valve state, pending requests, and operational status.
+- `GET /api/v1/farm/fields/{field_id}/profile`: Gateway cross-service field workspace, combining F1 irrigation status/decision, F2 stress summary, F3 weather/irrigation forecast, and F4 recommendations/water budget.
+- Existing `GET /api/v1/irrigation/officer/overview`, `/irrigation/manual-requests`, `/irrigation/network/*`, `/crop-health/*`, `/forecast/*`, and `/planning/*` remain the module-level officer surfaces.
+
+**Frontend officer routes**
+- `/operations`: officer overview across assigned schemes.
+- `/operations/farmers`: farmer directory with field count, area, telemetry coverage, critical fields, and pending manual requests.
+- `/operations/farmers/[id]`: individual farmer view with all fields owned by that farmer and quick links into irrigation, forecasting, crop health, and optimization modules.
+- `/operations/fields/[id]`: officer-safe field workspace showing detailed F1/F2/F3/F4 sections for one field.
+- Officers can view `/irrigation`, `/forecasting`, `/crop-health`, and `/optimization`; `/authority/*` remains authority-only.
+
+**Next enhancements**
+- Add an officer-safe Auth endpoint or gateway join to enrich farmer cards with full name, NIC, and phone once the privacy rules are finalized.
+- Add area-level officer pages that preselect a farmer's fields and call existing area summary contracts: F1 `/irrigation/farmer/area-summary`, F1 `/irrigation/farmer/forecast-area-summary`, and F4 `/planning/farmer/area-optimize`.
+- Add CSV/PDF export for farmer field summaries and officer inspection reports.
+
 ---
 
 ## Repository Map
