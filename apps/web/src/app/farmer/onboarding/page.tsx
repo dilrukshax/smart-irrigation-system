@@ -52,6 +52,35 @@ const SCHEME_OPTIONS = [
 ];
 const DEFAULT_SCHEME_ID = "H-04";
 
+const getSchemeOption = (schemeId: string) =>
+  SCHEME_OPTIONS.find((scheme) => scheme.value === schemeId) ||
+  SCHEME_OPTIONS.find((scheme) => scheme.value === DEFAULT_SCHEME_ID) ||
+  SCHEME_OPTIONS[0];
+
+const getGeolocationErrorMessage = (error?: GeolocationPositionError) => {
+  if (
+    typeof window !== "undefined" &&
+    !window.isSecureContext &&
+    !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)
+  ) {
+    return "Current location needs HTTPS or localhost. The map is centered on your scheme zone, so tap your field location to continue.";
+  }
+
+  if (!error) {
+    return "Unable to fetch current location. The map is centered on your scheme zone, so tap your field location to continue.";
+  }
+
+  if (error.code === error.PERMISSION_DENIED) {
+    return "Location permission was denied. Enable browser location access, or tap your field location on the map.";
+  }
+
+  if (error.code === error.TIMEOUT) {
+    return "Location lookup timed out. The map is still ready, so tap your field location to continue.";
+  }
+
+  return "Unable to fetch current location. The map is centered on your scheme zone, so tap your field location to continue.";
+};
+
 const FarmerOnboarding = () => {
   const { user } = useAuth();
 
@@ -85,6 +114,7 @@ const FarmerOnboarding = () => {
   const parsedArea = Number.parseFloat(areaHa);
   const isValidArea = Number.isFinite(parsedArea) && parsedArea > 0;
   const canCreateField = Boolean(fieldName.trim()) && isValidArea;
+  const selectedScheme = getSchemeOption(schemeId);
 
   const handleSchemeChange = (nextSchemeId: string) => {
     const resolvedSchemeId = nextSchemeId || DEFAULT_SCHEME_ID;
@@ -132,14 +162,14 @@ const FarmerOnboarding = () => {
         setLongitude(position.coords.longitude.toFixed(6));
         setLocating(false);
       },
-      () => {
+      (error) => {
         setMessage({
           type: "error",
-          text: "Unable to fetch current location. Please select on the map.",
+          text: getGeolocationErrorMessage(error),
         });
         setLocating(false);
       },
-      { enableHighAccuracy: true, timeout: 10000 },
+      { enableHighAccuracy: true, maximumAge: 60000, timeout: 15000 },
     );
   };
 
@@ -435,6 +465,7 @@ const FarmerOnboarding = () => {
                   <LocationPickerMap
                     latitude={latitude}
                     longitude={longitude}
+                    fallbackCenter={selectedScheme.center}
                     mapLayer={mapLayer}
                     onMapLayerChange={setMapLayer}
                     onLocationPick={handleMapLocationPick}

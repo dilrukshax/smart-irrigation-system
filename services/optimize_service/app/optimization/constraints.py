@@ -17,7 +17,7 @@ Data classes in this module define inputs to the optimizer.
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,20 @@ class OptimizationResult:
     total_water_used: float = 0.0
     status: str = "unknown"
     message: str = ""
+
+
+@dataclass
+class MultiFieldConstraints:
+    """Scheme-level multi-field optimization constraints for LP/MIP solver."""
+
+    fields: List[str]
+    per_field_area_ha: Dict[str, float]
+    total_scheme_water_mm: float
+    min_paddy_area_ha: float = 0.0
+    budget_lkr: Optional[float] = None
+    previous_crop_ids: Dict[str, str] = field(default_factory=dict)
+    crop_rotation_penalty: float = 0.15
+    paddy_crop_ids: List[str] = field(default_factory=lambda: ["paddy", "rice"])
 
 
 def build_water_constraint(

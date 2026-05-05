@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { ApiState } from '@/components/asi/api-state';
 import { Icon, Chip } from '@/components/asi/ui';
 import { apiGet } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import {
   BackendStatus,
   CropBudgetTable,
@@ -27,23 +28,33 @@ import {
 } from './_components/optimization-shared';
 
 function OptimizationOverview() {
+  const { user } = useAuth();
   const [season, setSeason] = React.useState(DEFAULT_SEASON);
   const [overview, setOverview] = React.useState<any>(null);
+  const [schemeDashboard, setSchemeDashboard] = React.useState<any>(null);
+  const [oversupplyAlerts, setOversupplyAlerts] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const schemeId = user?.scheme_ids?.[0] || '';
 
   const loadData = React.useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiGet<any>(`/planning/operator/overview${buildQuery({ season })}`);
+      const [response, dashboard, alerts] = await Promise.all([
+        apiGet<any>(`/planning/operator/overview${buildQuery({ season })}`),
+        schemeId ? apiGet<any>(`/planning/authority/scheme-dashboard${buildQuery({ scheme_id: schemeId, season })}`).catch(() => null) : Promise.resolve(null),
+        schemeId ? apiGet<any>(`/planning/authority/oversupply-alerts${buildQuery({ scheme_id: schemeId, season })}`).catch(() => null) : Promise.resolve(null),
+      ]);
       setOverview(response);
+      setSchemeDashboard(dashboard);
+      setOversupplyAlerts((alerts?.data?.items || alerts?.items || []) as any[]);
     } catch (err: any) {
       setError(err?.message || 'Failed to load optimization overview');
     } finally {
       setLoading(false);
     }
-  }, [season]);
+  }, [schemeId, season]);
 
   React.useEffect(() => {
     loadData();
@@ -54,6 +65,7 @@ function OptimizationOverview() {
   const crops = topCrops(overview);
   const recs = overviewRecommendations(overview);
   const latestPlan = data.latest_plan;
+  const dashboardData = unwrapData(schemeDashboard);
 
   return (
     <OptimizationFrame
@@ -76,6 +88,24 @@ function OptimizationOverview() {
       }
     >
       <ApiState loading={loading && !overview} error={error} onRetry={loadData}>
+        {!!oversupplyAlerts.length && (
+          <div className="card" style={{ marginBottom: 14, borderColor: '#F59E0B', background: '#FFF7ED' }}>
+            <div className="card-head">
+              <div>
+                <div className="card-title">Oversupply warnings</div>
+                <div className="tiny muted">High concentration of one crop can pressure market prices</div>
+              </div>
+              <Chip kind="warn">{oversupplyAlerts.length} alerts</Chip>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+              {oversupplyAlerts.slice(0, 4).map((alert: any) => (
+                <Chip key={`${alert.scheme_id}-${alert.crop_id}-${alert.id}`} kind={alert.severity === 'critical' ? 'crit' : 'warn'} dot={false}>
+                  {alert.crop_name || alert.crop_id}: {formatPct(alert.pct_of_scheme, 0)}
+                </Chip>
+              ))}
+            </div>
+          </div>
+        )}
         <div style={{ ...gridAuto(220), marginBottom: 14 }}>
           <MetricCard
             title="Fields in scope"
@@ -111,6 +141,24 @@ function OptimizationOverview() {
             chip={latestPlan?.status || 'plan'}
             kind={latestPlan ? 'live' : 'sim'}
             color="var(--primary)"
+          />
+          <MetricCard
+            title="Water fairness"
+            value={formatNumber(dashboardData.water_fairness_index, 2)}
+            sub={schemeId ? `Scheme ${schemeId}` : 'No assigned scheme'}
+            icon="wave"
+            chip="gini"
+            kind="sim"
+            color="#6D9F2B"
+          />
+          <MetricCard
+            title="Scheme compliance"
+            value={formatPct(dashboardData.scheme_compliance_pct, 1)}
+            sub={`Paddy compliance ${formatPct(dashboardData.paddy_compliance_pct, 1)}`}
+            icon="check"
+            chip="authority"
+            kind="live"
+            color="var(--secondary)"
           />
         </div>
 

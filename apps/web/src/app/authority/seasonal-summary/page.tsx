@@ -7,6 +7,7 @@ import * as React from 'react';
 import { ApiState, EmptyState } from '@/components/asi/api-state';
 import { buildAuthorityNav } from '@/components/asi/nav';
 import { Chip, Frame, Icon } from '@/components/asi/ui';
+import { apiGet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import {
   buildSchemeSnapshots,
@@ -30,25 +31,33 @@ function SeasonalSummaryScreen() {
   const { user } = useAuth();
   const [policies, setPolicies] = React.useState<any[]>([]);
   const [users, setUsers] = React.useState<any[]>([]);
+  const [dashboard, setDashboard] = React.useState<any>(null);
+  const [monitoring, setMonitoring] = React.useState<any>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const season = 'Maha-2026';
+  const schemeId = user?.scheme_ids?.[0] || '';
 
   const loadData = React.useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [policyRows, userRows] = await Promise.all([
+      const [policyRows, userRows, dashboardPayload, monitoringPayload] = await Promise.all([
         fetchAuthorityPolicies(100),
         fetchAuthorityUsers(100),
+        schemeId ? apiGet<any>(`/planning/authority/scheme-dashboard?scheme_id=${schemeId}&season=${season}`).catch(() => null) : Promise.resolve(null),
+        apiGet<any>(`/planning/monitoring/dashboard?season=${season}`).catch(() => null),
       ]);
       setPolicies(policyRows);
       setUsers(userRows);
+      setDashboard(dashboardPayload);
+      setMonitoring(monitoringPayload);
     } catch (err: any) {
       setError(err?.message || 'Failed to load seasonal summary');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [schemeId]);
 
   React.useEffect(() => {
     loadData();
@@ -65,6 +74,8 @@ function SeasonalSummaryScreen() {
   const publishedPolicies = policies.filter((policy) => policy.status?.toUpperCase() === 'PUBLISHED');
   const draftPolicies = policies.filter((policy) => policy.status?.toUpperCase() === 'DRAFT');
   const displayName = user?.username || 'Authority';
+  const dashboardData = dashboard?.data || dashboard || {};
+  const monitoringData = monitoring?.data || monitoring || {};
 
   const schemeRollup = schemeIds.map((schemeId) => {
     const assignedUsers = activeUsers.filter((record) => (record.scheme_ids || []).includes(schemeId));
@@ -101,6 +112,9 @@ function SeasonalSummaryScreen() {
           <StatCard label="Active officers" value={roleCounts.officer || 0} detail="Operations staff currently enabled" />
           <StatCard label="Schemes covered" value={schemeIds.length} detail="Distinct schemes referenced by users or policies" />
           <StatCard label="Published policies" value={publishedPolicies.length} detail={`${draftPolicies.length} additional drafts in preparation`} />
+          <StatCard label="Water fairness" value={dashboardData.water_fairness_index ?? '—'} detail={schemeId ? `Scheme ${schemeId}` : 'Assign a scheme to load'} />
+          <StatCard label="Scheme compliance" value={dashboardData.scheme_compliance_pct ? `${dashboardData.scheme_compliance_pct}%` : '—'} detail={`Paddy ${dashboardData.paddy_compliance_pct ?? '—'}%`} />
+          <StatCard label="Recent backtests" value={(monitoringData.recent_runs || []).length} detail={`${monitoringData.drift_run_count || 0} drift flags`} />
         </div>
 
         {schemeRollup.length === 0 ? (
@@ -182,6 +196,39 @@ function SeasonalSummaryScreen() {
                   </div>
                 </div>
               </div>
+            </div>
+
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div className="card-head" style={{ padding: '16px 16px 10px' }}>
+                <div className="card-title">Monitoring dashboard</div>
+                <Chip kind="info" dot={false}>{(monitoringData.recent_runs || []).length} runs</Chip>
+              </div>
+              {!monitoringData.recent_runs?.length ? (
+                <div className="tiny muted" style={{ padding: 16 }}>No recent monitoring runs are available for this season.</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', color: 'var(--muted)' }}>
+                      <th style={{ padding: '10px 16px', borderTop: '1px solid var(--line)' }}>Model</th>
+                      <th style={{ padding: '10px 16px', borderTop: '1px solid var(--line)' }}>MAE</th>
+                      <th style={{ padding: '10px 16px', borderTop: '1px solid var(--line)' }}>RMSE</th>
+                      <th style={{ padding: '10px 16px', borderTop: '1px solid var(--line)' }}>Drift</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(monitoringData.recent_runs || []).slice(0, 6).map((run: any) => (
+                      <tr key={`${run.model_name}-${run.id}`}>
+                        <td style={{ padding: '14px 16px', borderTop: '1px solid var(--line)' }}>{run.model_name}</td>
+                        <td style={{ padding: '14px 16px', borderTop: '1px solid var(--line)' }}>{run.mae ?? '—'}</td>
+                        <td style={{ padding: '14px 16px', borderTop: '1px solid var(--line)' }}>{run.rmse ?? '—'}</td>
+                        <td style={{ padding: '14px 16px', borderTop: '1px solid var(--line)' }}>
+                          <Chip kind={run.drift_detected ? 'crit' : 'live'}>{run.drift_detected ? 'Detected' : 'Stable'}</Chip>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         )}

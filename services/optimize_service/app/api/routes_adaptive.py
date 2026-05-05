@@ -381,6 +381,8 @@ async def get_adaptive_recommendations(
     request: AdaptiveRecommendationRequest,
     db: Session = Depends(get_db),
     user_context: Dict[str, Any] = Depends(get_current_user_context),
+    stress_penalty_factor: float = 0.0,
+    drought_risk: float = 0.0,
 ) -> AdaptiveRecommendationResponse:
     """
     Get adaptive crop recommendations with fully adjustable parameters.
@@ -401,6 +403,11 @@ async def get_adaptive_recommendations(
         AdaptiveRecommendationResponse with ranked recommendations and metadata
     """
     del user_context
+    if drought_risk > 0:
+        request.water_params.water_coverage_ratio = max(
+            0.0,
+            min(1.0, request.water_params.water_coverage_ratio * (1.0 - drought_risk * 0.5)),
+        )
     start_time = time.time()
     observed_at_dt = datetime.utcnow()
     observed_at = observed_at_dt.isoformat()
@@ -661,6 +668,12 @@ async def get_adaptive_recommendations(
             request.suitability_weight * suitability +
             request.profitability_weight * min(1.0, profit / 500000.0)
         )
+        if stress_penalty_factor > 0:
+            suitability = max(0.0, min(1.0, suitability * (1.0 - stress_penalty_factor * 0.3)))
+            combined_score = (
+                request.suitability_weight * suitability +
+                request.profitability_weight * min(1.0, profit / 500000.0)
+            )
 
         recommendations_raw.append({
             'crop': crop,

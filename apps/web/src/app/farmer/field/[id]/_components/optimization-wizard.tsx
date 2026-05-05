@@ -155,6 +155,15 @@ interface FarmerCropRecommendation {
   water_sensitivity: string;
   rationale: string;
   confidence: number;
+  yield_p10?: number | null;
+  yield_p50?: number | null;
+  yield_p90?: number | null;
+  price_p10?: number | null;
+  price_p50?: number | null;
+  price_p90?: number | null;
+  water_risk_p10?: number | null;
+  water_risk_p90?: number | null;
+  confidence_score?: number | null;
 }
 
 interface FarmerFieldContext {
@@ -177,6 +186,8 @@ interface FarmerRecommendResponse {
   field_context: FarmerFieldContext;
   recommendations: FarmerCropRecommendation[];
   models_used: string[];
+  scenario_variants?: Record<string, FarmerCropRecommendation> | null;
+  explanations?: Record<string, string> | null;
   status: string;
   source: string;
   is_live: boolean;
@@ -204,6 +215,7 @@ interface FarmerCurrentPlanResponse {
   selected_crop?: FarmerCropRecommendation | null;
   field_context?: FarmerFieldContext | null;
   recommendations: FarmerCropRecommendation[];
+  scenario_variants?: Record<string, FarmerCropRecommendation> | null;
   status: string;
   source: string;
   is_live: boolean;
@@ -224,6 +236,28 @@ interface FarmerSelectResponse {
   observed_at?: string | null;
   data_available: boolean;
   message?: string | null;
+}
+
+interface FarmerCalendarResponse {
+  field_id: string;
+  season: string;
+  recommendation_id?: number | null;
+  crop_id: string;
+  planting_window_start?: string | null;
+  planting_window_end?: string | null;
+  irrigation_windows: Array<{ label: string; start: string; end: string; target_mm?: number; kc?: number }>;
+  fertilizer_windows: Array<{ label: string; start: string; end: string }>;
+  harvest_window_start?: string | null;
+  harvest_window_end?: string | null;
+  expected_market_week?: string | null;
+}
+
+interface FarmerExplanationResponse {
+  field_id: string;
+  season: string;
+  crop_id: string;
+  language: string;
+  explanations: Record<string, string>;
 }
 
 interface LocalOptimizationPlan {
@@ -265,6 +299,9 @@ export function OptimizationWizard({ fieldId, fieldStatus, area }: OptimizationW
   const [selectMessage, setSelectMessage] = React.useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = React.useState<FarmerCropDetailResponse | null>(null);
   const [selectedDetailLoading, setSelectedDetailLoading] = React.useState(false);
+  const [selectedCalendar, setSelectedCalendar] = React.useState<FarmerCalendarResponse | null>(null);
+  const [selectedExplanations, setSelectedExplanations] = React.useState<Record<string, string> | null>(null);
+  const [language, setLanguage] = React.useState<'en' | 'si' | 'ta'>('en');
   const [hydratingSavedPlan, setHydratingSavedPlan] = React.useState(true);
   const [editMode, setEditMode] = React.useState(false);
   const localPlanKey = React.useMemo(() => `asi.optimization.plan.v1.${fieldId}`, [fieldId]);
@@ -329,6 +366,38 @@ export function OptimizationWizard({ fieldId, fieldStatus, area }: OptimizationW
     }
   };
 
+  const loadCalendarAndExplanations = async (cropId: string, seasonTag?: string, sourceResult?: FarmerRecommendResponse | null) => {
+    const activeSeason = seasonTag || season;
+    const fallbackExplanations = sourceResult?.explanations || result?.explanations || null;
+    if (fallbackExplanations) {
+      setSelectedExplanations(fallbackExplanations);
+    }
+
+    try {
+      const calendarParams = new URLSearchParams({
+        field_id: fieldId,
+        season: activeSeason,
+      });
+      const calendar = await apiGet<FarmerCalendarResponse>(`/planning/calendar?${calendarParams.toString()}`);
+      setSelectedCalendar(calendar);
+    } catch {
+      setSelectedCalendar(null);
+    }
+
+    try {
+      const explanationParams = new URLSearchParams({
+        field_id: fieldId,
+        season: activeSeason,
+        crop_id: cropId,
+        language,
+      });
+      const explanation = await apiGet<FarmerExplanationResponse>(`/planning/farmer/explanation?${explanationParams.toString()}`);
+      setSelectedExplanations(explanation.explanations || null);
+    } catch {
+      setSelectedExplanations(fallbackExplanations);
+    }
+  };
+
   React.useEffect(() => {
     let active = true;
     const applyHydratedPlan = async (current: FarmerCurrentPlanResponse) => {
@@ -375,10 +444,13 @@ export function OptimizationWizard({ fieldId, fieldStatus, area }: OptimizationW
         setEditMode(false);
         if (hasHydratableRecs) {
           await loadSelectedDetail(current.selected_crop_id, current.season || undefined);
+          await loadCalendarAndExplanations(current.selected_crop_id, current.season || undefined, null);
         }
       } else {
         setSelectedCropId(null);
         setSelectedDetail(null);
+        setSelectedCalendar(null);
+        setSelectedExplanations(null);
       }
     };
 
@@ -462,8 +534,10 @@ export function OptimizationWizard({ fieldId, fieldStatus, area }: OptimizationW
         soil_type: soilType,
         season,
         top_n: 5,
+        language,
       });
       setResult(res);
+      if (res.explanations) setSelectedExplanations(res.explanations);
     } catch (err: any) {
       const msg = err instanceof ApiError ? err.message : (err?.message || 'Failed to load recommendations');
       setError(msg);
@@ -639,6 +713,7 @@ export function OptimizationWizard({ fieldId, fieldStatus, area }: OptimizationW
         persistSelectedPlan(current?.season || analysisSeason, hydratedFieldContext, normalizedRecs, selected);
       }
       loadSelectedDetail(cropId, current?.season || analysisSeason);
+      loadCalendarAndExplanations(cropId, current?.season || analysisSeason, result);
     } catch (err: any) {
       await syncConfirmedCrop(null);
       const msg = err instanceof ApiError ? err.message : (err?.message || 'database sync failed.');
@@ -654,6 +729,11 @@ export function OptimizationWizard({ fieldId, fieldStatus, area }: OptimizationW
     return result?.recommendations?.find((rec) => rec.crop_id === selectedCropId) || selectedDetail?.crop || null;
   }, [result?.recommendations, selectedCropId, selectedDetail?.crop]);
   const showSelectedOnly = Boolean(selectedCropId && selectedRecommendation && !editMode);
+
+  React.useEffect(() => {
+    if (!selectedCropId || !showSelectedOnly) return;
+    loadCalendarAndExplanations(selectedCropId, result?.field_context?.season || season, result);
+  }, [language, selectedCropId, showSelectedOnly, result, season]);
 
   return (
     <div className="optimization-wizard" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -878,8 +958,26 @@ export function OptimizationWizard({ fieldId, fieldStatus, area }: OptimizationW
                       />
                     )}
                     <div className="card" style={{ padding: 14 }}>
-                      <div className="card-title" style={{ fontSize: 13 }}>
-                        Selected crop analysis
+                      <div className="between" style={{ gap: 10, alignItems: 'center' }}>
+                        <div className="card-title" style={{ fontSize: 13 }}>
+                          Selected crop analysis
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {(['en', 'si', 'ta'] as const).map((option) => (
+                            <button
+                              key={option}
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              onClick={() => setLanguage(option)}
+                              style={{
+                                borderColor: language === option ? 'var(--primary)' : undefined,
+                                color: language === option ? 'var(--primary-600)' : undefined,
+                              }}
+                            >
+                              {option.toUpperCase()}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                       {selectedDetail ? (
                         <CropInsights data={selectedDetail} />
@@ -891,6 +989,47 @@ export function OptimizationWizard({ fieldId, fieldStatus, area }: OptimizationW
                       {selectedDetailLoading && (
                         <div className="tiny muted" style={{ marginTop: 8 }}>
                           Refreshing market and yield history…
+                        </div>
+                      )}
+                      {selectedExplanations && (
+                        <div className="card" style={{ padding: 12, marginTop: 10 }}>
+                          <div className="card-title" style={{ fontSize: 13 }}>Explanation panel</div>
+                          <div style={{ display: 'grid', gap: 10, marginTop: 8 }}>
+                            <ExplanationBlock title="Why this crop" text={selectedExplanations.why_this_crop} />
+                            <ExplanationBlock title="Why not paddy" text={selectedExplanations.why_not_paddy} />
+                            <ExplanationBlock title="What changed" text={selectedExplanations.what_changed} />
+                          </div>
+                        </div>
+                      )}
+                      {selectedCalendar && (
+                        <div className="card" style={{ padding: 12, marginTop: 10 }}>
+                          <div className="card-title" style={{ fontSize: 13 }}>Crop calendar</div>
+                          <div className="tiny muted" style={{ marginTop: 4 }}>
+                            Planting {selectedCalendar.planting_window_start || '—'} to {selectedCalendar.planting_window_end || '—'} ·
+                            Harvest {selectedCalendar.harvest_window_start || '—'} to {selectedCalendar.harvest_window_end || '—'}
+                          </div>
+                          <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                            {(selectedCalendar.irrigation_windows || []).map((window, index) => (
+                              <div key={`${window.label}-${index}`} style={{ padding: 10, borderRadius: 10, border: '1px solid var(--border)' }}>
+                                <div style={{ fontWeight: 600, fontSize: 12.5 }}>{window.label}</div>
+                                <div className="tiny muted" style={{ marginTop: 2 }}>
+                                  {window.start} → {window.end}{window.target_mm ? ` · ${Math.round(window.target_mm)} mm` : ''}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          {!!selectedCalendar.fertilizer_windows?.length && (
+                            <div style={{ marginTop: 10 }}>
+                              <div className="tiny muted" style={{ marginBottom: 6 }}>Fertilizer windows</div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                {selectedCalendar.fertilizer_windows.map((window, index) => (
+                                  <Chip key={`${window.label}-${index}`} kind="info" dot={false}>
+                                    {window.label}: {window.start}
+                                  </Chip>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1018,6 +1157,17 @@ function CropCard({ rec, isSelected, onClick }: CropCardProps) {
         <Metric label="Water" value={formatMm(rec.water_requirement_mm)} />
       </div>
 
+      {(rec.yield_p10 || rec.yield_p50 || rec.yield_p90 || rec.price_p10 || rec.price_p50 || rec.price_p90) && (
+        <div style={{ marginTop: 10, display: 'grid', gap: 4 }}>
+          <div className="tiny muted">
+            Yield band: {formatT(rec.yield_p10)} / {formatT(rec.yield_p50 || rec.predicted_yield_t_ha)} / {formatT(rec.yield_p90)}
+          </div>
+          <div className="tiny muted">
+            Price band: {formatPrice(rec.price_p10)} / {formatPrice(rec.price_p50 || rec.predicted_price_per_kg)} / {formatPrice(rec.price_p90)}
+          </div>
+        </div>
+      )}
+
       {isSelected && (
         <div
           style={{
@@ -1044,6 +1194,16 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div>
       <div className="tiny muted">{label}</div>
       <div className="tabular" style={{ fontWeight: 600, marginTop: 2 }}>{value}</div>
+    </div>
+  );
+}
+
+function ExplanationBlock({ title, text }: { title: string; text?: string | null }) {
+  if (!text) return null;
+  return (
+    <div style={{ padding: 10, borderRadius: 10, border: '1px solid var(--border)' }}>
+      <div style={{ fontWeight: 600, fontSize: 12.5 }}>{title}</div>
+      <div className="tiny muted" style={{ marginTop: 4, lineHeight: 1.5 }}>{text}</div>
     </div>
   );
 }
@@ -1078,6 +1238,16 @@ function CropInsights({ data }: { data: FarmerCropDetailResponse }) {
         <KpiTile label="Profit / ha" value={formatLkr(crop.profit_per_ha)} accent />
         <KpiTile label="ROI" value={formatPct(crop.roi_percentage, 1)} accent />
       </div>
+
+      {(crop.yield_p10 || crop.yield_p50 || crop.yield_p90 || crop.price_p10 || crop.price_p50 || crop.price_p90) && (
+        <div className="card" style={{ padding: 12, marginTop: 10 }}>
+          <div className="card-title" style={{ fontSize: 13 }}>Uncertainty bands</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 8 }}>
+            <KpiTile label="Yield P10 / P50 / P90" value={`${formatT(crop.yield_p10)} · ${formatT(crop.yield_p50 || crop.predicted_yield_t_ha)} · ${formatT(crop.yield_p90)}`} />
+            <KpiTile label="Price P10 / P50 / P90" value={`${formatPrice(crop.price_p10)} · ${formatPrice(crop.price_p50 || crop.predicted_price_per_kg)} · ${formatPrice(crop.price_p90)}`} />
+          </div>
+        </div>
+      )}
 
       {costEntries.length > 0 && (
         <div className="card" style={{ padding: 12, marginTop: 10 }}>

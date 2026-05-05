@@ -36,14 +36,8 @@ The script is idempotent. Running it again will:
 | Username | Password | Roles | Active | Scheme IDs | Suggested checks |
 |---|---|---|---|---|---|
 | farmer | farmer123 | farmer | true | (none) | Basic farmer login, `/me`, farmer-only screens |
-| farmer_demo_01 | farmer123 | farmer | true | (none) | Multi-user farmer testing |
-| farmer_demo_02 | farmer123 | farmer | true | (none) | Ownership and user-isolation checks |
 | officer | officer123 | officer | true | scheme-default | Officer overview and scoped workflows |
-| officer_noscope | officer123 | officer | true | (none) | Verify scoped endpoints reject with 403 |
 | authority | authority123 | authority | true | scheme-default | Authority user management and policy flows |
-| authority_regional | authority123 | authority | true | scheme-default, scheme-mahaweli-left-bank | Multi-scheme authority checks |
-| ops_supervisor | ops12345 | authority, officer | true | scheme-default, scheme-mahaweli-left-bank | Multi-role behavior and token role checks |
-| farmer_inactive | farmer123 | farmer | false | (none) | Login should fail with deactivated account message |
 
 ## Login Endpoint
 

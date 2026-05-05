@@ -11,16 +11,19 @@ updated constraints while considering crops already planted.
 
 import logging
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.core.contracts import build_contract
 from app.core.schemas import PlanBRequest, PlanBResponse
 from app.data.db import get_db
-from app.data.repositories import RunArtifactRepository
+from app.data.repositories import PlanBTriggerRepository, RunArtifactRepository
 from app.dependencies.auth import get_current_user_context
 from app.services.planb_service import PlanBService
+from app.services.planb_trigger_service import PlanBTriggerService
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -105,5 +108,73 @@ async def recompute_plan(
     )
     
     logger.info(f"Plan B generated: {response.message}")
-    
+
     return response
+
+
+class EvaluateTriggersRequest(BaseModel):
+    field_id: str
+    season: str
+    current_price_overrides: Optional[Dict[str, float]] = Field(
+        default=None,
+        description="Current crop prices for price-crash detection (crop_id → price/kg)"
+    )
+
+
+@router.post("/evaluate-triggers")
+async def evaluate_triggers(
+    payload: EvaluateTriggersRequest,
+    db: Annotated[Session, Depends(get_db)],
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+) -> Dict[str, Any]:
+    """Check and fire Plan B triggers for a field/season.
+
+    Evaluates drought risk (F3), reservoir level (F1), and price drop conditions.
+    Persists any triggered events and returns the list of fired triggers.
+    """
+    auth_header = user_context.get("authorization")
+    trigger_svc = PlanBTriggerService()
+    fired = await trigger_svc.evaluate_triggers(
+        field_id=payload.field_id,
+        season=payload.season,
+        db=db,
+        auth_header=auth_header,
+        current_price_overrides=payload.current_price_overrides,
+    )
+    contract = build_contract(
+        source="optimization_service",
+        observed_at=datetime.utcnow().isoformat(),
+        data_available=True,
+        raw_status="ok",
+    )
+    return {
+        **contract,
+        "field_id": payload.field_id,
+        "season": payload.season,
+        "triggers_fired": len(fired),
+        "trigger_events": fired,
+    }
+
+
+@router.get("/trigger-history")
+async def trigger_history(
+    field_id: str = Query(..., description="Field identifier"),
+    season: Optional[str] = Query(default=None, description="Season tag filter"),
+    db: Session = Depends(get_db),
+    user_context: Dict[str, Any] = Depends(get_current_user_context),
+) -> Dict[str, Any]:
+    """Return trigger event history for a field, optionally filtered by season."""
+    events = PlanBTriggerRepository.list_triggers(db, field_id=field_id, season=season)
+    contract = build_contract(
+        source="optimization_service",
+        observed_at=datetime.utcnow().isoformat(),
+        data_available=True,
+        raw_status="ok",
+    )
+    return {
+        **contract,
+        "field_id": field_id,
+        "season": season,
+        "count": len(events),
+        "events": events,
+    }

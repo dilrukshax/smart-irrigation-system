@@ -14,71 +14,81 @@ Can be replaced with trained ML model in future for better accuracy.
 """
 
 import logging
-from typing import Dict, Any, Optional
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+# Default artifact path relative to this file's directory.
+_DEFAULT_MODEL_PATH = Path(__file__).parent.parent / "models" / "yield_regressor_gb.joblib"
+_DEFAULT_P10_PATH = Path(__file__).parent.parent / "models" / "yield_regressor_p10.joblib"
+_DEFAULT_P90_PATH = Path(__file__).parent.parent / "models" / "yield_regressor_p90.joblib"
+
+# 9-feature order expected by the GBR artifact (must match bootstrap_yield_model.py).
+_GBR_FEATURE_ORDER = [
+    "soil_ph",
+    "soil_ec",
+    "soil_suitability",
+    "water_availability_mm",
+    "season_encoded",
+    "growth_duration_days",
+    "water_used_mm",
+    "latitude",
+    "longitude",
+]
+
 
 class YieldModel:
-    """
-    Yield prediction model using rule-based heuristic.
+    """Yield prediction model: GBR artifact when available, heuristic fallback.
 
-    Predicts expected yield in tonnes per hectare based on
-    field conditions, crop characteristics, and environmental factors.
-
-    Uses a weighted formula:
-    yield = base_yield * soil_factor * water_factor * climate_factor * duration_factor
+    At init, auto-discovers the trained GBR artifact at the default path.
+    Preserves the 7-feature heuristic path as fallback when the artifact
+    is absent or fails to load.
     """
 
     def __init__(self, model_path: Optional[str] = None):
-        """
-        Initialize the yield model.
-
-        Args:
-            model_path: Path to optional trained model (for future ML implementation)
-        """
-        self.model_loaded = True  # Rule-based model is always "loaded"
+        self.model_loaded = True
         self.model_version = "1.0.0-heuristic"
         self._model = None
+        self._model_p10 = None
+        self._model_p90 = None
         self.use_heuristic = True
 
-        # Try to load ML model if path provided
-        if model_path is not None:
-            self.load_model(model_path)
+        # Auto-load from default location unless overridden or explicitly None.
+        path = model_path if model_path is not None else str(_DEFAULT_MODEL_PATH)
+        self.load_model(path)
 
     def load_model(self, model_path: str) -> bool:
-        """
-        Load a trained ML model from disk.
-
-        Args:
-            model_path: Path to the saved model file (.joblib)
-
-        Returns:
-            bool: True if model loaded successfully
-        """
+        """Load the GBR artifact (and optional quantile siblings) from disk."""
         try:
             import joblib
-            from pathlib import Path
 
             model_file = Path(model_path)
             if not model_file.exists():
-                logger.warning(f"Yield model file not found: {model_path}")
-                logger.info("Using rule-based heuristic instead")
+                logger.info("Yield model file not found at %s — using heuristic", model_path)
                 return False
 
             self._model = joblib.load(str(model_file))
             self.use_heuristic = False
             self.model_loaded = True
-            self.model_version = getattr(self._model, 'version', '1.0.0-ml')
-            logger.info(f"Yield ML model loaded successfully from {model_path}")
+            self.model_version = getattr(self._model, "version", "2.0.0-gbr")
+            logger.info("Yield GBR model loaded from %s", model_path)
+
+            # Try loading quantile siblings for P10/P90 intervals.
+            for attr, path in (("_model_p10", _DEFAULT_P10_PATH), ("_model_p90", _DEFAULT_P90_PATH)):
+                if path.exists():
+                    try:
+                        setattr(self, attr, joblib.load(str(path)))
+                        logger.info("Yield quantile model loaded from %s", path)
+                    except Exception as qe:
+                        logger.info("Quantile model %s not loaded: %s", path, qe)
             return True
 
-        except Exception as e:
-            logger.warning(f"Failed to load yield ML model: {e}")
-            logger.info("Falling back to rule-based heuristic")
+        except Exception as exc:
+            logger.warning("Failed to load yield ML model: %s — using heuristic", exc)
             self.use_heuristic = True
             return False
 
@@ -253,38 +263,41 @@ class YieldModel:
             return self._predict_heuristic(field_id, crop_id, features)
 
     def _prepare_features(self, features: Dict[str, Any]) -> list:
-        """
-        Prepare feature vector for ML model.
-
-        Args:
-            features: Feature dictionary
-
-        Returns:
-            List of feature values in correct order
-        """
-        # Define feature order expected by ML model
-        feature_order = [
-            "soil_suitability",
-            "water_coverage_ratio",
-            "soil_ph",
-            "soil_ec",
-            "season_avg_temp",
-            "season_rainfall_mm",
-            "growth_duration_days",
-        ]
-
-        # Extract features with defaults
-        defaults = {
-            "soil_suitability": 0.7,
-            "water_coverage_ratio": 0.8,
+        """Prepare 9-feature vector for the GBR model in the expected order."""
+        defaults: Dict[str, Any] = {
             "soil_ph": 6.5,
             "soil_ec": 1.0,
-            "season_avg_temp": 28.0,
-            "season_rainfall_mm": 250.0,
+            "soil_suitability": 0.7,
+            "water_availability_mm": 500.0,
+            "season_encoded": 0,
             "growth_duration_days": 120,
+            "water_used_mm": 700.0,
+            "latitude": 8.0,
+            "longitude": 80.5,
         }
+        return [features.get(f, defaults[f]) for f in _GBR_FEATURE_ORDER]
 
-        return [features.get(f, defaults.get(f, 0)) for f in feature_order]
+    def get_yield_confidence_interval(
+        self, features: Dict[str, Any]
+    ) -> Tuple[float, float, float]:
+        """Return (P10, P50, P90) yield confidence interval in t/ha.
+
+        Falls back to symmetric ±15% around the point estimate when quantile
+        models are not loaded.
+        """
+        p50 = self.predict("_ci", "_ci", features) or 4.0
+        if self._model_p10 is not None and self._model_p90 is not None:
+            try:
+                fv = self._prepare_features(features)
+                p10 = float(self._model_p10.predict([fv])[0])
+                p90 = float(self._model_p90.predict([fv])[0])
+                p10 = max(0.1, min(p10, p50))
+                p90 = max(p50, p90)
+                return round(p10, 2), round(p50, 2), round(p90, 2)
+            except Exception as exc:
+                logger.debug("Quantile prediction failed: %s", exc)
+        # Symmetric fallback: ±15%
+        return round(p50 * 0.85, 2), round(p50, 2), round(p50 * 1.15, 2)
 
     def get_yield_factors(self, features: Dict[str, Any]) -> Dict[str, float]:
         """
@@ -348,14 +361,10 @@ _yield_model: Optional[YieldModel] = None
 
 
 def get_yield_model() -> YieldModel:
-    """
-    Get the singleton yield model instance.
-
-    Returns:
-        YieldModel: The shared yield model instance (auto-loaded with heuristic)
-    """
+    """Return the singleton YieldModel, auto-loading GBR artifact if present."""
     global _yield_model
     if _yield_model is None:
         _yield_model = YieldModel()
-        logger.info("YieldModel instance created with rule-based heuristic")
+        mode = "GBR" if not _yield_model.use_heuristic else "heuristic"
+        logger.info("YieldModel singleton created in %s mode", mode)
     return _yield_model

@@ -299,6 +299,17 @@ class AdaptiveCropRecommendation(BaseModel):
     rationale: str = Field(..., description="Recommendation rationale")
     confidence: float = Field(default=0.85, ge=0.0, le=1.0, description="Model confidence")
 
+    # Uncertainty bands (P10/P50/P90) — populated when DB history is available
+    yield_p10: Optional[float] = Field(default=None, description="Yield P10 percentile (t/ha)")
+    yield_p50: Optional[float] = Field(default=None, description="Yield P50/median (t/ha)")
+    yield_p90: Optional[float] = Field(default=None, description="Yield P90 percentile (t/ha)")
+    price_p10: Optional[float] = Field(default=None, description="Price P10 percentile (Rs/kg)")
+    price_p50: Optional[float] = Field(default=None, description="Price P50/median (Rs/kg)")
+    price_p90: Optional[float] = Field(default=None, description="Price P90 percentile (Rs/kg)")
+    water_risk_p10: Optional[float] = Field(default=None, description="Water coverage P10 (fraction)")
+    water_risk_p90: Optional[float] = Field(default=None, description="Water coverage P90 (fraction)")
+    confidence_score: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Data-driven confidence (0-1)")
+
 
 class InputParameterSummary(BaseModel):
     """Summary of input parameters used for the recommendation."""

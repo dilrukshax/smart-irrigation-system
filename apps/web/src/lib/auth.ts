@@ -5,12 +5,13 @@
  * for client-side authentication state management.
  */
 
-import { apiPost } from './api';
+import { apiGet, apiPost } from './api';
 import {
   clearAuthSession,
   getAccessToken,
   getRefreshToken as getStoredRefreshToken,
   getStoredUser,
+  saveStoredUser,
   saveAuthSession,
 } from './auth-storage';
 
@@ -125,6 +126,33 @@ export function useAuth() {
       setLoading(false);
     });
   }, []);
+
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncUser = async () => {
+      try {
+        const freshUser = await apiGet<User>('/auth/me', token);
+        if (cancelled) {
+          return;
+        }
+        saveStoredUser(freshUser);
+        setUser(freshUser);
+      } catch {
+        // The API layer already handles session expiry; keep the cached user if refresh fails.
+      }
+    };
+
+    void syncUser();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   return {
     user,

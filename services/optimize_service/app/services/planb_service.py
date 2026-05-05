@@ -60,6 +60,7 @@ class PlanBService:
         self,
         request: PlanBRequest,
         db_session: Session,
+        trigger_reason: Optional[str] = None,
     ) -> PlanBResponse:
         """
         Recompute crop plan with updated constraints.
@@ -76,8 +77,8 @@ class PlanBService:
             PlanBResponse with adjusted recommendations and explanation
         """
         logger.info(
-            f"Plan B requested for field={request.field_id}, "
-            f"quota={request.updated_quota_mm}, prices={request.updated_prices}"
+            "Plan B requested for field=%s, quota=%s, prices=%s, trigger=%s",
+            request.field_id, request.updated_quota_mm, request.updated_prices, trigger_reason,
         )
         
         # Build scenario from updates
@@ -97,7 +98,7 @@ class PlanBService:
         )
         
         # Generate Plan B message
-        message = self._generate_message(request, rec_response.recommendations)
+        message = self._generate_message(request, rec_response.recommendations, trigger_reason=trigger_reason)
 
         # Adjust recommendations for Plan B context
         adjusted_plan = self._adjust_for_planb(rec_response.recommendations)
@@ -141,13 +142,14 @@ class PlanBService:
         self,
         request: PlanBRequest,
         recommendations: list,
+        trigger_reason: Optional[str] = None,
     ) -> str:
         """
         Generate a human-readable message explaining the Plan B changes.
         
         Provides context about what changed and how recommendations adjusted.
         """
-        parts = ["Plan B generated"]
+        parts = [f"Plan B generated (auto: {trigger_reason})" if trigger_reason else "Plan B generated"]
         
         if request.updated_quota_mm is not None:
             parts.append(f"based on updated water quota ({request.updated_quota_mm:.0f} mm)")

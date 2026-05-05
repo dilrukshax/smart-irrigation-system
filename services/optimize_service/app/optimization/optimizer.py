@@ -37,11 +37,12 @@ Future Implementation:
 """
 
 import logging
-from typing import List, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from app.optimization.constraints import (
-    OptimizationCropInput,
+    MultiFieldConstraints,
     OptimizationConstraints,
+    OptimizationCropInput,
     OptimizationResult,
     validate_inputs,
 )
@@ -77,16 +78,8 @@ class Optimizer:
         self,
         crop_inputs: List[OptimizationCropInput],
         constraints: OptimizationConstraints,
-        use_lp: bool = False,
+        use_lp: bool = True,
     ):
-        """
-        Initialize the optimizer.
-        
-        Args:
-            crop_inputs: List of OptimizationCropInput for candidate crops
-            constraints: OptimizationConstraints defining limits
-            use_lp: Use LP solver (requires PuLP). Default False uses heuristic.
-        """
         self.crop_inputs = crop_inputs
         self.constraints = constraints
         self.use_lp = use_lp
@@ -120,7 +113,8 @@ class Optimizer:
         
         # Run appropriate optimizer
         if self.use_lp:
-            result = self._optimize_with_pulp()
+            ext = getattr(self.constraints, "_lp_kwargs", {})
+            result = self._optimize_with_pulp(**ext)
         else:
             result = self._optimize_greedy()
         
@@ -197,82 +191,93 @@ class Optimizer:
             message=f"Greedy allocation: {len(allocations)} crops selected",
         )
     
-    def _optimize_with_pulp(self) -> OptimizationResult:
-        """
-        LP optimization using PuLP.
-        
-        Solves the full linear programming problem for optimal allocation.
-        
-        TODO: Full implementation with PuLP
-        """
+    def _optimize_with_pulp(
+        self,
+        *,
+        paddy_crop_ids: Optional[List[str]] = None,
+        min_paddy_area_ha: float = 0.0,
+        previous_crop_ids: Optional[Dict[str, str]] = None,
+        rotation_penalty: float = 0.15,
+        budget_lkr: Optional[float] = None,
+        cost_per_ha: Optional[Dict[str, float]] = None,
+    ) -> OptimizationResult:
+        """Full LP optimization via PuLP with extended policy constraints."""
         logger.debug("Using PuLP LP optimizer")
-        
+
         try:
-            from pulp import (
-                LpProblem, LpMaximize, LpVariable, lpSum, LpStatus, PULP_CBC_CMD
-            )
+            from pulp import PULP_CBC_CMD, LpMaximize, LpProblem, LpStatus, LpVariable, lpSum
         except ImportError:
             logger.warning("PuLP not available, falling back to greedy")
             return self._optimize_greedy()
-        
-        # Create problem
+
         prob = LpProblem("CropAllocation", LpMaximize)
-        
-        # Decision variables: area allocated to each crop
-        area_vars = {}
+
+        area_vars: Dict[str, Any] = {}
         for crop in self.crop_inputs:
             area_vars[crop.crop_id] = LpVariable(
                 f"area_{crop.crop_id}",
                 lowBound=crop.min_area_ha,
                 upBound=crop.max_area_ha,
             )
-        
-        # Objective: maximize total profit (weighted by suitability)
-        prob += lpSum([
-            crop.expected_profit_per_ha * crop.suitability_score * area_vars[crop.crop_id]
-            for crop in self.crop_inputs
-        ]), "TotalProfit"
-        
+
+        # Effective profit per ha: apply rotation penalty for same-crop re-selection.
+        prev = previous_crop_ids or {}
+        effective_profit: Dict[str, float] = {}
+        for crop in self.crop_inputs:
+            profit = crop.expected_profit_per_ha * crop.suitability_score
+            if crop.crop_id in prev.values():
+                profit *= (1.0 - rotation_penalty)
+            effective_profit[crop.crop_id] = profit
+
+        prob += lpSum([effective_profit[c.crop_id] * area_vars[c.crop_id] for c in self.crop_inputs]), "TotalProfit"
+
         # Water constraint
-        prob += lpSum([
-            crop.water_req_mm_per_ha * area_vars[crop.crop_id]
-            for crop in self.crop_inputs
-        ]) <= self.constraints.total_water_quota_mm, "WaterBudget"
-        
+        prob += (
+            lpSum([c.water_req_mm_per_ha * area_vars[c.crop_id] for c in self.crop_inputs])
+            <= self.constraints.total_water_quota_mm
+        ), "WaterBudget"
+
         # Area constraint
-        prob += lpSum([
-            area_vars[crop.crop_id]
-            for crop in self.crop_inputs
-        ]) <= self.constraints.total_area_ha, "TotalArea"
-        
-        # Solve (suppress output)
+        prob += (
+            lpSum([area_vars[c.crop_id] for c in self.crop_inputs]) <= self.constraints.total_area_ha
+        ), "TotalArea"
+
+        # Minimum paddy area policy
+        if min_paddy_area_ha > 0 and paddy_crop_ids:
+            paddy_in_scope = [c for c in self.crop_inputs if c.crop_id in paddy_crop_ids]
+            if paddy_in_scope:
+                prob += (
+                    lpSum([area_vars[c.crop_id] for c in paddy_in_scope]) >= min_paddy_area_ha
+                ), "MinPaddyArea"
+
+        # Budget constraint
+        if budget_lkr is not None and budget_lkr > 0:
+            costs = cost_per_ha or {}
+            prob += (
+                lpSum([costs.get(c.crop_id, 120000.0) * area_vars[c.crop_id] for c in self.crop_inputs])
+                <= budget_lkr
+            ), "BudgetLimit"
+
         prob.solve(PULP_CBC_CMD(msg=0))
-        
-        # Extract results
         status = LpStatus[prob.status]
-        
+
         if status not in ["Optimal", "Feasible"]:
-            return OptimizationResult(
-                status="infeasible",
-                message=f"LP solver status: {status}",
-            )
-        
+            logger.info("LP infeasible (%s) — falling back to greedy", status)
+            return self._optimize_greedy()
+
         allocations = {
-            crop_id: round(var.varValue or 0, 3)
-            for crop_id, var in area_vars.items()
+            cid: round(var.varValue or 0, 3)
+            for cid, var in area_vars.items()
             if var.varValue and var.varValue > 0.001
         }
-        
+
         total_profit = sum(
-            allocations.get(crop.crop_id, 0) * crop.expected_profit_per_ha
-            for crop in self.crop_inputs
+            allocations.get(c.crop_id, 0) * c.expected_profit_per_ha for c in self.crop_inputs
         )
-        
         total_water = sum(
-            allocations.get(crop.crop_id, 0) * crop.water_req_mm_per_ha
-            for crop in self.crop_inputs
+            allocations.get(c.crop_id, 0) * c.water_req_mm_per_ha for c in self.crop_inputs
         )
-        
+
         return OptimizationResult(
             allocations=allocations,
             total_profit=round(total_profit, 2),
@@ -295,6 +300,48 @@ class Optimizer:
             self.optimize()
         
         return self._result.allocations.get(crop_id, 0.0)
+
+
+class MultiFieldOptimizer:
+    """Scheme-level optimizer that runs LP across multiple fields simultaneously."""
+
+    def __init__(
+        self,
+        field_crop_inputs: Dict[str, List[OptimizationCropInput]],
+        multi_constraints: MultiFieldConstraints,
+    ) -> None:
+        self.field_crop_inputs = field_crop_inputs
+        self.multi_constraints = multi_constraints
+
+    def optimize(self) -> Dict[str, OptimizationResult]:
+        """Run per-field LP with shared scheme-level water quota."""
+        results: Dict[str, OptimizationResult] = {}
+        remaining_water = self.multi_constraints.total_scheme_water_mm
+
+        for field_id, crops in self.field_crop_inputs.items():
+            area_ha = self.multi_constraints.per_field_area_ha.get(field_id, 1.0)
+            field_water = min(remaining_water, area_ha * 1200)
+
+            constraints = OptimizationConstraints(
+                total_water_quota_mm=field_water,
+                total_area_ha=area_ha,
+            )
+            constraints._lp_kwargs = {  # type: ignore[attr-defined]
+                "paddy_crop_ids": self.multi_constraints.paddy_crop_ids,
+                "min_paddy_area_ha": self.multi_constraints.min_paddy_area_ha,
+                "previous_crop_ids": {
+                    "field": self.multi_constraints.previous_crop_ids.get(field_id, "")
+                },
+                "rotation_penalty": self.multi_constraints.crop_rotation_penalty,
+                "budget_lkr": self.multi_constraints.budget_lkr,
+            }
+
+            opt = Optimizer(crops, constraints, use_lp=True)
+            result = opt.optimize()
+            results[field_id] = result
+            remaining_water -= result.total_water_used
+
+        return results
 
 
 def create_optimizer(

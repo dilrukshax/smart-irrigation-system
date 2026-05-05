@@ -34,6 +34,9 @@ function ScenariosPage() {
   const [loading, setLoading] = React.useState(true);
   const [running, setRunning] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [fieldId, setFieldId] = React.useState('');
+  const [fieldScenarioPayload, setFieldScenarioPayload] = React.useState<any>(null);
+  const [scenarioTab, setScenarioTab] = React.useState<'optimistic' | 'base' | 'pessimistic'>('base');
 
   const loadScenarios = React.useCallback(async () => {
     setLoading(true);
@@ -51,6 +54,17 @@ function ScenariosPage() {
   React.useEffect(() => {
     loadScenarios();
   }, [loadScenarios]);
+
+  const loadFieldScenarioVariants = async () => {
+    if (!fieldId) return;
+    try {
+      const response = await apiGet<any>(`/planning/farmer/current?${buildQuery({ field_id: fieldId })}`);
+      setFieldScenarioPayload(response);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load field scenario variants');
+      setFieldScenarioPayload(null);
+    }
+  };
 
   const runScenario = async () => {
     setRunning(true);
@@ -75,6 +89,9 @@ function ScenariosPage() {
 
   const scenarios = unwrapData(payload).scenarios || [];
   const resultData = unwrapData(result);
+  const fieldScenarioData = unwrapData(fieldScenarioPayload);
+  const scenarioVariants = fieldScenarioData.scenario_variants || {};
+  const activeVariant = scenarioVariants[scenarioTab];
   const totalProfit = scenarios.reduce((sum: number, row: any) => sum + (Number(row.total_profit) || 0), 0);
 
   return (
@@ -156,6 +173,43 @@ function ScenariosPage() {
             </div>
             {result ? <AllocationTable allocation={resultData.allocation}/> : <div className="tiny muted" style={{ padding: 18 }}>Scenario allocations will appear after evaluation.</div>}
           </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="card-head">
+            <div>
+              <div className="card-title">Farmer scenario variants</div>
+              <div className="tiny muted">Optimistic, base, and pessimistic variants from the latest farmer recommendation</div>
+            </div>
+            <Chip kind="info">/planning/farmer/current</Chip>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+            <input className="input" style={{ minWidth: 220 }} value={fieldId} onChange={(event) => setFieldId(event.target.value)} placeholder="Field id" />
+            <button className="btn btn-ghost" onClick={loadFieldScenarioVariants}>
+              <Icon name="download" size={13}/> Load variants
+            </button>
+          </div>
+          {!Object.keys(scenarioVariants).length ? (
+            <div className="tiny muted" style={{ marginTop: 10 }}>Load a field that already has a saved farmer recommendation to inspect its scenario bands.</div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>
+                {(['optimistic', 'base', 'pessimistic'] as const).map((tab) => (
+                  <button key={tab} className="btn btn-ghost btn-sm" onClick={() => setScenarioTab(tab)} style={{ borderColor: scenarioTab === tab ? 'var(--primary)' : undefined }}>
+                    {tab}
+                  </button>
+                ))}
+              </div>
+              {activeVariant && (
+                <div style={{ ...gridAuto(160), marginTop: 12 }}>
+                  <MetricCard title="Crop" value={activeVariant.crop_name || '-'} sub={activeVariant.crop_id || ''} icon="leaf" chip={scenarioTab} kind="sim" />
+                  <MetricCard title="Yield" value={formatNumber(activeVariant.predicted_yield_t_ha, 2)} sub="t/ha" icon="chart" chip="yield" kind="live" />
+                  <MetricCard title="Revenue" value={formatCompact(activeVariant.gross_revenue_per_ha, 'LKR ')} sub="per ha" icon="target" chip="revenue" kind="live" />
+                  <MetricCard title="Profit" value={formatCompact(activeVariant.profit_per_ha, 'LKR ')} sub={`Water ratio ${formatNumber(activeVariant.water_scenario_ratio, 2)}`} icon="flash" chip="profit" kind="live" />
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {!scenarios.length ? (

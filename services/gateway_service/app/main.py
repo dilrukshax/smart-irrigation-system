@@ -464,6 +464,8 @@ def _map_planning_path(path: str) -> str:
         return "/f4/recommendations/scenario-evaluate"
     if path == "planb":
         return "/f4/planb"
+    if path == "calendar":
+        return "/f4/farmer/calendar"
     if path == "supply/water-budget":
         return "/f4/supply/water-budget"
     return f"/f4/{path}"

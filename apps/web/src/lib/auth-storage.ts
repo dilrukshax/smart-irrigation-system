@@ -101,6 +101,11 @@ export function updateAccessToken(accessToken: string, refreshToken?: string): v
   setAccessTokenCookie(accessToken, effectiveRefreshToken);
 }
 
+export function saveStoredUser<TUser>(user: TUser): void {
+  const storage = getBrowserStorage();
+  storage?.setItem(USER_KEY, JSON.stringify(user));
+}
+
 export function clearAuthSession(): void {
   const storage = getBrowserStorage();
   storage?.removeItem(ACCESS_TOKEN_KEY);

@@ -6,7 +6,8 @@
 import * as React from 'react';
 import { ApiState } from '@/components/asi/api-state';
 import { Icon } from '@/components/asi/ui';
-import { apiGet } from '@/lib/api';
+import { apiGet, apiPost } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import {
   DEFAULT_SEASON,
   EmptyState,
@@ -24,11 +25,17 @@ import {
 } from '../_components/optimization-shared';
 
 function RecommendationsPage() {
+  const { user } = useAuth();
   const [season, setSeason] = React.useState(DEFAULT_SEASON);
   const [overview, setOverview] = React.useState<any>(null);
+  const [accuracyReport, setAccuracyReport] = React.useState<any>(null);
   const [cropFilter, setCropFilter] = React.useState('');
   const [riskFilter, setRiskFilter] = React.useState('all');
   const [threshold, setThreshold] = React.useState(0.65);
+  const [feedbackRow, setFeedbackRow] = React.useState<any>(null);
+  const [feedbackYield, setFeedbackYield] = React.useState('');
+  const [feedbackPrice, setFeedbackPrice] = React.useState('');
+  const [feedbackWater, setFeedbackWater] = React.useState('');
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -36,14 +43,20 @@ function RecommendationsPage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiGet<any>(`/planning/operator/overview${buildQuery({ season })}`);
+      const [response, report] = await Promise.all([
+        apiGet<any>(`/planning/operator/overview${buildQuery({ season })}`),
+        (user?.roles || []).some((role) => ['authority', 'admin'].includes(String(role).toLowerCase()))
+          ? apiGet<any>(`/planning/feedback/accuracy-report${buildQuery({ season })}`).catch(() => null)
+          : Promise.resolve(null),
+      ]);
       setOverview(response);
+      setAccuracyReport(report);
     } catch (err: any) {
       setError(err?.message || 'Failed to load crop recommendations');
     } finally {
       setLoading(false);
     }
-  }, [season]);
+  }, [season, user?.roles]);
 
   React.useEffect(() => {
     loadData();
@@ -61,6 +74,27 @@ function RecommendationsPage() {
   });
   const data = unwrapData(overview);
   const topProfit = filtered.reduce((best: number, row: any) => Math.max(best, num(row.expected_profit_per_ha ?? row.profit_per_ha, 0)), 0);
+  const canViewAccuracy = (user?.roles || []).some((role) => ['authority', 'admin'].includes(String(role).toLowerCase()));
+
+  const submitFeedback = async () => {
+    if (!feedbackRow) return;
+    await apiPost('/planning/feedback/outcomes', {
+      field_id: feedbackRow.field_id,
+      crop_id: feedbackRow.crop_id,
+      actual_crop_id: feedbackRow.crop_id,
+      season,
+      year: Number(season.split('-')[1]) || new Date().getFullYear(),
+      feedback_date: new Date().toISOString().slice(0, 10),
+      actual_yield_t_ha: feedbackYield ? Number(feedbackYield) : undefined,
+      actual_sale_price_kg: feedbackPrice ? Number(feedbackPrice) : undefined,
+      actual_water_used_mm: feedbackWater ? Number(feedbackWater) : undefined,
+    });
+    setFeedbackRow(null);
+    setFeedbackYield('');
+    setFeedbackPrice('');
+    setFeedbackWater('');
+    loadData();
+  };
 
   return (
     <OptimizationFrame
@@ -161,8 +195,81 @@ function RecommendationsPage() {
         ) : (
           <div style={gridAuto(280)}>
             {filtered.slice(0, 30).map((row: any, index: number) => (
-              <RecommendationCard key={`${row.field_id || 'field'}-${row.crop_id || index}-${row.rank || index}`} row={row}/>
+              <div key={`${row.field_id || 'field'}-${row.crop_id || index}-${row.rank || index}`} style={{ display: 'grid', gap: 8 }}>
+                <RecommendationCard row={row}/>
+                {row.field_id && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => setFeedbackRow(row)}>
+                    <Icon name="download" size={13}/> Submit outcome
+                  </button>
+                )}
+              </div>
             ))}
+          </div>
+        )}
+
+        {canViewAccuracy && accuracyReport?.data?.items?.length > 0 && (
+          <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: 14 }}>
+            <div className="card-head" style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
+              <div>
+                <div className="card-title">Accuracy report</div>
+                <div className="tiny muted">Feedback-derived MAE and bias by crop</div>
+              </div>
+            </div>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>Crop</th>
+                  <th>Samples</th>
+                  <th>Predicted avg</th>
+                  <th>Actual avg</th>
+                  <th>MAE</th>
+                  <th>Bias</th>
+                </tr>
+              </thead>
+              <tbody>
+                {accuracyReport.data.items.map((item: any) => (
+                  <tr key={item.crop_id}>
+                    <td>{item.crop_id}</td>
+                    <td>{formatNumber(item.n, 0)}</td>
+                    <td>{formatNumber(item.predicted_avg, 2)}</td>
+                    <td>{formatNumber(item.actual_avg, 2)}</td>
+                    <td>{formatNumber(item.mae, 2)}</td>
+                    <td>{formatNumber(item.bias, 2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {feedbackRow && (
+          <div className="card" style={{ marginTop: 14 }}>
+            <div className="card-head">
+              <div>
+                <div className="card-title">Submit field outcome</div>
+                <div className="tiny muted">{feedbackRow.field_id} · {feedbackRow.crop_name || feedbackRow.crop_id}</div>
+              </div>
+            </div>
+            <div style={{ ...gridAuto(180), marginTop: 10 }}>
+              <div className="field">
+                <label>Actual yield t/ha</label>
+                <input className="input" type="number" value={feedbackYield} onChange={(event) => setFeedbackYield(event.target.value)} />
+              </div>
+              <div className="field">
+                <label>Sale price / kg</label>
+                <input className="input" type="number" value={feedbackPrice} onChange={(event) => setFeedbackPrice(event.target.value)} />
+              </div>
+              <div className="field">
+                <label>Water used mm</label>
+                <input className="input" type="number" value={feedbackWater} onChange={(event) => setFeedbackWater(event.target.value)} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button className="btn btn-primary" onClick={submitFeedback}>
+                <Icon name="arrow" size={13}/> Save outcome
+              </button>
+              <button className="btn btn-ghost" onClick={() => setFeedbackRow(null)}>Close</button>
+            </div>
           </div>
         )}
       </ApiState>

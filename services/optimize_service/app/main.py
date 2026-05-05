@@ -24,6 +24,11 @@ from app.api.routes_recommendations import router as recommendations_router
 from app.api.routes_planb import router as planb_router
 from app.api.routes_supply import router as supply_router
 from app.api.routes_internal import router as internal_router
+from app.api.routes_ingestion import router as ingestion_router
+from app.api.routes_scheme_optimizer import router as scheme_router
+from app.api.routes_authority import router as authority_router
+from app.api.routes_feedback import router as feedback_router
+from app.api.routes_monitoring import router as monitoring_router
 
 # Import core modules
 from app.core.config import get_settings
@@ -302,6 +307,11 @@ app.include_router(recommendations_router)
 app.include_router(planb_router)
 app.include_router(supply_router)
 app.include_router(internal_router)
+app.include_router(ingestion_router)
+app.include_router(scheme_router)
+app.include_router(authority_router)
+app.include_router(feedback_router)
+app.include_router(monitoring_router)
 
 # Import and include demo router (for testing without database)
 from app.api.routes_demo import router as demo_router

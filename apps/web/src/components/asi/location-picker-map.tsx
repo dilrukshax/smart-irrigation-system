@@ -8,12 +8,20 @@ import * as React from "react";
 const SRI_LANKA_CENTER = [7.8731, 80.7718] as const;
 const INITIAL_ZOOM = 8;
 const DETAIL_ZOOM = 15;
+const MARKER_STYLE = {
+  radius: 7,
+  color: "#2E7D32",
+  weight: 2,
+  fillColor: "#2E7D32",
+  fillOpacity: 0.85,
+};
 
 type MapLayer = "terrain" | "satellite";
 
 type Props = {
   latitude: string;
   longitude: string;
+  fallbackCenter?: readonly [number, number];
   mapLayer: MapLayer;
   onMapLayerChange: (layer: MapLayer) => void;
   onLocationPick: (lat: number, lng: number) => void;
@@ -39,6 +47,7 @@ const hasValidCoordinates = (lat: number, lng: number): boolean => {
 export function LocationPickerMap({
   latitude,
   longitude,
+  fallbackCenter = SRI_LANKA_CENTER,
   mapLayer,
   onMapLayerChange,
   onLocationPick,
@@ -86,7 +95,7 @@ export function LocationPickerMap({
       );
       const initialCenter = hasCoordinates
         ? [parsedLatitude, parsedLongitude]
-        : [SRI_LANKA_CENTER[0], SRI_LANKA_CENTER[1]];
+        : [fallbackCenter[0], fallbackCenter[1]];
 
       const map = L.map(mapContainerRef.current, {
         zoomControl: false,
@@ -116,20 +125,24 @@ export function LocationPickerMap({
         terrainLayerRef.current.addTo(map);
       }
 
-      markerRef.current = L.circleMarker(initialCenter, {
-        radius: 7,
-        color: "#2E7D32",
-        weight: 2,
-        fillColor: "#2E7D32",
-        fillOpacity: 0.85,
-      }).addTo(map);
+      if (hasCoordinates) {
+        markerRef.current = L.circleMarker(initialCenter, MARKER_STYLE).addTo(
+          map,
+        );
+      }
 
       map.on("click", (event: any) => {
         if (disabledRef.current) {
           return;
         }
         const { lat, lng } = event.latlng;
-        markerRef.current?.setLatLng([lat, lng]);
+        if (!markerRef.current) {
+          markerRef.current = L.circleMarker([lat, lng], MARKER_STYLE).addTo(
+            map,
+          );
+        } else {
+          markerRef.current.setLatLng([lat, lng]);
+        }
         onLocationPickRef.current(lat, lng);
       });
     };
@@ -176,17 +189,32 @@ export function LocationPickerMap({
 
   React.useEffect(() => {
     const map = mapRef.current;
-    const marker = markerRef.current;
-    if (!map || !marker) {
+    if (!map) {
       return;
     }
 
     if (!hasValidCoordinates(parsedLatitude, parsedLongitude)) {
+      markerRef.current?.remove();
+      markerRef.current = null;
       return;
     }
 
     const next = [parsedLatitude, parsedLongitude];
-    marker.setLatLng(next);
+    if (!markerRef.current) {
+      void import("leaflet").then((L) => {
+        if (
+          !mapRef.current ||
+          !hasValidCoordinates(parsedLatitude, parsedLongitude)
+        ) {
+          return;
+        }
+        markerRef.current = L.circleMarker(next, MARKER_STYLE).addTo(
+          mapRef.current,
+        );
+      });
+    } else {
+      markerRef.current.setLatLng(next);
+    }
     if (map.getZoom() < DETAIL_ZOOM) {
       map.setView(next, DETAIL_ZOOM);
     } else {

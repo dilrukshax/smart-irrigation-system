@@ -504,6 +504,75 @@ def test_planning_farmer_select_contract(mock_request):
     assert kwargs["url"] == "http://127.0.0.1:8004/f4/farmer/select"
 
 
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_planning_farmer_calendar_contract(mock_request):
+    mock_request.return_value = _response({"field_id": "FIELD-001"})
+
+    resp = client.get("/api/v1/planning/calendar?field_id=FIELD-001&season=Maha-2026")
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8004/f4/farmer/calendar?field_id=FIELD-001&season=Maha-2026"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_planning_feedback_contract(mock_request):
+    mock_request.return_value = _response({"data": {"id": 1}})
+
+    resp = client.post(
+        "/api/v1/planning/feedback/outcomes",
+        json={"field_id": "FIELD-001", "crop_id": "paddy", "actual_crop_id": "paddy", "season": "Maha-2026", "year": 2026, "feedback_date": "2026-12-01"},
+    )
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8004/f4/feedback/outcomes"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_planning_monitoring_contract(mock_request):
+    mock_request.return_value = _response({"data": {"sample_count": 10}})
+
+    resp = client.post("/api/v1/planning/monitoring/backtest?model_name=yield_regressor")
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8004/f4/monitoring/backtest?model_name=yield_regressor"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_planning_authority_contract(mock_request):
+    mock_request.return_value = _response({"data": {"scheme_id": "scheme-a"}})
+
+    resp = client.get("/api/v1/planning/authority/scheme-dashboard?scheme_id=scheme-a&season=Maha-2026")
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8004/f4/authority/scheme-dashboard?scheme_id=scheme-a&season=Maha-2026"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_planning_ingestion_contract(mock_request):
+    mock_request.return_value = _response({"inserted": 1})
+
+    resp = client.post("/api/v1/planning/ingestion/price-records", json={"records": []})
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8004/f4/ingestion/price-records"
+
+
+@patch.object(_gateway.http_client, "request", new_callable=AsyncMock)
+def test_planning_scheme_contract(mock_request):
+    mock_request.return_value = _response({"scheme_id": "scheme-a"})
+
+    resp = client.post("/api/v1/planning/scheme/optimize", json={"scheme_id": "scheme-a", "season": "Maha-2026", "total_scheme_water_mm": 1000})
+
+    assert resp.status_code == 200
+    _, kwargs = mock_request.call_args
+    assert kwargs["url"] == "http://127.0.0.1:8004/f4/scheme/optimize"
+
+
 @patch.object(_gateway.http_client, "get", new_callable=AsyncMock)
 def test_unified_field_profile_contract_success(mock_get):
     mock_get.side_effect = [

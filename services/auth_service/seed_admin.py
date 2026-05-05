@@ -33,24 +33,6 @@ DEFAULT_USERS = [
         "description": "Baseline farmer account",
     },
     {
-        "username": "farmer_demo_01",
-        "password": "farmer123",
-        "email": "farmer.demo.01@smartirrigation.com",
-        "roles": ["farmer"],
-        "schemes": [],
-        "is_active": True,
-        "description": "Farmer account for multi-user flow checks",
-    },
-    {
-        "username": "farmer_demo_02",
-        "password": "farmer123",
-        "email": "farmer.demo.02@smartirrigation.com",
-        "roles": ["farmer"],
-        "schemes": [],
-        "is_active": True,
-        "description": "Farmer account for ownership and isolation checks",
-    },
-    {
         "username": "officer",
         "password": "officer123",
         "email": "officer@smartirrigation.com",
@@ -60,15 +42,6 @@ DEFAULT_USERS = [
         "description": "Baseline officer account with scheme scope",
     },
     {
-        "username": "officer_noscope",
-        "password": "officer123",
-        "email": "officer.noscope@smartirrigation.com",
-        "roles": ["officer"],
-        "schemes": [],
-        "is_active": True,
-        "description": "Officer without scheme assignment (negative authorization checks)",
-    },
-    {
         "username": "authority",
         "password": "authority123",
         "email": "authority@smartirrigation.com",
@@ -76,34 +49,7 @@ DEFAULT_USERS = [
         "schemes": ["scheme-default"],
         "is_active": True,
         "description": "Baseline authority account",
-    },
-    {
-        "username": "authority_regional",
-        "password": "authority123",
-        "email": "authority.regional@smartirrigation.com",
-        "roles": ["authority"],
-        "schemes": ["scheme-default", "scheme-mahaweli-left-bank"],
-        "is_active": True,
-        "description": "Authority account with multiple scheme assignments",
-    },
-    {
-        "username": "ops_supervisor",
-        "password": "ops12345",
-        "email": "ops.supervisor@smartirrigation.com",
-        "roles": ["authority", "officer"],
-        "schemes": ["scheme-default", "scheme-mahaweli-left-bank"],
-        "is_active": True,
-        "description": "Multi-role account for authority plus officer flow testing",
-    },
-    {
-        "username": "farmer_inactive",
-        "password": "farmer123",
-        "email": "farmer.inactive@smartirrigation.com",
-        "roles": ["farmer"],
-        "schemes": [],
-        "is_active": False,
-        "description": "Inactive farmer account for status checks",
-    },
+    }
 ]
 
 

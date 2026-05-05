@@ -46,12 +46,15 @@ from app.data.models_orm import (
     Recommendation,
 )
 from app.data.repositories import (
+    CropCalendarRepository,
     CropRepository,
     FieldRepository,
     RecommendationRepository,
     RunArtifactRepository,
 )
 from app.dependencies.auth import get_current_user_context
+from app.services.calendar_service import CropCalendarService
+from app.services.explanation_service import ExplanationService
 from app.services import farmer_service
 
 logger = logging.getLogger(__name__)
@@ -82,6 +85,7 @@ class FarmerRecommendRequest(BaseModel):
         ),
     )
     top_n: int = Field(default=5, ge=1, le=10, description="Top-N crops to return")
+    language: str = Field(default="en", description="Explanation language: en, si, or ta")
 
 
 class FarmerFieldContext(BaseModel):
@@ -104,6 +108,11 @@ class FarmerRecommendResponse(BaseModel):
     field_context: FarmerFieldContext
     recommendations: List[AdaptiveCropRecommendation]
     models_used: List[str] = Field(default_factory=list)
+    scenario_variants: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optimistic/base/pessimistic scenario clones from F3 water risk bands",
+    )
+    explanations: Optional[Dict[str, str]] = Field(default=None)
     # Contract fields
     status: str = "ok"
     source: str = "optimization_service"
@@ -122,6 +131,7 @@ class FarmerCurrentPlanResponse(BaseModel):
     selected_crop: Optional[AdaptiveCropRecommendation] = None
     field_context: Optional[FarmerFieldContext] = None
     recommendations: List[AdaptiveCropRecommendation] = Field(default_factory=list)
+    scenario_variants: Optional[Dict[str, Any]] = None
     # Contract fields
     status: str = "ok"
     source: str = "optimization_service"
@@ -166,6 +176,44 @@ class FarmerSelectResponse(BaseModel):
     recommendation_id: Optional[int] = None
     persisted: bool
     # Contract fields
+    status: str = "ok"
+    source: str = "optimization_service"
+    is_live: bool = True
+    observed_at: Optional[str] = None
+    staleness_sec: Optional[float] = None
+    quality: str = "good"
+    data_available: bool = True
+    message: Optional[str] = None
+
+
+class FarmerCalendarResponse(BaseModel):
+    field_id: str
+    season: str
+    recommendation_id: Optional[int] = None
+    crop_id: str
+    planting_window_start: Optional[str] = None
+    planting_window_end: Optional[str] = None
+    irrigation_windows: List[Dict[str, Any]] = Field(default_factory=list)
+    fertilizer_windows: List[Dict[str, Any]] = Field(default_factory=list)
+    harvest_window_start: Optional[str] = None
+    harvest_window_end: Optional[str] = None
+    expected_market_week: Optional[str] = None
+    status: str = "ok"
+    source: str = "optimization_service"
+    is_live: bool = True
+    observed_at: Optional[str] = None
+    staleness_sec: Optional[float] = None
+    quality: str = "good"
+    data_available: bool = True
+    message: Optional[str] = None
+
+
+class FarmerExplanationResponse(BaseModel):
+    field_id: str
+    season: str
+    crop_id: str
+    language: str
+    explanations: Dict[str, str]
     status: str = "ok"
     source: str = "optimization_service"
     is_live: bool = True
@@ -642,6 +690,66 @@ def _persist_farmer_recommendation(
     return rec_id
 
 
+def _build_farmer_explanations(
+    *,
+    language: str,
+    field_context: FarmerFieldContext,
+    current_crop: AdaptiveCropRecommendation,
+    previous_crop: Optional[AdaptiveCropRecommendation] = None,
+    previous_date: Optional[str] = None,
+) -> Dict[str, str]:
+    change_reason = ExplanationService.compute_change_reason(
+        previous_crop.model_dump() if previous_crop else None,
+        current_crop.model_dump(),
+    )
+    context = {
+        "crop_name": current_crop.crop_name,
+        "ph": field_context.soil_ph or 6.5,
+        "water_mm": field_context.water_availability_mm,
+        "yield_t": current_crop.predicted_yield_t_ha,
+        "price": current_crop.predicted_price_per_kg,
+        "profit_k": (current_crop.profit_per_ha or 0.0) / 1000.0,
+        "drought_pct": 0.0,
+        "prev_date": previous_date or "the previous run",
+        "prev_crop": previous_crop.crop_name if previous_crop else "the previous crop",
+        "change_reason": change_reason,
+    }
+    return {
+        "why_this_crop": ExplanationService.generate_explanation("why_this_crop", language, context, previous_crop.model_dump() if previous_crop else None),
+        "why_not_paddy": ExplanationService.generate_explanation("why_not_paddy", language, context, previous_crop.model_dump() if previous_crop else None),
+        "what_changed": ExplanationService.generate_explanation("what_changed", language, context, previous_crop.model_dump() if previous_crop else None),
+    }
+
+
+def _calendar_response_from_payload(
+    payload: Dict[str, Any],
+    *,
+    observed_at: str,
+    message: str,
+) -> FarmerCalendarResponse:
+    contract = build_contract(
+        source="optimization_service",
+        observed_at=observed_at,
+        data_available=True,
+        raw_status="ok",
+        message=message,
+    )
+    return FarmerCalendarResponse(
+        field_id=str(payload.get("field_id") or ""),
+        season=str(payload.get("season") or ""),
+        recommendation_id=payload.get("recommendation_id"),
+        crop_id=str(payload.get("crop_id") or ""),
+        planting_window_start=payload.get("planting_window_start"),
+        planting_window_end=payload.get("planting_window_end"),
+        irrigation_windows=payload.get("irrigation_windows") or [],
+        fertilizer_windows=payload.get("fertilizer_windows") or [],
+        harvest_window_start=payload.get("harvest_window_start"),
+        harvest_window_end=payload.get("harvest_window_end"),
+        expected_market_week=payload.get("expected_market_week"),
+        **contract,
+    )
+
+
 def _scenario_title(scenario: FarmerAreaOptimizationScenarioInput, index: int) -> str:
     if scenario.title:
         return scenario.title
@@ -1105,6 +1213,7 @@ async def farmer_current_plan(
         selected_crop=selected_crop,
         field_context=field_context,
         recommendations=recommendations,
+        scenario_variants=payload.get("scenario_variants") if isinstance(payload, dict) else None,
         **contract,
     )
 
@@ -1124,6 +1233,118 @@ async def farmer_current_plan(
     )
 
     return response
+
+
+@router.get("/calendar", response_model=FarmerCalendarResponse)
+async def farmer_calendar(
+    db: Annotated[Session, Depends(get_db)],
+    user_context: Annotated[Dict[str, Any], Depends(get_current_user_context)],
+    field_id: str = Query(..., description="Field identifier"),
+    season: str = Query(..., description="Season tag"),
+    recommendation_id: Optional[int] = Query(default=None, description="Recommendation id"),
+) -> FarmerCalendarResponse:
+    del user_context
+    observed_at = datetime.utcnow().isoformat()
+
+    cached = (
+        CropCalendarRepository.get_for_recommendation(db, recommendation_id)
+        if recommendation_id is not None
+        else CropCalendarRepository.get_for_field_season(db, field_id, season)
+    )
+    if cached:
+        return _calendar_response_from_payload(
+            cached,
+            observed_at=observed_at,
+            message="Loaded persisted crop calendar.",
+        )
+
+    field = FieldRepository.get_field_by_id(db, field_id)
+    if not field:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Field {field_id} not found.")
+
+    rec = _latest_recommendation(db, field_id, season) or _latest_recommendation_any_season(db, field_id)
+    if not rec or not isinstance(rec.response_data, dict):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No recommendation available to build a crop calendar.",
+        )
+    recommendations = rec.response_data.get("recommendations") or []
+    crop_payload = next(
+        (
+            item for item in recommendations
+            if str(item.get("crop_id")) == str(rec.selected_crop_id or "")
+        ),
+        recommendations[0] if recommendations else None,
+    )
+    if not crop_payload:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No crop recommendation available.")
+
+    generated = CropCalendarService.generate_calendar(
+        crop=crop_payload,
+        field=field,
+        season=season,
+        planting_date=None,
+        recommendation_id=int(rec.id) if getattr(rec, "id", None) else recommendation_id,
+        db=db,
+    )
+    return _calendar_response_from_payload(
+        generated,
+        observed_at=observed_at,
+        message="Generated crop calendar from the latest recommendation.",
+    )
+
+
+@router.get("/explanation", response_model=FarmerExplanationResponse)
+async def farmer_explanation(
+    db: Annotated[Session, Depends(get_db)],
+    user_context: Annotated[Dict[str, Any], Depends(get_current_user_context)],
+    field_id: str = Query(...),
+    season: str = Query(...),
+    crop_id: str = Query(...),
+    language: str = Query(default="en"),
+) -> FarmerExplanationResponse:
+    del user_context
+    observed_at = datetime.utcnow().isoformat()
+    rec = _latest_recommendation(db, field_id, season)
+    if not rec or not isinstance(rec.response_data, dict):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No recommendation found for explanations.")
+
+    field_context = _coerce_field_context(rec.response_data.get("field_context"))
+    recommendations = _coerce_recommendations(rec.response_data.get("recommendations"))
+    current_crop = next((item for item in recommendations if item.crop_id == crop_id), None)
+    if field_context is None or current_crop is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Requested crop is not in the latest recommendation.")
+
+    previous_row = _latest_recommendation_any_season(db, field_id)
+    previous_crop = None
+    previous_date = None
+    if previous_row and previous_row.id != rec.id and isinstance(previous_row.response_data, dict):
+        previous_recs = _coerce_recommendations(previous_row.response_data.get("recommendations"))
+        previous_crop = previous_recs[0] if previous_recs else None
+        previous_date = previous_row.created_at.isoformat() if previous_row.created_at else None
+
+    explanations = _build_farmer_explanations(
+        language=language,
+        field_context=field_context,
+        current_crop=current_crop,
+        previous_crop=previous_crop,
+        previous_date=previous_date,
+    )
+    contract = build_contract(
+        source="optimization_service",
+        observed_at=observed_at,
+        data_available=True,
+        raw_status="ok",
+        message="Generated multilingual crop explanations.",
+    )
+    return FarmerExplanationResponse(
+        field_id=field_id,
+        season=season,
+        crop_id=crop_id,
+        language=language,
+        explanations=explanations,
+        **contract,
+    )
 
 
 @router.post("/recommend", response_model=FarmerRecommendResponse)
@@ -1153,12 +1374,31 @@ async def farmer_recommend(
             detail=f"Field {payload.field_id} not found.",
         )
 
-    reservoir = await farmer_service.fetch_reservoir_snapshot(
-        settings.irrigation_service_url, auth_header=auth_header
+    import asyncio as _asyncio
+    from app.services.cross_service_fusion import (
+        fetch_f2_stress_penalty,
+        fetch_f3_drought_risk,
+        fetch_f3_weather_bands,
+        apply_stress_penalty_to_suitability,
+        apply_drought_risk_to_water_coverage,
+        build_scenario_variants,
     )
-    weather = await farmer_service.fetch_weather_summary(
-        settings.forecasting_service_url, auth_header=auth_header
+
+    reservoir, weather, stress_penalty, drought_risk, weather_bands = await _asyncio.gather(
+        farmer_service.fetch_reservoir_snapshot(settings.irrigation_service_url, auth_header=auth_header),
+        farmer_service.fetch_weather_summary(settings.forecasting_service_url, auth_header=auth_header),
+        fetch_f2_stress_penalty(settings.crop_health_service_url, payload.field_id, auth_header=auth_header),
+        fetch_f3_drought_risk(settings.forecasting_service_url, auth_header=auth_header),
+        fetch_f3_weather_bands(settings.forecasting_service_url, auth_header=auth_header),
+        return_exceptions=True,
     )
+    # Treat any exception returns from gather as None
+    if isinstance(stress_penalty, Exception):
+        stress_penalty = None
+    if isinstance(drought_risk, Exception):
+        drought_risk = None
+    if isinstance(weather_bands, Exception):
+        weather_bands = None
 
     reservoir_pct: Optional[float] = None
     if isinstance(reservoir, dict):
@@ -1187,12 +1427,30 @@ async def farmer_recommend(
         water_band=water_band,
         top_n=payload.top_n,
     )
+    adaptive_request.water_params.water_coverage_ratio = apply_drought_risk_to_water_coverage(
+        adaptive_request.water_params.water_coverage_ratio,
+        drought_risk if isinstance(drought_risk, (int, float)) else None,
+    )
 
     adaptive_response: AdaptiveRecommendationResponse = await get_adaptive_recommendations(
         request=adaptive_request,
         db=db,
         user_context=user_context,
+        stress_penalty_factor=float(stress_penalty or 0.0) if isinstance(stress_penalty, (int, float)) else 0.0,
+        drought_risk=float(drought_risk or 0.0) if isinstance(drought_risk, (int, float)) else 0.0,
     )
+
+    # Apply F2/F3 fusion to recommendation scores
+    if adaptive_response.recommendations and (stress_penalty or drought_risk):
+        adjusted: List[AdaptiveCropRecommendation] = []
+        for rec in adaptive_response.recommendations:
+            rec_dict = rec.model_dump()
+            new_suit = apply_stress_penalty_to_suitability(
+                rec_dict.get("suitability_score", 0.5), stress_penalty
+            )
+            rec_dict["suitability_score"] = round(new_suit, 3)
+            adjusted.append(AdaptiveCropRecommendation(**rec_dict))
+        adaptive_response = adaptive_response.model_copy(update={"recommendations": adjusted})
 
     field_context = FarmerFieldContext(
         field_id=str(field.get("id") or payload.field_id),
@@ -1223,15 +1481,48 @@ async def farmer_recommend(
         ),
     )
 
+    # Build scenario variants from F3 water risk bands if available
+    scenario_variants: Optional[Dict[str, Any]] = None
+    top_recs = adaptive_response.recommendations
+    if weather_bands and isinstance(weather_bands, dict) and top_recs:
+        top_rec_dict = top_recs[0].model_dump()
+        scenario_variants = build_scenario_variants(
+            top_rec_dict,
+            water_p10=weather_bands.get("water_p10", 0.8),
+            water_p50=weather_bands.get("water_p50", 1.0),
+            water_p90=weather_bands.get("water_p90", 1.1),
+        )
+
+    previous_crop: Optional[AdaptiveCropRecommendation] = None
+    previous_date: Optional[str] = None
+    previous_row = _latest_recommendation_any_season(db, str(field.get("id") or payload.field_id))
+    if previous_row and isinstance(previous_row.response_data, dict):
+        previous_recs = _coerce_recommendations(previous_row.response_data.get("recommendations"))
+        if previous_recs:
+            previous_crop = previous_recs[0]
+        previous_date = previous_row.created_at.isoformat() if previous_row.created_at else None
+
+    explanations = None
+    if top_recs:
+        explanations = _build_farmer_explanations(
+            language=payload.language,
+            field_context=field_context,
+            current_crop=top_recs[0],
+            previous_crop=previous_crop,
+            previous_date=previous_date,
+        )
+
     response = FarmerRecommendResponse(
         field_context=field_context,
         recommendations=adaptive_response.recommendations,
         models_used=adaptive_response.models_used,
+        scenario_variants=scenario_variants,
+        explanations=explanations,
         **contract,
     )
 
     if has_recs:
-        _persist_farmer_recommendation(
+        rec_id = _persist_farmer_recommendation(
             db,
             field_id=str(field.get("id") or payload.field_id),
             season=season,
@@ -1240,6 +1531,18 @@ async def farmer_recommend(
             observed_at=observed_at_dt,
             contract=contract,
         )
+        top_crop = adaptive_response.recommendations[0]
+        try:
+            CropCalendarService.generate_calendar(
+                crop=top_crop.model_dump(),
+                field=field,
+                season=season,
+                planting_date=None,
+                recommendation_id=rec_id,
+                db=db,
+            )
+        except Exception as exc:
+            logger.info("Crop calendar generation failed for %s/%s: %s", field.get("id"), season, exc)
 
     return response
 

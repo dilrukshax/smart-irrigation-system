@@ -11,24 +11,128 @@ Combines predictions to generate comprehensive crop recommendations.
 """
 
 import logging
-from typing import Dict, Any, List, Optional, Tuple
+from datetime import date, timedelta
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
 
 from app.core.config import get_settings
-from app.ml.yield_model import get_yield_model
-from app.ml.price_model import get_price_model
 from app.ml.crop_recommendation_model import get_crop_recommendation_model
+from app.ml.price_model import get_price_model
 from app.ml.suitability_fuzzy_topsis import compute_fuzzy_topsis_scores
+from app.ml.yield_model import get_yield_model
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+def compute_yield_confidence_bands(
+    field_id: str,
+    crop_id: str,
+    features: Dict[str, Any],
+    db_session: Any = None,
+) -> Dict[str, Optional[float]]:
+    """Return yield P10/P50/P90 from history std dev or model interval."""
+    model = get_yield_model()
+    p10, p50, p90 = model.get_yield_confidence_interval(features)
+
+    # If we have a DB session, try to tighten bands using historical std dev.
+    if db_session is not None:
+        try:
+            from sqlalchemy import func
+            from app.data.models_orm import HistoricalYield
+
+            stats = (
+                db_session.query(
+                    func.avg(HistoricalYield.yield_t_per_ha),
+                    func.stddev_pop(HistoricalYield.yield_t_per_ha),
+                    func.count(HistoricalYield.id),
+                )
+                .filter(
+                    HistoricalYield.field_id == field_id,
+                    HistoricalYield.crop_id == crop_id,
+                )
+                .one_or_none()
+            )
+            if stats and stats[2] and stats[2] >= 3:
+                mean_y = float(stats[0] or p50)
+                std_y = float(stats[1] or 0.0)
+                p10 = round(max(0.1, mean_y - 1.28 * std_y), 2)
+                p50 = round(mean_y, 2)
+                p90 = round(mean_y + 1.28 * std_y, 2)
+        except Exception as exc:
+            logger.debug("Historical yield band computation failed: %s", exc)
+
+    return {"yield_p10": p10, "yield_p50": p50, "yield_p90": p90}
+
+
+def compute_price_confidence_bands(
+    crop_id: str,
+    db_session: Any = None,
+) -> Dict[str, Optional[float]]:
+    """Return price P10/P50/P90 from last 52 weeks of price_records."""
+    if db_session is None:
+        return {"price_p10": None, "price_p50": None, "price_p90": None}
+    try:
+        from sqlalchemy import func
+        from app.data.models_orm import PriceRecord
+
+        cutoff = date.today() - timedelta(weeks=52)
+        stats = (
+            db_session.query(
+                func.avg(PriceRecord.price_per_kg),
+                func.stddev_pop(PriceRecord.price_per_kg),
+                func.count(PriceRecord.id),
+            )
+            .filter(PriceRecord.crop_id == crop_id, PriceRecord.date >= cutoff)
+            .one_or_none()
+        )
+        if stats and stats[2] and stats[2] >= 5:
+            mean_p = float(stats[0])
+            std_p = float(stats[1] or 0.0)
+            return {
+                "price_p10": round(max(0.0, mean_p - 1.28 * std_p), 2),
+                "price_p50": round(mean_p, 2),
+                "price_p90": round(mean_p + 1.28 * std_p, 2),
+            }
+    except Exception as exc:
+        logger.debug("Price confidence band computation failed: %s", exc)
+    return {"price_p10": None, "price_p50": None, "price_p90": None}
+
+
+def compute_recommendation_confidence(
+    suitability_score: float,
+    data_quality: Dict[str, Any],
+    model_type: str = "heuristic",
+) -> float:
+    """Return a 0–1 confidence score combining data quality and model type.
+
+    Higher score = more reliable recommendation. Key drivers:
+    - real (non-synthetic) yield/price history → +0.2 each
+    - row counts ≥ 5 → +0.1 each
+    - trained ML model (not heuristic) → +0.1
+    - suitability score weight → 0.3
+    """
+    base = 0.4 + suitability_score * 0.3
+    if not data_quality.get("is_yield_synthetic", True):
+        base += 0.10
+    if (data_quality.get("yield_row_count") or 0) >= 5:
+        base += 0.05
+    if not data_quality.get("is_price_synthetic", True):
+        base += 0.10
+    if (data_quality.get("price_row_count") or 0) >= 5:
+        base += 0.05
+    if model_type != "heuristic":
+        base += 0.10
+    return round(min(1.0, base), 3)
 
 
 def generate_crop_recommendations(
     field_id: str,
     field_features: Dict[str, Any],
     candidate_crops: List[Dict[str, Any]],
-    top_n: int = 3
+    top_n: int = 3,
+    db_session: Any = None,
 ) -> List[Dict[str, Any]]:
     """
     Generate comprehensive crop recommendations for a field.
@@ -106,19 +210,38 @@ def generate_crop_recommendations(
         profitability_data[crop_id] = profitability
 
     # Step 6: Combine all predictions into recommendations
+    yield_model = get_yield_model()
+    model_type = "heuristic" if yield_model.use_heuristic else "gbr"
+
     recommendations = []
     for crop_id, crop in crop_lookup.items():
+        suitability = round(suitability_scores.get(crop_id, 0.5), 3)
+        features_for_crop = features_per_crop[crop_id]
+
+        # Confidence bands
+        yield_bands = compute_yield_confidence_bands(field_id, crop_id, features_for_crop, db_session)
+        price_bands = compute_price_confidence_bands(crop_id, db_session)
+        confidence = compute_recommendation_confidence(suitability, {}, model_type)
+
         rec = {
             'crop_id': crop_id,
             'crop_name': crop.get('crop_name', crop.get('name', 'Unknown')),
-            'suitability_score': round(suitability_scores.get(crop_id, 0.5), 3),
+            'suitability_score': suitability,
             'predicted_yield_t_ha': yield_predictions.get(crop_id),
             'predicted_price_per_kg': price_predictions.get(crop_id),
             'gross_revenue_per_ha': profitability_data[crop_id].get('gross_revenue_per_ha'),
             'profit_per_ha': profitability_data[crop_id].get('profit_per_ha'),
             'risk_level': get_risk_level(profitability_data[crop_id]),
             'water_sensitivity': crop.get('water_sensitivity', 'medium'),
-            'growth_duration_days': crop.get('growth_duration_days', 120)
+            'growth_duration_days': crop.get('growth_duration_days', 120),
+            # Uncertainty bands
+            'yield_p10': yield_bands.get('yield_p10'),
+            'yield_p50': yield_bands.get('yield_p50'),
+            'yield_p90': yield_bands.get('yield_p90'),
+            'price_p10': price_bands.get('price_p10'),
+            'price_p50': price_bands.get('price_p50'),
+            'price_p90': price_bands.get('price_p90'),
+            'confidence_score': confidence,
         }
         recommendations.append(rec)
 

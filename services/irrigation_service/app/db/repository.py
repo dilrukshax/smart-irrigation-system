@@ -4,7 +4,7 @@ Persistence repository for irrigation runtime state.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import and_, delete, desc, select
@@ -36,6 +36,19 @@ def _parse_iso_datetime(value: Optional[str | datetime]) -> Optional[datetime]:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except Exception:
         return None
+
+
+def _as_naive_utc(value: Optional[str | datetime]) -> Optional[datetime]:
+    """Normalize datetimes for safe comparisons across DB/Python boundaries."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = _parse_iso_datetime(value)
+        if value is None:
+            return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _iso(value: Optional[datetime]) -> Optional[str]:
@@ -949,6 +962,9 @@ async def estimate_accepted_schedule_volume_mcm(
     from_time: Optional[datetime] = None,
     to_time: Optional[datetime] = None,
 ) -> float:
+    from_time = _as_naive_utc(from_time)
+    to_time = _as_naive_utc(to_time)
+
     query = select(HydraulicSchedule).where(
         and_(
             HydraulicSchedule.scheme_id == scheme_id,
@@ -966,8 +982,10 @@ async def estimate_accepted_schedule_volume_mcm(
 
     total_mcm = 0.0
     for row in rows:
-        effective_start = row.start_time
-        effective_end = row.end_time
+        effective_start = _as_naive_utc(row.start_time)
+        effective_end = _as_naive_utc(row.end_time)
+        if effective_start is None or effective_end is None:
+            continue
         if from_time is not None and effective_start < from_time:
             effective_start = from_time
         if to_time is not None and effective_end > to_time:
