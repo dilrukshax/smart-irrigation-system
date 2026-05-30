@@ -5,6 +5,8 @@ import { SiteShell } from "@/components/site-shell";
 import { team } from "@/content/site-data";
 
 export default function ContactPage() {
+  const primaryEmail = team.find((member) => member.id === "IT22561770")?.email ?? team[0].email;
+
   return (
     <SiteShell>
       <main>
@@ -28,9 +30,9 @@ export default function ContactPage() {
                     <Phone size={18} className="shrink-0 text-[color:var(--water)]" aria-hidden="true" />
                     Phone number can be added after final project contact approval.
                   </span>
-                  <a className="flex gap-3 hover:text-[color:var(--ink)]" href={`mailto:${team[0].email}`}>
+                  <a className="flex gap-3 hover:text-[color:var(--ink)]" href={`mailto:${primaryEmail}`}>
                     <Mail size={18} className="shrink-0 text-[color:var(--harvest)]" aria-hidden="true" />
-                    {team[0].email}
+                    {primaryEmail}
                   </a>
                 </div>
               </article>
@@ -68,7 +70,7 @@ export default function ContactPage() {
           <div className="mx-auto max-w-7xl rounded-lg border border-[color:var(--line)] bg-[color:var(--paper)] p-6">
             <h2 className="text-2xl font-semibold">General email template</h2>
             <pre className="mt-5 overflow-auto rounded-lg border border-[color:var(--line)] bg-white p-5 text-sm leading-7 text-[color:var(--ink)]">
-{`To: ${team[0].email}
+{`To: ${primaryEmail}
 Subject: [25-26J-520] <Your Subject>
 
 Dear Project Group 25-26J-520 Team,

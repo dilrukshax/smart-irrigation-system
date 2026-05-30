@@ -381,7 +381,6 @@ export const milestones = [
     id: "proposal",
     name: "Project Proposal",
     date: "Week 6, Semester 1",
-    marks: "6%",
     type: "Individual document",
     detail:
       "Each member submits an individual proposal covering background, literature, research gap, problem, objectives, contribution, methodology, and timeline.",
@@ -390,7 +389,6 @@ export const milestones = [
     id: "pp1",
     name: "Progress Presentation 1",
     date: "Week 11, Semester 1",
-    marks: "15%",
     type: "Group presentation",
     detail:
       "Demonstrates roughly half of the system, including early ML models, service structure, core APIs, IoT data flow, and initial user interfaces.",
@@ -399,7 +397,6 @@ export const milestones = [
     id: "pp2",
     name: "Progress Presentation 2",
     date: "Week 6-8, Semester 2",
-    marks: "18%",
     type: "Group presentation",
     detail:
       "Shows near-complete integration across F1 to F4, role-based workflows, deployed services, and validated model behavior.",
@@ -408,7 +405,6 @@ export const milestones = [
     id: "final",
     name: "Final Assessment",
     date: "Week 12-13, Semester 2",
-    marks: "19%",
     type: "Group demonstration",
     detail:
       "Final system demonstration with documentation, deployment evidence, evaluation results, and defense of the integrated research contribution.",
@@ -417,7 +413,6 @@ export const milestones = [
     id: "viva",
     name: "Viva",
     date: "After final assessment",
-    marks: "10%",
     type: "Individual oral examination",
     detail:
       "Each member explains and defends their research contribution, implementation decisions, model choices, and integration results.",
@@ -426,7 +421,6 @@ export const milestones = [
     id: "research-paper",
     name: "Research Paper",
     date: "End of Semester 2",
-    marks: "10%",
     type: "Group submission",
     detail:
       "Publication-style paper that documents the integrated platform, methodology, evaluation, and comparison against existing work.",
@@ -435,7 +429,6 @@ export const milestones = [
     id: "logbook",
     name: "Logbook and Status Documents",
     date: "Continuous",
-    marks: "12%",
     type: "Continuous submission",
     detail:
       "Weekly progress records, supervisor feedback, blockers, and status documents for each research stream.",
@@ -566,20 +559,20 @@ export const presentations = [
 
 export const team = [
   {
-    initials: "DH",
-    name: "Dilruksha A.G.C.D.",
-    id: "IT22561770",
-    email: "IT22561770@my.sliit.lk",
-    stream: "F4 - Adaptive Crop and Area Optimization",
-    focus: "Crop suitability, water budgeting, optimization, Plan B",
-  },
-  {
     initials: "HE",
     name: "Hesara P.K.A.N.",
     id: "IT22561398",
     email: "IT22561398@my.sliit.lk",
     stream: "F1 - IoT Smart Water Management",
     focus: "ESP32 telemetry, Random Forest irrigation, valve control",
+  },
+  {
+    initials: "AB",
+    name: "Abishek S",
+    id: "IT22076547",
+    email: "IT22076547@my.sliit.lk",
+    stream: "F2 - Crop Health and Water Stress Detection",
+    focus: "Zone analysis, crop stress, image disease prediction",
   },
   {
     initials: "TR",
@@ -590,11 +583,11 @@ export const team = [
     focus: "Water level prediction, rainfall forecasting, risk alerts",
   },
   {
-    initials: "AB",
-    name: "Abishek W.R.M.",
-    id: "IT22076547",
-    email: "IT22076547@my.sliit.lk",
-    stream: "F2 - Crop Health and Water Stress Detection",
-    focus: "Zone analysis, crop stress, image disease prediction",
+    initials: "DH",
+    name: "Dilruksha A.G.C.D.",
+    id: "IT22561770",
+    email: "IT22561770@my.sliit.lk",
+    stream: "F4 - Adaptive Crop and Area Optimization",
+    focus: "Crop suitability, water budgeting, optimization, Plan B",
   },
 ];

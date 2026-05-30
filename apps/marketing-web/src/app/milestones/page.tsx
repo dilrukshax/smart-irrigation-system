@@ -8,7 +8,7 @@ export default function MilestonesPage() {
       <main>
         <PageHero
           eyebrow="Milestones"
-          title="Assessment timeline and marks"
+          title="Assessment timeline"
           lead="A selectable milestone view for proposal, progress presentations, final assessment, viva, paper, and continuous status documentation."
           image="/assets/illustrations/hero-submission-pack.png"
         />

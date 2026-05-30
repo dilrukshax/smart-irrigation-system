@@ -167,7 +167,7 @@ export default function HomePage() {
               {[
                 ["Abstract", "Integrated project overview and research highlights"],
                 ["Domain", "Literature, gap, problem, objectives, methodology, and technologies"],
-                ["Milestones", "Assessment timeline with dates, marks, and details"],
+                ["Milestones", "Assessment timeline with dates and details"],
                 ["Documents", "Project-wide and individual final submission files"],
                 ["Slides", "Proposal, progress, final, and stream deep-dive decks"],
                 ["Team", "Member profiles, stream ownership, and contact details"],

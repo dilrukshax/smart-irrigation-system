@@ -9,20 +9,20 @@ import { PageHeader } from '@/components/asi/page-header';
 
 const TEAM = [
   {
-    initial: 'D',
-    name: 'Dilruksha A.G.C.D.',
-    id: 'IT22561770',
-    email: 'IT22561770@my.sliit.lk',
-    role: 'F4 · Crop Area Optimization (ACA-O)',
-    color: 'linear-gradient(135deg, #2E7D32, #66BB6A)',
-  },
-  {
     initial: 'H',
     name: 'Hesara P.K.A.N.',
     id: 'IT22561398',
     email: 'IT22561398@my.sliit.lk',
     role: 'F1 · Smart Irrigation & IoT',
     color: 'linear-gradient(135deg, #0288D1, #4FC3F7)',
+  },
+  {
+    initial: 'A',
+    name: 'Abishek S',
+    id: 'IT22076547',
+    email: 'IT22076547@my.sliit.lk',
+    role: 'F2 · Crop Health & Stress Detection',
+    color: 'linear-gradient(135deg, #6A1B9A, #BA68C8)',
   },
   {
     initial: 'T',
@@ -33,12 +33,12 @@ const TEAM = [
     color: 'linear-gradient(135deg, #F9A825, #FFD54F)',
   },
   {
-    initial: 'A',
-    name: 'Abishek W.R.M.',
-    id: 'IT22076547',
-    email: 'IT22076547@my.sliit.lk',
-    role: 'F2 · Crop Health & Stress Detection',
-    color: 'linear-gradient(135deg, #6A1B9A, #BA68C8)',
+    initial: 'D',
+    name: 'Dilruksha A.G.C.D.',
+    id: 'IT22561770',
+    email: 'IT22561770@my.sliit.lk',
+    role: 'F4 · Crop Area Optimization (ACA-O)',
+    color: 'linear-gradient(135deg, #2E7D32, #66BB6A)',
   },
 ];
 

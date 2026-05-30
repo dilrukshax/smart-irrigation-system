@@ -776,6 +776,38 @@ img {
   resize: vertical;
 }
 
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.form-status {
+  min-height: 1.35rem;
+  margin: 0;
+  color: var(--green);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.form-status.success {
+  color: var(--green);
+}
+
+.form-status.warning {
+  color: #b45309;
+}
+
+.contact-fallback[hidden] {
+  display: none;
+}
+
+.form-grid button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .btn-dark {
   color: white;
   background: var(--ink);

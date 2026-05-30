@@ -41,10 +41,6 @@ export function MilestonePicker() {
               <dd className="font-semibold text-[color:var(--ink)]">{selected.date}</dd>
             </div>
             <div>
-              <dt className="text-[color:var(--muted)]">Marks</dt>
-              <dd className="font-semibold text-[color:var(--ink)]">{selected.marks}</dd>
-            </div>
-            <div>
               <dt className="text-[color:var(--muted)]">Assessment type</dt>
               <dd className="font-semibold text-[color:var(--ink)]">{selected.type}</dd>
             </div>
@@ -70,7 +66,7 @@ export function MilestonePicker() {
               <ChevronRight size={18} aria-hidden="true" className="text-[color:var(--muted)]" />
             </span>
             <span className="text-sm text-[color:var(--muted)]">
-              {milestone.date} - {milestone.marks} - {milestone.type}
+              {milestone.date} - {milestone.type}
             </span>
           </button>
         ))}

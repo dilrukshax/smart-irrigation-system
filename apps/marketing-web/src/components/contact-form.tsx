@@ -9,12 +9,13 @@ export function ContactForm() {
   const [email, setEmail] = useState("");
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
+  const primaryEmail = team.find((member) => member.id === "IT22561770")?.email ?? team[0].email;
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const mailSubject = encodeURIComponent(`[25-26J-520] ${subject}`);
     const mailBody = encodeURIComponent(`From: ${name} <${email}>\n\n${message}`);
-    window.location.href = `mailto:${team[0].email}?subject=${mailSubject}&body=${mailBody}`;
+    window.location.href = `mailto:${primaryEmail}?subject=${mailSubject}&body=${mailBody}`;
   }
 
   return (

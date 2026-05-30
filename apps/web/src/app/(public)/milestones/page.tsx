@@ -12,7 +12,6 @@ const MILESTONES = [
     id: 'proposal',
     name: 'Project Proposal',
     date: 'Week 6 (Semester 1)',
-    marks: '6%',
     type: 'Individual Document',
     detail:
       'Each team member submits an individual project proposal document covering background, literature review, research gap, problem statement, individual research contribution, methodology, and timeline.',
@@ -21,7 +20,6 @@ const MILESTONES = [
     id: 'pp1',
     name: 'Progress Presentation 1',
     date: 'Week 11 (Semester 1)',
-    marks: '15%',
     type: 'Group Presentation',
     detail:
       'Demonstration of approximately 50% of the system. Each team member presents their function and shows working core components — initial ML models, microservices, basic frontend integration, and IoT data flow.',
@@ -30,7 +28,6 @@ const MILESTONES = [
     id: 'pp2',
     name: 'Progress Presentation 2',
     date: 'Week 6–8 (Semester 2)',
-    marks: '18%',
     type: 'Group Presentation',
     detail:
       'Demonstration of approximately 90% of the system, including full integration across F1–F4 functions, end-to-end farmer/officer/authority workflows, deployed services, and validated ML models.',
@@ -39,7 +36,6 @@ const MILESTONES = [
     id: 'final',
     name: 'Final Assessment',
     date: 'Week 12–13 (Semester 2)',
-    marks: '19%',
     type: 'Group Presentation & Demonstration',
     detail:
       'Final demonstration of the complete, production-ready system with full documentation, deployed cloud infrastructure, evaluation results, and research contribution validation. Includes Q&A from the panel.',
@@ -48,7 +44,6 @@ const MILESTONES = [
     id: 'viva',
     name: 'Viva',
     date: 'After Final Assessment',
-    marks: '10%',
     type: 'Individual Oral Examination',
     detail:
       'Each team member individually defends their research contribution, implementation choices, and answers panel questions on their function and the integrated system.',
@@ -57,7 +52,6 @@ const MILESTONES = [
     id: 'research',
     name: 'Research Paper',
     date: 'End of Semester 2',
-    marks: '10%',
     type: 'Group Submission',
     detail:
       'A publication-ready research paper documenting the integrated platform, methodology, evaluation, and comparison with existing approaches. Submitted to a relevant conference or journal.',
@@ -66,7 +60,6 @@ const MILESTONES = [
     id: 'logbook',
     name: 'Logbook & Status Documents',
     date: 'Continuous',
-    marks: '12%',
     type: 'Continuous Submission',
     detail:
       'Weekly logbook entries from each member capturing progress, blockers, and supervisor feedback. Includes status documents submitted at each checkpoint throughout the year.',
@@ -83,7 +76,7 @@ export default function MilestonesPage() {
       <PageHeader
         eyebrow="Milestones"
         title="Project Milestones"
-        lead="All assessments and key deliverables across the academic year. Pick a milestone below to see dates, marks, and details."
+        lead="All assessments and key deliverables across the academic year. Pick a milestone below to see dates and details."
       />
 
       <main style={{ maxWidth: 1100, margin: '0 auto', padding: '40px' }}>
@@ -156,9 +149,6 @@ export default function MilestonesPage() {
                 <strong style={{ color: 'var(--text)' }}>Date:</strong> {current.date}
               </span>
               <span style={{ color: 'var(--muted)' }}>
-                <strong style={{ color: 'var(--text)' }}>Marks:</strong> {current.marks}
-              </span>
-              <span style={{ color: 'var(--muted)' }}>
                 <strong style={{ color: 'var(--text)' }}>Type:</strong> {current.type}
               </span>
             </div>
@@ -205,7 +195,7 @@ export default function MilestonesPage() {
                 {m.name}
               </div>
               <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-                {m.type} · {m.marks}
+                {m.type}
               </div>
             </button>
           ))}

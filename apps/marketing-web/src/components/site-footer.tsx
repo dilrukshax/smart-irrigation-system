@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { Mail, MapPin } from "lucide-react";
-import { navItems, team } from "@/content/site-data";
+import { MapPin } from "lucide-react";
+import { navItems } from "@/content/site-data";
 
 export function SiteFooter() {
   return (
@@ -17,10 +17,6 @@ export function SiteFooter() {
               <MapPin size={16} aria-hidden="true" />
               Sri Lanka Institute of Information Technology
             </span>
-            <a className="flex items-center gap-2 hover:text-white" href={`mailto:${team[0].email}`}>
-              <Mail size={16} aria-hidden="true" />
-              {team[0].email}
-            </a>
           </div>
         </div>
 

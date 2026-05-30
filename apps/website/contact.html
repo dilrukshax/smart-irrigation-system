@@ -53,17 +53,16 @@
               <div class="contact-meta">
                 <p>Sri Lanka Institute of Information Technology, Faculty of Computing</p>
                 <p>Phone number can be added after final project contact approval.</p>
-                <p><a href="mailto:IT22561770@my.sliit.lk">IT22561770@my.sliit.lk</a></p>
               </div>
             </article>
 
             <article class="info-card">
               <h3>Team emails</h3>
               <div class="team-email-list">
-                <a class="team-email-item" href="mailto:IT22561770@my.sliit.lk"><strong>Dilruksha A.G.C.D.</strong>IT22561770@my.sliit.lk</a>
-                <a class="team-email-item" href="mailto:IT22561398@my.sliit.lk"><strong>Hesara P.K.A.N.</strong>IT22561398@my.sliit.lk</a>
-                <a class="team-email-item" href="mailto:IT22076366@my.sliit.lk"><strong>Trishni W.R.M.</strong>IT22076366@my.sliit.lk</a>
-                <a class="team-email-item" href="mailto:IT22076547@my.sliit.lk"><strong>Abishek W.R.M.</strong>IT22076547@my.sliit.lk</a>
+                <a class="team-email-item" href="mailto:dilandilruksha0@gmail.com"><strong>Dilruksha A.G.C.D.</strong>dilandilruksha0@gmail.com</a>
+                <a class="team-email-item" href="mailto:nidulahesara@gmail.com"><strong>Hesara P.K.A.N.</strong>nidulahesara@gmail.com</a>
+                <a class="team-email-item" href="mailto:miriyamrodrigo@gmail.com"><strong>Trishni W.R.M.</strong>miriyamrodrigo@gmail.com</a>
+                <a class="team-email-item" href="mailto:abishekshivaperumal14@gmail.com"><strong>Abishek S</strong>abishekshivaperumal14@gmail.com</a>
               </div>
             </article>
           </div>
@@ -71,8 +70,7 @@
           <article class="info-card">
             <h3>Send a message</h3>
             <p>
-              The form opens your default email client with the message addressed to the project
-              team.
+              The form sends your message to the project team email address.
             </p>
             <form id="contact-form" class="form-grid" style="margin-top: 0.8rem">
               <label for="name">Your name<input id="name" name="name" required placeholder="Your name" /></label>
@@ -88,29 +86,16 @@
                 </select>
               </label>
               <label for="message">Message<textarea id="message" name="message" required placeholder="Write your message"></textarea></label>
-              <button class="btn btn-dark" type="submit">Send Message</button>
+              <div class="form-actions">
+                <button class="btn btn-dark" type="submit">Send Message</button>
+                <a id="gmail-compose-link" class="btn btn-light contact-fallback" href="#" target="_blank" rel="noopener" hidden>Open in Gmail</a>
+              </div>
+              <p id="contact-status" class="form-status" role="status" aria-live="polite"></p>
             </form>
           </article>
         </div>
       </section>
 
-      <section class="section white">
-        <div class="container">
-          <article class="info-card soft">
-            <h3>General email template</h3>
-            <pre class="email-template">To: IT22561770@my.sliit.lk
-Subject: [25-26J-520] &lt;Your Subject&gt;
-
-Dear Project Group 25-26J-520 Team,
-
-&lt;Your message here&gt;
-
-Best regards,
-&lt;Your name&gt;
-&lt;Your affiliation&gt;</pre>
-          </article>
-        </div>
-      </section>
     </main>
 
     <footer class="site-footer">
@@ -123,7 +108,6 @@ Best regards,
           </p>
           <div class="footer-list">
             <span>Sri Lanka Institute of Information Technology</span>
-            <a href="mailto:IT22561770@my.sliit.lk">IT22561770@my.sliit.lk</a>
           </div>
         </div>
         <div>
@@ -141,6 +125,7 @@ Best regards,
       </div>
     </footer>
 
+    <script src="mail-config.js"></script>
     <script src="script.js"></script>
   </body>
 </html>

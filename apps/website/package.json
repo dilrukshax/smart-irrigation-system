@@ -1,0 +1,12 @@
+{
+  "name": "smart-irrigation-static-website",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node mail-server.js",
+    "check": "node --check script.js && node --check mail-config.js && node --check mail-server.js"
+  },
+  "dependencies": {
+    "nodemailer": "^8.0.7"
+  }
+}
