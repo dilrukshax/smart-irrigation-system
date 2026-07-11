@@ -459,9 +459,50 @@ export const documents = [
       },
       {
         title: "Final Document - Main",
-        description: "Integrated final report across all four research streams.",
-        status: "Pending upload",
+        description: "Integrated group report covering F1-F4 architecture, methodology, implementation, and evaluation.",
+        status: "PDF | 94 pages",
         href: "/submissions/documents/final-document-main.pdf",
+      },
+      {
+        title: "Research Paper IEEE (Draft)",
+        description: "Publication-style manuscript draft with problem context, method, and integrated contribution.",
+        status: "PDF | 7 pages",
+        href: "/submissions/documents/research-paper-ieee-draft.pdf",
+      },
+      {
+        title: "Team Assessment Form (TAF)",
+        description: "Team assessment form and supporting submission summary for the project group.",
+        status: "PDF | 17 pages",
+        href: "/submissions/documents/team-assessment-form-taf.pdf",
+      },
+    ],
+  },
+  {
+    category: "Individual proposal reports",
+    items: [
+      {
+        title: "Proposal Report - IT22561398",
+        description: "Proposal submission for the F1 IoT smart irrigation and valve-control stream.",
+        status: "PDF | 30 pages",
+        href: "/submissions/documents/proposal-f1.pdf",
+      },
+      {
+        title: "Proposal Report - IT22186942",
+        description: "Proposal submission for the F2 hybrid satellite crop health monitoring stream.",
+        status: "PDF | 38 pages",
+        href: "/submissions/documents/proposal-f2.pdf",
+      },
+      {
+        title: "Proposal Report - IT22076366",
+        description: "Proposal submission for the F3 forecasting and water-risk modelling stream.",
+        status: "PDF | 53 pages",
+        href: "/submissions/documents/proposal-f3.pdf",
+      },
+      {
+        title: "Proposal Report - IT22561770",
+        description: "Proposal submission for the F4 adaptive crop and area optimization stream.",
+        status: "PDF | 37 pages",
+        href: "/submissions/documents/proposal-f4.pdf",
       },
     ],
   },
@@ -470,26 +511,26 @@ export const documents = [
     items: [
       {
         title: "Final Document - F1, Hesara",
-        description: "IoT smart irrigation, water management, and ML valve control.",
-        status: "Pending upload",
+        description: "IoT smart irrigation, water management, and ML valve control final draft.",
+        status: "PDF | 47 pages",
         href: "/submissions/documents/final-document-f1.pdf",
       },
       {
         title: "Final Document - F2, Abishek",
-        description: "Crop health, water stress detection, and image disease prediction.",
-        status: "Pending upload",
+        description: "Crop health, water stress detection, and image disease prediction final draft.",
+        status: "PDF | 55 pages",
         href: "/submissions/documents/final-document-f2.pdf",
       },
       {
         title: "Final Document - F3, Trishni",
-        description: "Time-series forecasting, weather intelligence, and risk alerts.",
-        status: "Pending upload",
+        description: "Time-series forecasting, weather intelligence, and risk alerts final draft.",
+        status: "PDF | 49 pages",
         href: "/submissions/documents/final-document-f3.pdf",
       },
       {
         title: "Final Document - F4, Dilruksha",
-        description: "Crop suitability, optimization, water budgeting, and Plan B.",
-        status: "Pending upload",
+        description: "Crop suitability, optimization, water budgeting, and Plan B final draft.",
+        status: "PDF | 48 pages",
         href: "/submissions/documents/final-document-f4.pdf",
       },
     ],
@@ -509,13 +550,13 @@ export const presentations = [
       {
         title: "Progress Presentation 1",
         description: "Initial service implementation, model prototypes, and integration plan.",
-        status: "Pending upload",
+        status: "PDF | 23 pages",
         href: "/submissions/slides/progress-presentation-1.pdf",
       },
       {
         title: "Progress Presentation 2",
         description: "Integrated workflows, evaluation updates, and near-final demonstration.",
-        status: "Pending upload",
+        status: "PDF | 12 pages",
         href: "/submissions/slides/progress-presentation-2.pdf",
       },
       {
