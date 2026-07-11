@@ -120,7 +120,7 @@ export default function HomePage() {
                 </Link>
                 <Link
                   href="/documents"
-                  className="inline-flex items-center gap-2.5 rounded-full border border-white/40 bg-white/20 backdrop-blur-md px-6 py-4 text-sm font-bold text-white hover:bg-white/30 hover:border-white/60 hover:scale-103 active:scale-98 transition-all duration-200"
+                  className="inline-flex items-center gap-2.5 rounded-full border border-white/50 bg-white/45 backdrop-blur-md px-6 py-4 text-sm font-bold text-[#182722] hover:bg-white/60 hover:border-white/70 hover:scale-103 active:scale-98 transition-all duration-200"
                 >
                   <FileText size={17} />
                   Submission Archive
