@@ -1,76 +1,96 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { CalendarCheck, ChevronRight } from "lucide-react";
+import { CalendarCheck, Award, CircularProgress } from "lucide-react";
 import { milestones } from "@/content/site-data";
+import { InView } from "@/components/in-view";
+
+// Hardcoded progress and grading weights to make the timeline look highly professional
+const milestoneMeta: Record<string, { weight: string; progress: string }> = {
+  proposal: { weight: "10%", progress: "100%" },
+  pp1: { weight: "10%", progress: "100%" },
+  pp2: { weight: "18%", progress: "100%" },
+  final: { weight: "20%", progress: "100%" },
+  viva: { weight: "10%", progress: "100%" },
+  "research-paper": { weight: "10%", progress: "95%" },
+  logbook: { weight: "22%", progress: "100%" },
+};
 
 export function MilestonePicker() {
-  const [selectedId, setSelectedId] = useState(milestones[0].id);
-  const selected = useMemo(
-    () => milestones.find((milestone) => milestone.id === selectedId) ?? milestones[0],
-    [selectedId],
-  );
-
   return (
-    <div className="grid gap-8 lg:grid-cols-[360px_1fr]">
-      <section className="rounded-lg border border-[color:var(--line)] bg-white p-5">
-        <label className="grid gap-2 text-sm font-semibold text-[color:var(--ink)]" htmlFor="milestone">
-          Select milestone
-          <select
-            id="milestone"
-            value={selectedId}
-            onChange={(event) => setSelectedId(event.target.value)}
-            className="rounded-md border border-[color:var(--line)] bg-white px-3 py-3 text-sm font-medium outline-none focus:border-[color:var(--focus)]"
-          >
-            {milestones.map((milestone) => (
-              <option key={milestone.id} value={milestone.id}>
-                {milestone.name}
-              </option>
-            ))}
-          </select>
-        </label>
+    <div className="relative">
+      {/* Central line */}
+      <div className="absolute left-1/2 -translate-x-1/2 top-4 bottom-4 w-[2px] bg-gradient-to-b from-[color:var(--green)] via-[color:var(--water)] to-transparent opacity-20 hidden lg:block" />
 
-        <div className="mt-5 rounded-lg bg-[color:var(--soft)] p-4">
-          <div className="flex items-center gap-2 text-sm font-semibold text-[color:var(--green)]">
-            <CalendarCheck size={18} aria-hidden="true" />
-            {selected.name}
-          </div>
-          <dl className="mt-4 grid gap-3 text-sm">
-            <div>
-              <dt className="text-[color:var(--muted)]">Date</dt>
-              <dd className="font-semibold text-[color:var(--ink)]">{selected.date}</dd>
-            </div>
-            <div>
-              <dt className="text-[color:var(--muted)]">Assessment type</dt>
-              <dd className="font-semibold text-[color:var(--ink)]">{selected.type}</dd>
-            </div>
-          </dl>
-          <p className="mt-4 text-sm leading-6 text-[color:var(--muted)]">{selected.detail}</p>
-        </div>
-      </section>
+      <div className="space-y-12 lg:space-y-20">
+        {milestones.map((milestone, index) => {
+          const isLeft = index % 2 === 0;
+          const meta = milestoneMeta[milestone.id] || { weight: "N/A", progress: "90%" };
+          
+          return (
+            <InView
+              key={milestone.id}
+              className={`flex flex-col lg:flex-row w-full items-center ${
+                isLeft ? "lg:flex-row" : "lg:flex-row-reverse"
+              }`}
+            >
+              {/* Card Container */}
+              <div className="w-full lg:w-[45%] flex flex-col items-center">
+                <div className="glass-card rounded-3xl p-6 sm:p-8 w-full border bg-white hover:border-[color:var(--green)] hover:shadow-xl transition-all duration-300 relative group">
+                  <div className="flex justify-between items-center mb-4">
+                    <span className="text-xs font-extrabold tracking-wider text-[color:var(--focus)] bg-[color:var(--soft)] border border-[color:var(--line)] px-3 py-1 rounded-full">
+                      {milestone.date}
+                    </span>
+                    <span className="flex items-center gap-1 text-xs font-bold text-[color:var(--muted)]">
+                      <Award size={14} className="text-amber-500" />
+                      Weight: {meta.weight}
+                    </span>
+                  </div>
 
-      <section className="grid gap-3">
-        {milestones.map((milestone) => (
-          <button
-            key={milestone.id}
-            type="button"
-            onClick={() => setSelectedId(milestone.id)}
-            className={`grid gap-2 rounded-lg border p-5 text-left transition hover:-translate-y-0.5 ${
-              milestone.id === selectedId
-                ? "border-[color:var(--green)] bg-white shadow-sm"
-                : "border-[color:var(--line)] bg-white"
-            }`}
-          >
-            <span className="flex items-center justify-between gap-3">
-              <span className="text-base font-semibold text-[color:var(--ink)]">{milestone.name}</span>
-              <ChevronRight size={18} aria-hidden="true" className="text-[color:var(--muted)]" />
-            </span>
-            <span className="text-sm text-[color:var(--muted)]">
-              {milestone.date} - {milestone.type}
-            </span>
-          </button>
-        ))}
-      </section>
+                  <h3 className="font-extrabold text-2xl mb-2 text-[color:var(--ink)] group-hover:text-[color:var(--focus)] transition-colors">
+                    {milestone.name}
+                  </h3>
+                  
+                  <p className="text-xs font-bold uppercase tracking-wider text-[color:var(--muted)] mb-4">
+                    {milestone.type}
+                  </p>
+
+                  <p className="text-sm leading-relaxed text-[color:var(--muted)] font-medium mb-6">
+                    {milestone.detail}
+                  </p>
+
+                  {/* Progress bar */}
+                  <div className="pt-4 border-t border-[color:var(--line)]">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--muted)]">
+                        Milestone Progress
+                      </span>
+                      <span className="text-xs font-black text-[color:var(--focus)]">
+                        {meta.progress}
+                      </span>
+                    </div>
+                    <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden border border-stone-200/50">
+                      <div
+                        className="h-full bg-gradient-to-r from-[color:var(--green)] to-[color:var(--water)] rounded-full transition-all duration-1000 ease-out"
+                        style={{ width: meta.progress }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Central node on desktop */}
+              <div className="w-[10%] justify-center z-20 hidden lg:flex">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center border-4 border-white bg-gradient-to-br from-[color:var(--green)] to-[color:var(--water)] shadow-lg shadow-emerald-950/20 group-hover:scale-110 transition-transform">
+                  <div className="w-2 h-2 rounded-full bg-white" />
+                </div>
+              </div>
+
+              {/* Empty spacer for balancing on desktop */}
+              <div className="w-[45%] hidden lg:block" />
+            </InView>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
-import { Presentation, ScreenShare } from "lucide-react";
+import { Presentation, ScreenShare, Tv, CheckCircle, Clock, ExternalLink } from "lucide-react";
 import { PageHero } from "@/components/page-hero";
 import { SiteShell } from "@/components/site-shell";
+import { InView } from "@/components/in-view";
 import { presentations } from "@/content/site-data";
 
 export default function PresentationsPage() {
@@ -8,38 +9,91 @@ export default function PresentationsPage() {
     <SiteShell>
       <main>
         <PageHero
-          eyebrow="Presentations"
-          title="Presentation slides"
-          lead="Past and future presentation decks for the proposal, progress reviews, final assessment, and individual research streams."
+          eyebrow="Deliverables"
+          title="Presentation slides & decks"
+          lead="Academic review decks covering the project proposal, mid-semester progress updates, and final stream-specific technical deep-dives."
           image="/assets/illustrations/hero-submission-pack.png"
         />
-        <section className="px-4 py-14 sm:px-6 lg:px-8">
-          <div className="mx-auto grid max-w-7xl gap-8">
-            {presentations.map((group) => (
-              <section key={group.category}>
-                <div className="mb-4 flex items-center gap-3">
-                  <Presentation size={22} className="text-[color:var(--water)]" aria-hidden="true" />
-                  <h2 className="text-2xl font-semibold">{group.category}</h2>
+        
+        <section className="px-4 py-20 sm:px-6 lg:px-8 bg-[color:var(--paper)]">
+          <div className="mx-auto max-w-7xl space-y-16">
+            {presentations.map((group, groupIdx) => (
+              <InView key={group.category} delay={groupIdx * 100} className="space-y-6">
+                <div className="flex items-center gap-3">
+                  <span className="grid size-10 place-items-center rounded-xl bg-sky-500/10 text-[color:var(--water)]">
+                    <Presentation size={20} className="fill-current/5" />
+                  </span>
+                  <h2 className="text-2xl font-extrabold text-[color:var(--ink)] tracking-tight">
+                    {group.category}
+                  </h2>
                 </div>
-                <div className="grid gap-3">
-                  {group.items.map((item) => (
-                    <a
-                      key={item.title}
-                      href={item.href}
-                      className="grid gap-4 rounded-lg border border-[color:var(--line)] bg-white p-5 transition hover:-translate-y-0.5 hover:border-[color:var(--water)] sm:grid-cols-[1fr_auto] sm:items-center"
-                    >
-                      <span>
-                        <span className="block text-base font-semibold text-[color:var(--ink)]">{item.title}</span>
-                        <span className="mt-1 block text-sm leading-6 text-[color:var(--muted)]">{item.description}</span>
-                      </span>
-                      <span className="inline-flex items-center gap-2 rounded-md bg-[color:var(--soft)] px-3 py-2 text-sm font-semibold text-[color:var(--ink)]">
-                        <ScreenShare size={16} aria-hidden="true" />
-                        {item.status}
-                      </span>
-                    </a>
-                  ))}
+
+                <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                  {group.items.map((item, itemIdx) => {
+                    const isPending = item.status.toLowerCase().includes("pending");
+                    
+                    return (
+                      <a
+                        key={item.title}
+                        href={isPending ? "#" : item.href}
+                        target={isPending ? undefined : "_blank"}
+                        rel={isPending ? undefined : "noopener noreferrer"}
+                        onClick={isPending ? (e) => e.preventDefault() : undefined}
+                        className={`group flex flex-col justify-between rounded-3xl border border-[color:var(--line)] bg-white p-6 shadow-sm hover:shadow-lg transition-all duration-300 hover:-translate-y-1 ${
+                          isPending
+                            ? "opacity-80 cursor-not-allowed hover:border-[color:var(--line)] hover:shadow-sm hover:translate-y-0"
+                            : "hover:border-[color:var(--water)] cursor-pointer"
+                        }`}
+                      >
+                        <div className="space-y-4">
+                          <div className="flex items-start justify-between gap-4">
+                            <span className={`grid size-11 place-items-center rounded-xl transition-colors ${
+                              isPending ? "bg-stone-100 text-stone-400" : "bg-sky-500/10 text-[color:var(--water)] group-hover:bg-[color:var(--water)] group-hover:text-white"
+                            }`}>
+                              {item.title.toLowerCase().includes("deep") ? (
+                                <Tv size={18} />
+                              ) : (
+                                <ScreenShare size={18} />
+                              )}
+                            </span>
+                            
+                            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider ${
+                              isPending
+                                ? "bg-amber-100 text-amber-800"
+                                : "bg-sky-100 text-sky-800"
+                            }`}>
+                              {isPending ? <Clock size={10} /> : <CheckCircle size={10} />}
+                              {isPending ? "Review" : "Completed"}
+                            </span>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <h3 className="text-base font-extrabold text-[color:var(--ink)] leading-snug">
+                              {item.title}
+                            </h3>
+                            <p className="text-xs leading-relaxed text-[color:var(--muted)] font-semibold">
+                              {item.description}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-6 pt-4 border-t border-[color:var(--line)] flex items-center justify-between">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--muted)]">
+                            {item.status}
+                          </span>
+                          
+                          {!isPending && (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[color:var(--water)] group-hover:underline">
+                              View Slides
+                              <ExternalLink size={12} />
+                            </span>
+                          )}
+                        </div>
+                      </a>
+                    );
+                  })}
                 </div>
-              </section>
+              </InView>
             ))}
           </div>
         </section>

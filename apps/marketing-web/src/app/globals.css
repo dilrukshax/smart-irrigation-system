@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,300;0,400;0,600;0,700;0,800;0,900;1,300;1,400;1,600;1,700;1,800;1,900&display=swap");
 
 :root {
   --ink: #182722;
@@ -6,12 +7,12 @@
   --water: #166b8f;
   --harvest: #a96f11;
   --clay: #b54d3a;
-  --paper: #f6faf4;
+  --paper: #f7faf6;
   --surface: #ffffff;
-  --soft: #edf4ea;
-  --line: #d9e4d6;
-  --muted: #5f7167;
-  --focus: #1f8a70;
+  --soft: #eef5ed;
+  --line: #e2ebe0;
+  --muted: #576b60;
+  --focus: #198065;
 }
 
 * {
@@ -28,7 +29,8 @@ body {
   background: var(--paper);
   color: var(--ink);
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    "Nunito", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  overflow-x: hidden;
 }
 
 a {
@@ -48,17 +50,64 @@ textarea {
   color: white;
 }
 
+/* Animations */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in-up {
+  opacity: 0;
+}
+
+.fade-in-up.active {
+  animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Glassmorphism */
+.glass-card {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(226, 235, 224, 0.65);
+  box-shadow: 0 8px 32px 0 rgba(24, 39, 34, 0.02);
+}
+
+.dark-glass-card {
+  background: rgba(24, 39, 34, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Gradient text */
+.gradient-text-green-blue {
+  background: linear-gradient(135deg, var(--green) 0%, var(--water) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Custom backgrounds */
 .hero-cover {
   background-image:
-    linear-gradient(90deg, rgba(24, 39, 34, 0.9), rgba(24, 39, 34, 0.62)),
+    linear-gradient(135deg, rgba(24, 39, 34, 0.94) 0%, rgba(24, 39, 34, 0.72) 100%),
     url("/assets/illustrations/hero-irrigation-landscape.png");
   background-position: center;
   background-size: cover;
 }
 
-.content-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+.band-grid {
+  background-image:
+    linear-gradient(rgba(28, 124, 84, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(22, 107, 143, 0.06) 1px, transparent 1px);
+  background-size: 30px 30px;
 }
 
 .accent-water {
@@ -70,16 +119,9 @@ textarea {
 }
 
 .accent-sky {
-  color: #5167a8;
+  color: #4b62a6;
 }
 
 .accent-harvest {
   color: var(--harvest);
-}
-
-.band-grid {
-  background-image:
-    linear-gradient(rgba(28, 124, 84, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(22, 107, 143, 0.08) 1px, transparent 1px);
-  background-size: 36px 36px;
 }
