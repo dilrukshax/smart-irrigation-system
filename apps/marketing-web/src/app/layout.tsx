@@ -12,6 +12,10 @@ export const metadata: Metadata = {
   title: "Adaptive Smart Irrigation and Crop Optimization Platform",
   description:
     "Marketing website for a 4th year research project integrating IoT irrigation, crop health detection, forecasting, and crop area optimization.",
+  icons: {
+    icon: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 export default function RootLayout({
