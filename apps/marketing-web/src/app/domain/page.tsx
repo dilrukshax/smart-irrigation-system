@@ -13,9 +13,56 @@ import {
   CpuIcon
 } from "lucide-react";
 import { PageHero } from "@/components/page-hero";
-import { ResearchImage } from "@/components/research-image";
 import { SiteShell } from "@/components/site-shell";
 import { InView } from "@/components/in-view";
+import { ImageModal } from "@/components/image-modal";
+import { Mermaid } from "@/components/mermaid";
+
+const systemArchitectureChart = `graph TD
+    Client["Clients<br/>(Browser / Mobile PWA / ESP32)"] -->|HTTPS / MQTT| GW["API Gateway<br/>(FastAPI, Port 8000)"]
+    
+    subgraph Services [Platform Microservices]
+        Auth["Auth Service<br/>(Port 8001)"]
+        F1["F1: Irrigation Service<br/>(Port 8002)"]
+        F2["F2: Crop Health Service<br/>(Port 8007)"]
+        F3["F3: Forecasting Service<br/>(Port 8003)"]
+        F4["F4: Optimization Service<br/>(Port 8004)"]
+        IoT["IoT Telemetry Service<br/>(Port 8006)"]
+    end
+
+    GW --> Auth
+    GW --> F1
+    GW --> F2
+    GW --> F3
+    GW --> F4
+    
+    Sensors["ESP32 Telemetry"] -->|MQTT| IoT
+    IoT -->|Ingest Stream| F1
+
+    subgraph Data Stores
+        DB[("PostgreSQL Database")]
+        Cache[("Redis Cache")]
+        Broker[("Mosquitto MQTT Broker")]
+    end
+    
+    F1 -.-> DB
+    F2 -.-> DB
+    F3 -.-> DB
+    F4 -.-> DB
+    Auth -.-> DB
+    
+    F1 -.-> Cache
+    F4 -.-> Cache
+    IoT -.-> Broker
+    
+    style Auth fill:#eef5ed,stroke:#1c7c54,stroke-width:1.5px,rx:10px,ry:10px
+    style F1 fill:#e0f2fe,stroke:#0284c7,stroke-width:1.5px,rx:10px,ry:10px
+    style F2 fill:#d1fae5,stroke:#059669,stroke-width:1.5px,rx:10px,ry:10px
+    style F3 fill:#e0e7ff,stroke:#4f46e5,stroke-width:1.5px,rx:10px,ry:10px
+    style F4 fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,rx:10px,ry:10px
+    style IoT fill:#f5f7f5,stroke:#1c7c54,stroke-width:1.5px,rx:10px,ry:10px
+    style GW fill:#f5f7f5,stroke:#1c7c54,stroke-width:1.5px,rx:10px,ry:10px
+`;
 import {
   domainDetails,
   integrationSignals,
@@ -201,70 +248,87 @@ export default function DomainPage() {
           </div>
         </section>
 
-        {/* METHODOLOGY SECTION */}
+        {/* METHODOLOGY & ARCHITECTURE SECTION */}
         <section className="bg-[color:var(--paper)] px-4 py-20 sm:px-6 lg:px-8 border-b border-[color:var(--line)]">
-          <div className="mx-auto max-w-7xl">
-            <div className="grid gap-16 lg:grid-cols-[0.9fr_1.1fr]">
-              <InView className="space-y-6">
-                <div className="space-y-4">
-                  <p className="text-xs font-bold uppercase tracking-widest text-[color:var(--water)]">
-                    Methodology
-                  </p>
-                  <h2 className="text-3xl font-extrabold tracking-tight sm:text-4xl text-[color:var(--ink)]">
-                    From domain research to integrated prototype
-                  </h2>
-                  <p className="text-base leading-relaxed text-[color:var(--muted)] font-medium">
-                    Our methodology follows a clean research-to-system path: define the water-management
-                    problem, engineer stream-specific datasets, train suitable ML models, and integrate
-                    their outputs through service contracts and decision rules.
-                  </p>
-                </div>
+          <div className="mx-auto max-w-7xl space-y-16">
+            {/* Centered Symmetric Header */}
+            <InView className="text-center max-w-3xl mx-auto space-y-4">
+              <p className="text-xs font-bold uppercase tracking-widest text-[color:var(--water)]">
+                Methodology & System Architecture
+              </p>
+              <h2 className="text-3xl font-extrabold tracking-tight sm:text-4xl text-[color:var(--ink)]">
+                From domain research to integrated prototype
+              </h2>
+              <p className="text-base leading-relaxed text-[color:var(--muted)] font-medium">
+                Our methodology follows a clean research-to-system path: define the water-management
+                problem, engineer stream-specific datasets, train suitable ML models, and integrate
+                their outputs through service contracts and decision rules.
+              </p>
+            </InView>
 
-                <div className="rounded-3xl border border-[color:var(--line)] bg-white p-3 shadow-md">
-                  <ResearchImage
-                    src="/assets/research/fig14_system_architecture.png"
-                    alt="System architecture diagram"
-                    caption="Integrated architecture showing gateway routing, research services, data stores, telemetry, and observability."
-                    width={2385}
-                    height={1184}
-                  />
-                </div>
-              </InView>
+            {/* Mermaid System Architecture diagram */}
+            <InView className="glass-card rounded-3xl p-6 sm:p-8 border bg-white shadow-xl max-w-5xl mx-auto">
+              <h3 className="text-center font-extrabold text-lg text-[color:var(--ink)] mb-4 uppercase tracking-wider">
+                Interactive Platform Microservice Architecture
+              </h3>
+              <Mermaid chart={systemArchitectureChart} />
+            </InView>
 
-              <ol className="grid gap-4">
-                {methodologyPhases.map((phase, index) => (
-                  <InView
-                    key={phase.title}
-                    delay={index * 100}
-                    className="glass-card rounded-2xl p-5 border bg-white shadow-sm hover:border-[color:var(--green)] hover:shadow-md transition-all duration-300"
-                  >
-                    <div className="flex gap-4">
-                      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[color:var(--green)] to-[color:var(--water)] text-sm font-black text-white shadow-md shadow-emerald-950/15">
-                        {index + 1}
-                      </span>
-                      <div className="space-y-2">
-                        <h3 className="font-extrabold text-[color:var(--ink)] text-base">
-                          {phase.title}
-                        </h3>
-                        <p className="text-xs leading-relaxed text-[color:var(--muted)] font-semibold">
-                          {phase.detail}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 pt-4 border-t border-[color:var(--line)] flex flex-wrap gap-2">
-                      {phase.outputs.map((output) => (
-                        <span
-                          key={output}
-                          className="rounded-full bg-[color:var(--soft)] border border-[color:var(--line)] px-3 py-1 text-[10px] font-bold text-[color:var(--ink)]"
-                        >
-                          {output}
+            {/* Symmetric Grid Layout */}
+            <div className="grid gap-12 lg:grid-cols-2 items-start">
+              {/* Methodology Phases List */}
+              <div className="space-y-6">
+                <h3 className="text-2xl font-extrabold text-[color:var(--ink)]">Research & Implementation Phases</h3>
+                <ol className="grid gap-4">
+                  {methodologyPhases.map((phase, index) => (
+                    <InView
+                      key={phase.title}
+                      delay={index * 100}
+                      className="glass-card rounded-2xl p-5 border bg-white shadow-sm hover:border-[color:var(--green)] hover:shadow-md transition-all duration-300"
+                    >
+                      <div className="flex gap-4">
+                        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[color:var(--green)] to-[color:var(--water)] text-sm font-black text-white shadow-md shadow-emerald-950/15">
+                          {index + 1}
                         </span>
-                      ))}
-                    </div>
-                  </InView>
-                ))}
-              </ol>
+                        <div className="space-y-2">
+                          <h3 className="font-extrabold text-[color:var(--ink)] text-base">
+                            {phase.title}
+                          </h3>
+                          <p className="text-xs leading-relaxed text-[color:var(--muted)] font-semibold">
+                            {phase.detail}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 pt-4 border-t border-[color:var(--line)] flex flex-wrap gap-2">
+                        {phase.outputs.map((output) => (
+                          <span
+                            key={output}
+                            className="rounded-full bg-[color:var(--soft)] border border-[color:var(--line)] px-3 py-1 text-[10px] font-bold text-[color:var(--ink)]"
+                          >
+                            {output}
+                          </span>
+                        ))}
+                      </div>
+                    </InView>
+                  ))}
+                </ol>
+              </div>
+
+              {/* High-Res Paper Diagram */}
+              <div className="space-y-6">
+                <h3 className="text-2xl font-extrabold text-[color:var(--ink)]">Detailed System Topology</h3>
+                <InView className="glass-card rounded-3xl p-4 border bg-white shadow-md">
+                  <ImageModal
+                    src="/assets/research/fig14_system_architecture.png"
+                    alt="Platform system topology diagram showing microservices, databases, caching layers, and telemetry integrations."
+                    caption="Figure 14: System Architecture Diagram"
+                    width={1600}
+                    height={900}
+                    className="w-full"
+                  />
+                </InView>
+              </div>
             </div>
           </div>
         </section>

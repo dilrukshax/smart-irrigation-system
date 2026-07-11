@@ -6,16 +6,16 @@ import { team } from "@/content/site-data";
 
 const supervisorTeam = [
   {
-    name: "Dr. Dharshana Kasthurirathna",
+    name: "Ms. Hansi De Silva",
     role: "Supervisor",
-    email: "dharshana.k@sliit.lk",
-    affiliation: "Professor / Senior Lecturer, SLIIT Faculty of Computing",
+    email: "hansi.d@sliit.lk",
+    affiliation: "Senior Lecturer, SLIIT Department of Software Engineering",
   },
   {
-    name: "Ms. Hansi De Silva",
+    name: "Ms. Karthiga Rajendran",
     role: "Co-Supervisor",
-    email: "hansi.d@sliit.lk",
-    affiliation: "Senior Lecturer, SLIIT Faculty of Computing",
+    email: "karthiga.r@sliit.lk",
+    affiliation: "Senior Lecturer, SLIIT Department of Software Engineering",
   },
 ];
 

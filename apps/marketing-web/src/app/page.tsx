@@ -4,6 +4,50 @@ import { ArrowRight, FileText, Gauge, Layers, Microscope, Satellite, Sparkles, W
 import { SiteShell } from "@/components/site-shell";
 import { InView } from "@/components/in-view";
 import { modules, projectStats, researchEvidence, problemsOvercome, technicalDetails } from "@/content/site-data";
+import { Mermaid } from "@/components/mermaid";
+import { ImageModal } from "@/components/image-modal";
+
+const closedLoopChart = `graph TD
+    subgraph Input Telemetry & Datasets
+        Sensors["ESP32 IoT Sensors<br/>(Moisture, Temp, Water Level)"]
+        Sentinel["Sentinel-2 Satellites<br/>(10m NDVI & NDWI)"]
+        Hydrology["31 Years Hydrology Records<br/>(1994-2025 Udawalawe Data)"]
+        Market["71,737 Price observations"]
+    end
+
+    subgraph Research Services [FastAPI Microservices]
+        F1["F1: IoT Water Control<br/>(Random Forest Valve Classifier)"]
+        F2["F2: Crop Health & Stress<br/>(MobileNetV2 Diagnostic)"]
+        F3["F3: Water Forecasting<br/>(ARIMA & LSTM Ensembles)"]
+        F4["F4: Area Optimization<br/>(Fuzzy-TOPSIS & PuLP Solver)"]
+    end
+
+    Sensors -->|Live Telemetry| F1
+    Sentinel -->|NDVI & NDWI Indices| F2
+    Hydrology -->|Time-Series Split| F3
+    Market -->|Market Signals| F4
+
+    F3 -->|Rain Forecasts & Alerts| F1
+    F3 -->|Water Scenarios| F4
+    
+    F2 -->|Field Stress Index| F1
+    F2 -->|Suitability Penalty| F4
+    
+    F1 -->|Water Quota Constraints| F4
+
+    subgraph Actuation & Decisions
+        Valves["Automated Actuators"]
+        Plans["Optimal Cultivation Plans"]
+    end
+
+    F1 -->|OPEN / CLOSE / HOLD| Valves
+    F4 -->|Hectare Mix & Water Budget| Plans
+
+    style F1 fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,rx:12px,ry:12px
+    style F2 fill:#d1fae5,stroke:#059669,stroke-width:2px,rx:12px,ry:12px
+    style F3 fill:#e0e7ff,stroke:#4f46e5,stroke-width:2px,rx:12px,ry:12px
+    style F4 fill:#fef3c7,stroke:#d97706,stroke-width:2px,rx:12px,ry:12px
+`;
 
 const moduleIcons = {
   f1: Gauge,
@@ -216,20 +260,35 @@ export default function HomePage() {
 
         {/* CLOSED-LOOP SYSTEM ARCHITECTURE */}
         <section className="bg-[color:var(--paper)] border-b border-[color:var(--line)] px-4 py-24 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-7xl">
-            <div className="grid gap-16 lg:grid-cols-[0.9fr_1.1fr]">
-              <InView className="space-y-8">
-                <div className="space-y-4">
-                  <div className="inline-flex items-center gap-2 rounded-full bg-[color:var(--soft)] px-4 py-1.5 text-xs font-bold text-[color:var(--green)] border border-[color:var(--line)]">
-                    <Workflow size={14} />
-                    <span>Closed-Loop Architecture</span>
-                  </div>
-                  <h2 className="text-3xl font-extrabold tracking-tight sm:text-5xl text-[color:var(--ink)]">
-                    The technical idea: dynamic service co-operation.
-                  </h2>
-                  <p className="text-base sm:text-lg leading-relaxed text-[color:var(--muted)] font-medium">
-                    Traditional research trains models in isolation. ASICOP connects models at runtime: forecasts alter valve schedules, crop stress penalizes area suitability, and remaining water quotas drive optimization.
-                  </p>
+          <div className="mx-auto max-w-7xl space-y-16">
+            {/* Symmetric Header */}
+            <InView className="text-center max-w-3xl mx-auto space-y-4">
+              <div className="inline-flex items-center gap-2 rounded-full bg-[color:var(--soft)] px-4 py-1.5 text-xs font-bold text-[color:var(--green)] border border-[color:var(--line)]">
+                <Workflow size={14} />
+                <span>Closed-Loop Architecture</span>
+              </div>
+              <h2 className="text-3xl font-extrabold tracking-tight sm:text-5xl text-[color:var(--ink)]">
+                The technical idea: dynamic service co-operation.
+              </h2>
+              <p className="text-base sm:text-lg leading-relaxed text-[color:var(--muted)] font-medium">
+                Traditional research trains models in isolation. ASICOP connects models at runtime: forecasts alter valve schedules, crop stress penalizes area suitability, and remaining water quotas drive optimization.
+              </p>
+            </InView>
+
+            {/* Mermaid Closed Loop diagram */}
+            <InView className="glass-card rounded-3xl p-6 sm:p-8 border bg-white shadow-xl max-w-5xl mx-auto">
+              <h3 className="text-center font-extrabold text-lg text-[color:var(--ink)] mb-4 uppercase tracking-wider">
+                Closed-Loop Telemetry & Control Signal Flow
+              </h3>
+              <Mermaid chart={closedLoopChart} />
+            </InView>
+
+            {/* Symmetric Content Split */}
+            <div className="grid gap-16 lg:grid-cols-2 items-start">
+              <InView className="space-y-6">
+                <div className="space-y-2">
+                  <span className="text-xs font-bold uppercase tracking-widest text-[color:var(--green)]">Signal Integrations</span>
+                  <h3 className="text-2xl font-extrabold text-[color:var(--ink)]">Inter-service Data Exchanges</h3>
                 </div>
 
                 <div className="space-y-4">
@@ -266,12 +325,12 @@ export default function HomePage() {
               </InView>
 
               <InView className="space-y-6">
-                <div className="space-y-4">
-                  <div className="inline-flex items-center gap-2 rounded-full bg-[color:var(--soft)] px-4 py-1.5 text-xs font-bold text-[color:var(--green)] border border-[color:var(--line)]">
-                    <Sparkles size={14} />
+                <div className="space-y-2">
+                  <div className="inline-flex items-center gap-2 rounded-full bg-[color:var(--soft)] px-4 py-1 text-xs font-bold text-[color:var(--green)] border border-[color:var(--line)]">
+                    <Sparkles size={13} />
                     <span>Model Specifications</span>
                   </div>
-                  <h3 className="text-xl font-bold text-[color:var(--ink)]">Algorithm & Dataset Details</h3>
+                  <h3 className="text-2xl font-extrabold text-[color:var(--ink)]">Algorithm & Dataset Details</h3>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -308,31 +367,36 @@ export default function HomePage() {
 
         {/* EVIDENCE FIRST SECTION */}
         <section className="bg-white border-b border-[color:var(--line)] px-4 py-24 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-7xl">
-            <div className="grid gap-16 lg:grid-cols-[0.85fr_1.15fr] lg:items-center">
-              <InView className="space-y-6">
-                <div className="space-y-4">
-                  <p className="text-xs font-bold uppercase tracking-widest text-[color:var(--water)]">Evidence First</p>
-                  <h2 className="text-3xl font-extrabold tracking-tight sm:text-5xl">
-                    The visuals come from the project research assets.
-                  </h2>
-                  <p className="text-base sm:text-lg leading-relaxed text-[color:var(--muted)] font-medium">
-                    The project evidence is grounded in generated research outputs from the repo:
-                    hydrology records, NDVI health maps, ensemble forecasts, price modelling, and
-                    crop allocation architecture.
-                  </p>
-                </div>
-                
-                <div className="grid gap-3">
+          <div className="mx-auto max-w-7xl space-y-16">
+            {/* Centered Symmetric Header */}
+            <InView className="text-center max-w-3xl mx-auto space-y-4">
+              <p className="text-xs font-bold uppercase tracking-widest text-[color:var(--water)]">Evidence First</p>
+              <h2 className="text-3xl font-extrabold tracking-tight sm:text-5xl">
+                The visuals come from the project research assets.
+              </h2>
+              <p className="text-base sm:text-lg leading-relaxed text-[color:var(--muted)] font-medium">
+                The project evidence is grounded in generated research outputs from the repo:
+                hydrology records, NDVI health maps, ensemble forecasts, price modelling, and
+                crop allocation architecture. Click on any diagram below to inspect it in full scale.
+              </p>
+            </InView>
+
+            {/* Symmetric Grid Layout */}
+            <div className="grid gap-8 lg:grid-cols-2 items-stretch">
+              <InView className="flex flex-col justify-between space-y-4">
+                <div className="grid gap-4 h-full content-between">
                   {researchEvidence.map((item) => (
-                    <div key={`${item.stream}-${item.metric}`} className="rounded-2xl border border-[color:var(--line)] bg-transparent p-4 flex items-center justify-between transition-colors hover:bg-[color:var(--soft)]/30 duration-200">
-                      <div className="space-y-0.5">
-                        <p className="text-sm font-bold text-[color:var(--ink)]">
-                          {item.stream} - {item.metric}
-                        </p>
-                        <p className="text-xs text-[color:var(--muted)] font-semibold">{item.detail}</p>
+                    <div key={`${item.stream}-${item.metric}`} className="rounded-2xl border border-[color:var(--line)] bg-[color:var(--paper)] p-5 flex items-center justify-between transition-all hover:bg-white hover:border-[color:var(--green)] hover:shadow-md duration-300">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-[color:var(--green)] to-[color:var(--water)]" />
+                          <p className="text-sm font-extrabold text-[color:var(--ink)]">
+                            {item.stream} - {item.metric}
+                          </p>
+                        </div>
+                        <p className="text-xs text-[color:var(--muted)] font-semibold pl-4">{item.detail}</p>
                       </div>
-                      <span className="rounded-full bg-[color:var(--soft)] border border-[color:var(--line)] px-4 py-1 text-xs font-extrabold text-[color:var(--focus)] whitespace-nowrap shadow-sm">
+                      <span className="rounded-full bg-emerald-500/10 border border-emerald-500/20 px-4 py-1.5 text-xs font-black text-[color:var(--focus)] whitespace-nowrap shadow-sm">
                         {item.value}
                       </span>
                     </div>
@@ -342,20 +406,15 @@ export default function HomePage() {
 
               <InView className="grid gap-4 sm:grid-cols-2">
                 {modules.map((module) => (
-                  <figure key={module.id} className="overflow-hidden rounded-2xl border border-[color:var(--line)] bg-white shadow-sm hover:shadow-lg transition-shadow duration-300 group">
-                    <div className="relative aspect-[16/10] overflow-hidden bg-stone-50">
-                      <Image
-                        src={module.image}
-                        alt={module.imageAlt}
-                        width={1200}
-                        height={720}
-                        className="h-full w-full object-contain p-2 transition-transform duration-500 group-hover:scale-[1.03]"
-                      />
-                    </div>
-                    <figcaption className="border-t border-[color:var(--line)] bg-white px-4 py-2.5 text-xs font-bold text-[color:var(--muted)] uppercase tracking-wider">
-                      {module.shortName}
-                    </figcaption>
-                  </figure>
+                  <ImageModal
+                    key={module.id}
+                    src={module.image}
+                    alt={module.imageAlt}
+                    caption={module.shortName}
+                    width={800}
+                    height={500}
+                    className="h-full"
+                  />
                 ))}
               </InView>
             </div>

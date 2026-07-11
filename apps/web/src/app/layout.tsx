@@ -5,6 +5,10 @@ export const metadata: Metadata = {
   title: "HarvestPulse — Adaptive smart irrigation for Sri Lankan paddy schemes",
   description:
     "Adaptive Smart Irrigation and Crop Optimization Platform. Four coupled modules — sensing, crop health, forecasting, and optimization — guide every millimetre of water from reservoir to root.",
+  icons: {
+    icon: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 export default function RootLayout({
