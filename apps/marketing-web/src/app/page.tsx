@@ -113,14 +113,14 @@ export default function HomePage() {
               <div className="pt-4 flex flex-wrap gap-4">
                 <Link
                   href="/domain"
-                  className="inline-flex items-center gap-2.5 rounded-full bg-white px-6 py-4 text-sm font-bold text-[#182722] shadow-lg hover:bg-emerald-50 hover:scale-103 active:scale-98 transition-all duration-200"
+                  className="inline-flex items-center gap-2.5 rounded-full bg-white px-7 py-4 text-sm font-extrabold text-gray-900 shadow-lg hover:bg-emerald-50 transition-all duration-200"
                 >
                   Explore Research Domain
-                  <ArrowRight size={17} className="text-[#1c7c54]" />
+                  <ArrowRight size={17} className="text-emerald-600" />
                 </Link>
                 <Link
                   href="/documents"
-                  className="inline-flex items-center gap-2.5 rounded-full border border-white/50 bg-white/45 backdrop-blur-md px-6 py-4 text-sm font-bold text-[#182722] hover:bg-white/60 hover:border-white/70 hover:scale-103 active:scale-98 transition-all duration-200"
+                  className="inline-flex items-center gap-2.5 rounded-full bg-gray-900 px-7 py-4 text-sm font-extrabold text-white shadow-lg hover:bg-gray-800 transition-all duration-200"
                 >
                   <FileText size={17} />
                   Submission Archive
