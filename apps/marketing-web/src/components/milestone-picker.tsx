@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarCheck, Award, CircularProgress } from "lucide-react";
+import { CalendarCheck, Award } from "lucide-react";
 import { milestones } from "@/content/site-data";
 import { InView } from "@/components/in-view";
 

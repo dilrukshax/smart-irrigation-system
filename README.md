@@ -49,46 +49,66 @@ This platform is an end-to-end smart irrigation and crop-planning system designe
 - ✅ **Field-Level Decisions**: When to irrigate, how much water to apply
 - ✅ **Scheme-Level Planning**: Which crops to grow, hectares per crop under water quota
 - ✅ **Real-Time Alerts**: Drought, flood, and crop stress notifications
-- ✅ **Cross-Service Integration**: Services communicate via REST APIs and shared data stores
-
----
-
-## 🏗️ Architecture
+- ✅ **Cross-Service Integration**: Services communicate via REST APIs and shared ## 🏗️ Architecture
 
 ### High-Level System Architecture
 
+```mermaid
+graph TD
+    %% Clients
+    Clients["Clients<br/>(Web Browser / Mobile PWA / IoT Devices)"] -->|HTTPS / MQTT| Gateway["API Gateway (NGINX / FastAPI)<br/>Port: 80 / 443"]
+
+    %% Gateway Routing
+    Gateway -->|/api/v1/auth| Auth["Auth Service<br/>Port: 8001"]
+    Gateway -->|/api/v1/irrigation| F1["F1: Irrigation Service<br/>Port: 8002"]
+    Gateway -->|/api/v1/forecast| F3["F3: Forecasting Service<br/>Port: 8003"]
+    Gateway -->|/api/v1/optimization| F4["F4: ACA-O Service<br/>Port: 8004"]
+    Gateway -->|/| Web["Web Frontend<br/>Port: 8005 / 3000"]
+
+    %% Microservices to Databases
+    Auth -->|User Credentials| Mongo[("MongoDB<br/>(Auth Data)")]
+    F1 -->|Telemetry Ingest| Influx[("InfluxDB<br/>(Time-Series Sensor)")]
+    F3 -->|Historical Water Levels| Influx
+    F4 -->|Hectare Suitabilities| Postgres[("PostgreSQL<br/>(Optimization)") ]
+    
+    %% Shared Infrastructure
+    F1 & F3 & F4 -->|Session & API Cache| Redis[("Redis Cache")]
+    F1 -->|MQTT telemetries| Mosquitto["Mosquitto Broker<br/>(MQTT Telemetry Ingest)"]
+
+    %% Monitoring Stack
+    F1 & F3 & F4 & Auth -->|Metrics scraping| Prom["Prometheus (Metrics Ingest)"]
+    Prom -->|Dashboard panels| Grafana["Grafana Dashboards"]
+
+    style Auth fill:#f3f4f6,stroke:#4b5563,stroke-width:2px
+    style F1 fill:#e0f2fe,stroke:#0284c7,stroke-width:2px
+    style F3 fill:#e0e7ff,stroke:#4f46e5,stroke-width:2px
+    style F4 fill:#fef3c7,stroke:#d97706,stroke-width:2px
+    style Web fill:#ecfdf5,stroke:#059669,stroke-width:2px
 ```
-┌────────────────────────────────────────────────────────────────────────────────────┐
-│                                   CLIENTS                                           │
-│                    Web Browser │ Mobile App (PWA) │ IoT Devices                     │
-└────────────────────────────────────────┬───────────────────────────────────────────┘
-                                         │ HTTPS
-                                         ▼
-┌────────────────────────────────────────────────────────────────────────────────────┐
-│                              API GATEWAY (NGINX)                                    │
-│                    • TLS Termination • Rate Limiting • CORS                         │
-│                    • Request Routing • Security Headers                             │
-│                                   Port: 80/443                                      │
-└───────┬──────────────┬──────────────┬──────────────┬──────────────┬────────────────┘
-        │              │              │              │              │
-        ▼              ▼              ▼              ▼              ▼
-┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐
-│   Auth    │  │Irrigation │  │Forecasting│  │    ACA-O  │  │    Web    │
-│  Service  │  │  Service  │  │  Service  │  │  Service  │  │ Frontend  │
-│  (8001)   │  │  (8002)   │  │  (8003)   │  │  (8004)   │  │  (8005)   │
-└─────┬─────┘  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘  └───────────┘
-      │              │              │              │
-      ▼              ▼              ▼              ▼
-┌────────────────────────────────────────────────────────────────────────────────────┐
-│                              DATA LAYER                                             │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐             │
-│  │ MongoDB  │  │PostgreSQL│  │InfluxDB  │  │  Redis   │  │Mosquitto │             │
-│  │  (Auth)  │  │(Optim.)  │  │(TimeSer.)│  │ (Cache)  │  │  (MQTT)  │             │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘  └──────────┘             │
-└────────────────────────────────────────────────────────────────────────────────────┘
-                                         │
-                                         ▼
-┌────────────────────────────────────────────────────────────────────────────────────┐
+
+### Service Communication Flow
+
+```mermaid
+flowchart LR
+    F1["F1: Irrigation Service"]
+    F2["F2: Crop Health"]
+    F3["F3: Forecasting"]
+    F4["F4: ACA-O Optimization"]
+
+    %% Flow lines
+    F3 -->|Rainfall forecasts reduce<br/>active irrigation requests| F1
+    F3 -->|P10/P50/P90 water availability<br/>constrain optimization models| F4
+    
+    F2 -->|Zone stress indices<br/>prioritize active field gates| F1
+    F2 -->|Crop suitability penalties<br/>adjust Fuzzy-TOPSIS scores| F4
+    
+    F1 -->|Live remaining water quotas<br/>acts as hard constraint| F4
+
+    style F1 fill:#e0f2fe,stroke:#0284c7,stroke-dasharray: 5 5
+    style F2 fill:#d1fae5,stroke:#059669,stroke-dasharray: 5 5
+    style F3 fill:#e0e7ff,stroke:#4f46e5,stroke-dasharray: 5 5
+    style F4 fill:#fef3c7,stroke:#d97706,stroke-dasharray: 5 5
+```�────────┐
 │                           OBSERVABILITY STACK                                       │
 │              Prometheus (Metrics) │ Grafana (Dashboards) │ Logging                  │
 └────────────────────────────────────────────────────────────────────────────────────┘
@@ -188,6 +208,12 @@ This platform is an end-to-end smart irrigation and crop-planning system designe
 ```
 smart-irrigation-system/
 │
+├── 📂 apps/                             # Monorepo Frontend Applications
+│   │
+│   ├── 📂 marketing-web/                # Premium Next.js portal (timeline, deliverables, about)
+│   ├── 📂 web/                          # Main React dashboard (Vite compiled)
+│   └── 📂 website/                      # Department static details site
+│
 ├── 📂 services/                         # Backend Microservices
 │   │
 │   ├── 📂 gateway_service/              # API Gateway Service
@@ -236,7 +262,7 @@ smart-irrigation-system/
 │       ├── Dockerfile
 │       └── requirements.txt
 │
-├── 📂 web/                              # Frontend Application
+├── 📂 web/                              # Old Frontend Workspace (deprecated)
 │   ├── src/
 │   │   ├── api/                         # API client layer
 │   │   ├── components/                  # Reusable UI components
