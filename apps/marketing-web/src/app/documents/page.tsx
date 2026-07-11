@@ -1,3 +1,5 @@
+"use client";
+
 import { Download, FileText, FileSpreadsheet, FileArchive, CheckCircle, Clock } from "lucide-react";
 import { PageHero } from "@/components/page-hero";
 import { SiteShell } from "@/components/site-shell";

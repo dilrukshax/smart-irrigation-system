@@ -1,3 +1,5 @@
+"use client";
+
 import { Presentation, ScreenShare, Tv, CheckCircle, Clock, ExternalLink } from "lucide-react";
 import { PageHero } from "@/components/page-hero";
 import { SiteShell } from "@/components/site-shell";
