@@ -49,7 +49,9 @@ This platform is an end-to-end smart irrigation and crop-planning system designe
 - ✅ **Field-Level Decisions**: When to irrigate, how much water to apply
 - ✅ **Scheme-Level Planning**: Which crops to grow, hectares per crop under water quota
 - ✅ **Real-Time Alerts**: Drought, flood, and crop stress notifications
-- ✅ **Cross-Service Integration**: Services communicate via REST APIs and shared ## 🏗️ Architecture
+- ✅ **Cross-Service Integration**: Services communicate via REST APIs and shared data stores
+
+## 🏗️ Architecture
 
 ### High-Level System Architecture
 
@@ -69,7 +71,7 @@ graph TD
     Auth -->|User Credentials| Mongo[("MongoDB<br/>(Auth Data)")]
     F1 -->|Telemetry Ingest| Influx[("InfluxDB<br/>(Time-Series Sensor)")]
     F3 -->|Historical Water Levels| Influx
-    F4 -->|Hectare Suitabilities| Postgres[("PostgreSQL<br/>(Optimization)") ]
+    F4 -->|Hectare Suitabilities| Postgres[("PostgreSQL<br/>(Optimization)")]
     
     %% Shared Infrastructure
     F1 & F3 & F4 -->|Session & API Cache| Redis[("Redis Cache")]
@@ -108,33 +110,6 @@ flowchart LR
     style F2 fill:#d1fae5,stroke:#059669,stroke-dasharray: 5 5
     style F3 fill:#e0e7ff,stroke:#4f46e5,stroke-dasharray: 5 5
     style F4 fill:#fef3c7,stroke:#d97706,stroke-dasharray: 5 5
-```�────────┐
-│                           OBSERVABILITY STACK                                       │
-│              Prometheus (Metrics) │ Grafana (Dashboards) │ Logging                  │
-└────────────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Service Communication Flow
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                        CROSS-SERVICE INTEGRATION                                     │
-├─────────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                      │
-│   F1 (Irrigation) ◄──────► F3 (Forecasting)                                         │
-│       │                        │                                                     │
-│       │  • Rainfall forecasts reduce irrigation                                      │
-│       │  • Water level predictions adjust schedules                                  │
-│       │                        │                                                     │
-│       ▼                        ▼                                                     │
-│   F2 (Crop Health) ◄───► F4 (ACA-O)                                                 │
-│                                                                                      │
-│   • Stress detection → Prioritize irrigation (F1↔F2)                                │
-│   • Stress history → Risk scoring adjustment (F2→F4)                                │
-│   • Water availability scenarios → Optimization constraints (F3→F4)                 │
-│   • All services → Dashboard unified view                                            │
-│                                                                                      │
-└─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### API Gateway Route Mapping
