@@ -632,3 +632,62 @@ export const team = [
     focus: "Crop suitability, water budgeting, optimization, Plan B",
   },
 ];
+
+export const problemsOvercome = [
+  {
+    title: "Inefficient Scheduling & High Water Waste",
+    problem: "Traditional flood irrigation is applied on fixed 7-10 day schedules or on manual observation, ignoring weather forecasts and leading to estimated water losses of 35-50%.",
+    solution: "ASICOP uses live soil moisture telemetry and a RandomForestClassifier combined with HistGradientBoosting reservoir release predictions, reducing field-level water waste by 20-35%.",
+    accent: "water"
+  },
+  {
+    title: "Rigid Seasonal Water Quota Allocation",
+    problem: "Sri Lankan command-area schemes allocate top-down water quotas before the season. These quotas are highly rigid and cannot adapt to crop changes or weather fluctuations mid-season.",
+    solution: "The F4 ACA-O service formulates a mathematical PuLP Mixed-Integer programming model that optimizes crop and area allocation under water limits, and offers Plan B re-planning if quotas change mid-season.",
+    accent: "harvest"
+  },
+  {
+    title: "Delayed Field Stress & Disease Alerts",
+    problem: "Agronomists and officers manually survey fields to detect stress and disease. By the time visual symptoms are identified, the damage to crop health is often irreversible.",
+    solution: "F2 integrates 10m Sentinel-2 satellite indices (NDVI/NDWI) for early zone-level stress detection, and a fine-tuned MobileNetV2 leaf image classifier for instant 38-class edge disease diagnosis.",
+    accent: "leaf"
+  },
+  {
+    title: "Market Price Shocks & Price Volatility",
+    problem: "Farmers decide what crops to cultivate based on current prices, leading to crop gluts and severe market price crashes at harvest time.",
+    solution: "F4 runs a LightGBM price predictor trained on 71,737 retail price observations, feeding anticipated farmgate prices into a Fuzzy-TOPSIS scorer to ensure crops are selected for economic viability.",
+    accent: "clay"
+  }
+];
+
+export const technicalDetails = [
+  {
+    name: "F1 - Smart Irrigation",
+    algorithm: "RandomForest & HistGradientBoosting",
+    dataset: "31 Years of Udawalawe Hydrology Data",
+    metric: "0.71 MCM Inflow RMSE",
+    impact: "20-35% water savings vs static scheduler"
+  },
+  {
+    name: "F2 - Crop Health",
+    algorithm: "MobileNetV2 Transfer Learning & Sentinel-2",
+    dataset: "54,306 images (38 plant-disease classes)",
+    metric: "95.43% disease classification accuracy",
+    impact: "Automated vegetation validation & zone stress map"
+  },
+  {
+    name: "F3 - Water Forecasting",
+    algorithm: "ARIMA/SARIMA & LSTM Ensembles",
+    dataset: "1994-2025 Udawalawe level time series",
+    metric: "P10/P50/P90 risk scenarios & alerts",
+    impact: "1-14 day lookahead for reservoir/rainfall"
+  },
+  {
+    name: "F4 - Crop Optimization",
+    algorithm: "Fuzzy-TOPSIS & PuLP MIP Solver",
+    dataset: "71,737 Hector farmgate price records",
+    metric: "Expected profit vs water budget optimization",
+    impact: "Top-3 recommendations & dynamic Plan B updates"
+  }
+];
+
